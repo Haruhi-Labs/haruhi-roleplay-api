@@ -1,0 +1,8 @@
+docs/agent-dev/
+.venv/
+.uv-cache/
+.uv-python/
+__pycache__/
+*.py[cod]
+.env
+.env.*

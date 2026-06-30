@@ -1,0 +1,32 @@
+# Haruhi Roleplay API 文档入口
+
+## 文档定位
+
+本目录用于指导一个个人开发者逐步实现 Roleplay API 中转服务。文档不是一次性大设计，而是按“可人工审核、可本地验证、可逐步扩展”的方式组织。
+
+## 推荐阅读顺序
+
+1. `roadmap.md`
+   先确认项目路线和 MVP 边界。
+
+2. `architecture.md`
+   查看整体架构和模块边界。
+
+3. `api-contract.md`
+   查看对外 API 契约。
+
+4. `usage/frontend-integration.md`
+   前端接入从这里开始。
+
+5. `usage/interface-reference.md`
+   查看更完整的接口字段说明。
+
+6. `devlog.md`
+   查看开发记录。
+
+## 目录说明
+
+| 目录     | 用途                 | 是否直接作为实现任务  |
+| -------- | -------------------- | --------------------- |
+| `guide/` | 长期设计规范         | 否，作为 review 标准  |
+| `usage/` | 前后端接入和接口说明 | 否，作为 API 使用参考 |
