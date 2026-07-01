@@ -13,6 +13,15 @@ from haruhi_roleplay_api.domain.chat import (
     SessionId,
     UserId,
 )
+from haruhi_roleplay_api.domain.persona import (
+    CharacterProfile,
+    IdentityConfig,
+    KnowledgeBoundary,
+    PersonaPreset,
+    ToneConfig,
+    Visibility,
+    public_persona_presets,
+)
 
 __all__ = [
     "AppId",
@@ -22,9 +31,14 @@ __all__ = [
     "ChatOutput",
     "DTOValidationError",
     "GenerationConfig",
+    "IdentityConfig",
+    "KnowledgeBoundary",
     "PersonaModeId",
+    "PersonaPreset",
     "RequestId",
     "SessionId",
+    "ToneConfig",
     "UserId",
+    "Visibility",
+    "public_persona_presets",
 ]
-

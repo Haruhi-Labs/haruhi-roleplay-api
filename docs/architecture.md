@@ -44,6 +44,8 @@
 | MemoryStore | 长期记忆存取 |
 | SafetyGuard | 输入、输出和越界检查 |
 
+角色字段的含义见 `character-schema.md`。其中 `ToneConfig`、`IdentityConfig`、`KnowledgeBoundary` 会被 Orchestrator 读取，并由 PromptBuilder 融合进模型上下文。
+
 ## Prompt 融合点
 
 RAG、memory、session 不直接调用模型。它们先由 Orchestrator 读取，再交给 PromptBuilder 统一融合。

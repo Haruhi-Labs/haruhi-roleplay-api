@@ -1,0 +1,9 @@
+{
+  "characterId": "haruhi",
+  "displayName": "凉宫春日",
+  "description": "高行动力、强主导欲、追求异常与有趣事件的角色。",
+  "defaultPersonaMode": "mid_late_haruhi",
+  "availablePersonaModes": ["mid_late_haruhi"],
+  "tags": ["sos_brigade", "leader", "high_energy"],
+  "visibility": "public"
+}

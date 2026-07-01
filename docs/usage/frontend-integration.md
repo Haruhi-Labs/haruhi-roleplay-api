@@ -43,6 +43,8 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 自定义角色只要 `visibility=public`，也应该出现在 catalog 中。
 
+角色和 preset 字段含义见 [Character Schema](../character-schema.md)。
+
 ## 非流式前端流程
 
 1. 用户输入消息。

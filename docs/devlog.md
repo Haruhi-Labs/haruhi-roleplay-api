@@ -26,3 +26,21 @@
 
 - 从 Chat DTO 契约开始实现最小 API 骨架。
 - 优先完成 `GET /v1/personas` 和 FakeModel 版 `POST /v1/chat`。
+
+## 2026-07-01：Persona Catalog Schema
+
+### 完成
+
+- 添加了 `CharacterProfile`、`PersonaPreset`、`ToneConfig`、`KnowledgeBoundary`。
+- 添加了本地 JSON persona 示例配置，覆盖 `haruhi` 和 `kyon`。
+- 增加了 draft preset 过滤辅助函数。
+- 补充 `docs/character-schema.md`，说明角色、preset、tone、knowledge boundary 和 policy 字段含义。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 `GET /v1/personas`，读取公开角色和 preset catalog。
