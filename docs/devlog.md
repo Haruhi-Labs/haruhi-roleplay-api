@@ -101,3 +101,22 @@
 ### 下一步
 
 - 继续实现 FakeModelProvider。
+
+## 2026-07-02：FakeModelProvider
+
+### 完成
+
+- 添加 `ModelMessage`、`ModelRequest`、`ModelResponse` 和 `ModelUsage`。
+- 添加 `ChatModelProvider` port。
+- 添加 `FakeModelProvider`。
+- 添加最小 `ModelRouter`，支持 fake provider 和模型别名选择。
+- 支持 fake usage 统计和 debug trace 中的 `modelProvider=fake`。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现最小 `POST /v1/chat`，串联 ChatInput、PersonaRepository、PromptBuilder、ModelRouter 和 FakeModelProvider。
