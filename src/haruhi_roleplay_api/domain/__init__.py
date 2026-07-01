@@ -22,6 +22,11 @@ from haruhi_roleplay_api.domain.persona import (
     Visibility,
     public_persona_presets,
 )
+from haruhi_roleplay_api.domain.prompt import (
+    PromptBuildInput,
+    PromptBuildOutput,
+    PromptMessage,
+)
 
 __all__ = [
     "AppId",
@@ -36,6 +41,9 @@ __all__ = [
     "KnowledgeBoundary",
     "PersonaModeId",
     "PersonaPreset",
+    "PromptBuildInput",
+    "PromptBuildOutput",
+    "PromptMessage",
     "RequestId",
     "SessionId",
     "ToneConfig",

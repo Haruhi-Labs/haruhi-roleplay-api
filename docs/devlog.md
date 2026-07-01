@@ -63,3 +63,41 @@
 ### 下一步
 
 - 实现 PromptBuilder v1，为 `POST /v1/chat` 准备 prompt 输入。
+
+## 2026-07-01：PromptBuilder v1
+
+### 完成
+
+- 添加 `PromptBuildInput`、`PromptBuildOutput` 和 `PromptMessage`。
+- 添加 `PromptBuilder` port。
+- 添加默认 `PersonaPromptBuilder`。
+- 组装基础安全边界、角色设定、时间线知识边界、输出规则和当前用户消息。
+- 保持 RAG、memory、session 不参与 v1 prompt 构建。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 FakeModelProvider，让 PromptBuilder 输出可以进入最小 chat 流程。
+
+## 2026-07-01：Layered Architecture Docs
+
+### 完成
+
+- 添加 `docs/layered-architecture.md`。
+- 说明 `domain`、`application`、`ports`、`adapters`、`api`、`infrastructure` 的含义。
+- 补充开发新功能时的推荐落层顺序和测试方式。
+- 在 `docs/README.md` 和 `docs/architecture.md` 中加入入口。
+
+### 验证
+
+- `rg -n "layered-architecture|Layered Architecture|domain|application|ports|adapters|infrastructure|如何加入开发|判断代码应该放哪一层" docs\README.md docs\architecture.md docs\layered-architecture.md docs\devlog.md` 通过。
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 继续实现 FakeModelProvider。
