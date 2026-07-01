@@ -39,8 +39,27 @@
 ### 验证
 
 - `uv run python -m unittest discover -s tests` 通过。
-- `uv run python -m compileall -q src tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
 
 ### 下一步
 
 - 实现 `GET /v1/personas`，读取公开角色和 preset catalog。
+
+## 2026-07-01：Personas Catalog API
+
+### 完成
+
+- 添加 `PersonaRepository` port。
+- 添加本地 JSON persona repository。
+- 添加 `ListPublicPersonas` use case。
+- 添加框架无关的 `get_personas` API handler。
+- 返回公开角色和公开 preset，过滤 `draft` / `private` preset。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 PromptBuilder v1，为 `POST /v1/chat` 准备 prompt 输入。

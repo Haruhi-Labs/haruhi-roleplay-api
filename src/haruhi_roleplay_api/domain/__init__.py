@@ -26,6 +26,7 @@ from haruhi_roleplay_api.domain.persona import (
 __all__ = [
     "AppId",
     "CapabilityConfig",
+    "CharacterProfile",
     "CharacterId",
     "ChatInput",
     "ChatOutput",
