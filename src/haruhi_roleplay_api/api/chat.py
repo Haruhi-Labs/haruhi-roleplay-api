@@ -23,6 +23,7 @@ from haruhi_roleplay_api.ports import (
     ChatModelRouter,
     PersonaRepository,
     PromptBuilder,
+    SessionStore,
 )
 
 
@@ -33,6 +34,7 @@ def post_chat(
     prompt_builder: PromptBuilder,
     model_router: ChatModelRouter,
     request_id: RequestId | str,
+    session_store: SessionStore | None = None,
     include_error_details: bool = False,
 ) -> ApiResponse:
     effective_request_id = _effective_request_id(body, request_id)
@@ -45,6 +47,7 @@ def post_chat(
                 persona_repository=persona_repository,
                 prompt_builder=prompt_builder,
                 model_router=model_router,
+                session_store=session_store,
             )
         ).execute(chat_input)
     except Exception as exc:

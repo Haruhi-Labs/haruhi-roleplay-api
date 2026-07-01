@@ -27,6 +27,12 @@ from haruhi_roleplay_api.domain.prompt import (
     PromptBuildOutput,
     PromptMessage,
 )
+from haruhi_roleplay_api.domain.session import (
+    MessageId,
+    Session,
+    SessionMessage,
+    SessionStatus,
+)
 from haruhi_roleplay_api.domain.model import (
     ModelMessage,
     ModelRequest,
@@ -46,6 +52,7 @@ __all__ = [
     "GenerationConfig",
     "IdentityConfig",
     "KnowledgeBoundary",
+    "MessageId",
     "ModelMessage",
     "ModelRequest",
     "ModelResponse",
@@ -56,7 +63,10 @@ __all__ = [
     "PromptBuildOutput",
     "PromptMessage",
     "RequestId",
+    "Session",
     "SessionId",
+    "SessionMessage",
+    "SessionStatus",
     "ToneConfig",
     "UserId",
     "Visibility",

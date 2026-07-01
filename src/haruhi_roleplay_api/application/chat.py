@@ -9,10 +9,16 @@ from haruhi_roleplay_api.domain import (
     DTOValidationError,
     PromptBuildInput,
     RequestId,
+    Session,
     Visibility,
     model_messages_from_prompt,
 )
-from haruhi_roleplay_api.ports import ChatModelRouter, PersonaRepository, PromptBuilder
+from haruhi_roleplay_api.ports import (
+    ChatModelRouter,
+    PersonaRepository,
+    PromptBuilder,
+    SessionStore,
+)
 
 
 class SendChatMessageUseCase:
@@ -30,10 +36,14 @@ class RoleplayOrchestrator:
         persona_repository: PersonaRepository,
         prompt_builder: PromptBuilder,
         model_router: ChatModelRouter,
+        session_store: SessionStore | None = None,
+        recent_message_limit: int = 12,
     ) -> None:
         self._persona_repository = persona_repository
         self._prompt_builder = prompt_builder
         self._model_router = model_router
+        self._session_store = session_store
+        self._recent_message_limit = recent_message_limit
 
     def run(self, chat_input: ChatInput) -> ChatOutput:
         _ensure_v1_capabilities(chat_input)
@@ -45,6 +55,8 @@ class RoleplayOrchestrator:
             self._persona_repository,
             chat_input,
         )
+        session = self._session_for_chat(chat_input)
+        recent_messages = self._recent_messages(chat_input)
         prompt_output = self._prompt_builder.build(
             PromptBuildInput(
                 character=character,
@@ -52,18 +64,22 @@ class RoleplayOrchestrator:
                 userMessage=chat_input.message,
                 capabilities=chat_input.capabilities,
                 generation=chat_input.generation,
+                recentMessages=recent_messages,
             )
         )
         model_response = self._model_router.generate(
             model_messages_from_prompt(prompt_output.messages),
             chat_input.generation,
         )
+        if session is not None:
+            self._write_session_messages(chat_input, model_response.reply)
 
         return ChatOutput(
             requestId=RequestId(str(chat_input.requestId)),
             characterId=chat_input.characterId,
             personaMode=chat_input.personaMode,
             reply=model_response.reply,
+            sessionId=chat_input.sessionId if session is not None else None,
             usage={
                 **model_response.usage.to_mapping(),
                 "provider": model_response.provider,
@@ -78,14 +94,46 @@ class RoleplayOrchestrator:
             debug=model_response.debug if chat_input.capabilities.debugTrace else None,
         )
 
+    def _session_for_chat(self, chat_input: ChatInput) -> Session | None:
+        if not chat_input.capabilities.continuousSession:
+            return None
+        if self._session_store is None:
+            raise DTOValidationError("sessionStore is required for continuous session")
+        if chat_input.sessionId is None:
+            raise DTOValidationError("sessionId is required for continuous session")
+
+        session = self._session_store.get_session(chat_input.sessionId)
+        _ensure_session_scope(session, chat_input)
+        return session
+
+    def _recent_messages(self, chat_input: ChatInput):
+        if not chat_input.capabilities.continuousSession:
+            return ()
+        if self._session_store is None or chat_input.sessionId is None:
+            return ()
+        return self._session_store.recent_messages(
+            chat_input.sessionId,
+            limit=self._recent_message_limit,
+        )
+
+    def _write_session_messages(self, chat_input: ChatInput, reply: str) -> None:
+        if self._session_store is None or chat_input.sessionId is None:
+            return
+        self._session_store.append_message(
+            session_id=chat_input.sessionId,
+            role="user",
+            content=chat_input.message,
+        )
+        self._session_store.append_message(
+            session_id=chat_input.sessionId,
+            role="assistant",
+            content=reply,
+        )
+
 
 def _ensure_v1_capabilities(chat_input: ChatInput) -> None:
     if chat_input.capabilities.stream:
         raise DTOValidationError("capabilities.stream is not supported by /v1/chat")
-    if chat_input.capabilities.continuousSession:
-        raise DTOValidationError(
-            "capabilities.continuousSession is not supported by chat v1"
-        )
     if chat_input.capabilities.rag:
         raise DTOValidationError("capabilities.rag is not supported by chat v1")
     if chat_input.capabilities.memory:
@@ -118,3 +166,21 @@ def _find_public_persona(
         code=ErrorCode.PERSONA_MODE_NOT_FOUND,
         message=f"Persona preset was not found: {chat_input.personaMode}",
     )
+
+
+def _ensure_session_scope(session: Session, chat_input: ChatInput) -> None:
+    if (
+        session.appId != chat_input.appId
+        or session.userId != chat_input.userId
+        or session.characterId != chat_input.characterId
+        or session.personaMode != chat_input.personaMode
+    ):
+        raise AppError(
+            code=ErrorCode.SESSION_NOT_FOUND,
+            message="Session was not found.",
+        )
+    if session.status.value != "active":
+        raise AppError(
+            code=ErrorCode.SESSION_EXPIRED,
+            message="Session is not active.",
+        )

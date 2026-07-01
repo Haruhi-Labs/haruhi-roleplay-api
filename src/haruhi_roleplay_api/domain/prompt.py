@@ -10,6 +10,7 @@ from haruhi_roleplay_api.domain.chat import (
     GenerationConfig,
 )
 from haruhi_roleplay_api.domain.persona import CharacterProfile, PersonaPreset
+from haruhi_roleplay_api.domain.session import SessionMessage
 
 
 def _require_non_empty(value: str | None, field_name: str) -> str:
@@ -46,6 +47,7 @@ class PromptBuildInput:
     userMessage: str
     capabilities: CapabilityConfig = field(default_factory=CapabilityConfig)
     generation: GenerationConfig = field(default_factory=GenerationConfig)
+    recentMessages: tuple[SessionMessage, ...] = ()
 
     def __post_init__(self) -> None:
         if self.character.characterId != self.persona.characterId:
@@ -57,6 +59,9 @@ class PromptBuildInput:
             raise DTOValidationError("capabilities must be CapabilityConfig")
         if not isinstance(self.generation, GenerationConfig):
             raise DTOValidationError("generation must be GenerationConfig")
+        for message in self.recentMessages:
+            if not isinstance(message, SessionMessage):
+                raise DTOValidationError("recentMessages must contain SessionMessage")
 
 
 @dataclass(frozen=True, kw_only=True)

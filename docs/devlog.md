@@ -159,3 +159,23 @@
 ### 下一步
 
 - 添加最小运行入口或 provider pack wiring，让本地启动时自动装配 persona、prompt 和 model provider。
+
+## 2026-07-02：Continuous Session v1
+
+### 完成
+
+- 添加 `Session` 和 `SessionMessage`。
+- 添加 `SessionStore` port。
+- 添加 `InMemorySessionStore`。
+- 添加框架无关的 `post_session` API handler。
+- Chat 开启 `continuous_session=true` 时读取最近消息，并在回复后写入 user / assistant 消息。
+- PromptBuilder 接收 Orchestrator 提供的 recent messages。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 `03.03 Debug Trace v1`，记录请求阶段、provider、capability 开关和耗时摘要。
