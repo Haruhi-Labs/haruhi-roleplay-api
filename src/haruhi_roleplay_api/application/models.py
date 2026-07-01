@@ -65,5 +65,6 @@ class ModelRouter:
             ModelRequest(
                 messages=messages,
                 model=decision.model,
+                generation=generation,
             )
         )

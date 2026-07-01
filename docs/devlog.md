@@ -140,3 +140,22 @@
 ### 下一步
 
 - 实现 Local Model Provider，在不改 Orchestrator 的前提下替换 FakeModelProvider。
+
+## 2026-07-02：Local Model Provider
+
+### 完成
+
+- 添加 OpenAI-compatible 本地模型 provider。
+- 添加模型 provider 配置和 `build_model_router` 工厂。
+- 支持通过 `MODEL_PROVIDER=fake|local|openai_compatible` 切换模型实现。
+- 支持 `MODEL_BASE_URL`、`MODEL_NAME`、`MODEL_TIMEOUT_MS` 和可选 `MODEL_API_KEY`。
+- 将本地 provider 请求失败和响应格式错误转换为统一 `AppError`。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 添加最小运行入口或 provider pack wiring，让本地启动时自动装配 persona、prompt 和 model provider。

@@ -170,10 +170,11 @@ Provider Pack 是一组后端实现绑定。
 
 | 配置 | 示例 | 说明 |
 | --- | --- | --- |
-| MODEL_PROVIDER | ollama | 模型 provider |
-| MODEL_BASE_URL | http://localhost:11434 | 模型服务地址 |
+| MODEL_PROVIDER | local | 模型 provider，当前支持 `fake`、`local`、`openai_compatible` |
+| MODEL_BASE_URL | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址 |
 | MODEL_NAME | qwen3:8b | 默认模型 |
 | MODEL_TIMEOUT_MS | 60000 | 模型超时 |
+| MODEL_API_KEY | 可选 | OpenAI-compatible API Key，本地无鉴权服务可不设置 |
 
 ### Cloud
 
@@ -340,7 +341,9 @@ Memory 调度需要避免污染：
 | RAG_PROVIDER | local |
 | VECTOR_PROVIDER | local |
 | EMBEDDING_PROVIDER | local |
-| MODEL_PROVIDER | ollama |
+| MODEL_PROVIDER | local |
+| MODEL_BASE_URL | http://localhost:11434/v1 |
+| MODEL_NAME | qwen3:8b |
 | ENABLE_DEBUG_TRACE | true |
 | ENABLE_SAFETY_FILTER | true |
 

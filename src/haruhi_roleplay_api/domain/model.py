@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
-from haruhi_roleplay_api.domain.chat import DTOValidationError
+from haruhi_roleplay_api.domain.chat import DTOValidationError, GenerationConfig
 from haruhi_roleplay_api.domain.prompt import PromptMessage
 
 
@@ -42,11 +42,17 @@ class ModelMessage:
 class ModelRequest:
     messages: tuple[ModelMessage, ...]
     model: str
+    generation: GenerationConfig | None = None
 
     def __post_init__(self) -> None:
         if not self.messages:
             raise DTOValidationError("model request messages must not be empty")
         _require_non_empty(self.model, "model")
+        if self.generation is not None and not isinstance(
+            self.generation,
+            GenerationConfig,
+        ):
+            raise DTOValidationError("generation must be GenerationConfig")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -92,4 +98,3 @@ def model_messages_from_prompt(
     messages: Iterable[PromptMessage],
 ) -> tuple[ModelMessage, ...]:
     return tuple(ModelMessage.from_prompt_message(message) for message in messages)
-
