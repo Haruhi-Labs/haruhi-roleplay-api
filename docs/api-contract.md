@@ -40,6 +40,8 @@
 | capabilities | 是 | 能力开关 |
 | generation | 否 | 生成参数 |
 
+当 `capabilities.continuous_session=true` 时，`session_id` 必须来自 `POST /v1/sessions` 创建的 active session，并且与当前 `app_id`、`user_id`、`character_id`、`persona_mode` 匹配。
+
 响应字段：
 
 | 字段 | 说明 |

@@ -30,6 +30,8 @@
 | adapters | provider 的具体实现 |
 | infrastructure | 配置、依赖注入、启动 |
 
+更完整的分层含义、依赖方向和开发加入方式见 `layered-architecture.md`。
+
 ## 核心模块
 
 | 模块 | 职责 |

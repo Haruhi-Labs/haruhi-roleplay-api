@@ -39,8 +39,143 @@
 ### 验证
 
 - `uv run python -m unittest discover -s tests` 通过。
-- `uv run python -m compileall -q src tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
 
 ### 下一步
 
 - 实现 `GET /v1/personas`，读取公开角色和 preset catalog。
+
+## 2026-07-01：Personas Catalog API
+
+### 完成
+
+- 添加 `PersonaRepository` port。
+- 添加本地 JSON persona repository。
+- 添加 `ListPublicPersonas` use case。
+- 添加框架无关的 `get_personas` API handler。
+- 返回公开角色和公开 preset，过滤 `draft` / `private` preset。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 PromptBuilder v1，为 `POST /v1/chat` 准备 prompt 输入。
+
+## 2026-07-01：PromptBuilder v1
+
+### 完成
+
+- 添加 `PromptBuildInput`、`PromptBuildOutput` 和 `PromptMessage`。
+- 添加 `PromptBuilder` port。
+- 添加默认 `PersonaPromptBuilder`。
+- 组装基础安全边界、角色设定、时间线知识边界、输出规则和当前用户消息。
+- 保持 RAG、memory、session 不参与 v1 prompt 构建。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 FakeModelProvider，让 PromptBuilder 输出可以进入最小 chat 流程。
+
+## 2026-07-01：Layered Architecture Docs
+
+### 完成
+
+- 添加 `docs/layered-architecture.md`。
+- 说明 `domain`、`application`、`ports`、`adapters`、`api`、`infrastructure` 的含义。
+- 补充开发新功能时的推荐落层顺序和测试方式。
+- 在 `docs/README.md` 和 `docs/architecture.md` 中加入入口。
+
+### 验证
+
+- `rg -n "layered-architecture|Layered Architecture|domain|application|ports|adapters|infrastructure|如何加入开发|判断代码应该放哪一层" docs\README.md docs\architecture.md docs\layered-architecture.md docs\devlog.md` 通过。
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 继续实现 FakeModelProvider。
+
+## 2026-07-02：FakeModelProvider
+
+### 完成
+
+- 添加 `ModelMessage`、`ModelRequest`、`ModelResponse` 和 `ModelUsage`。
+- 添加 `ChatModelProvider` port。
+- 添加 `FakeModelProvider`。
+- 添加最小 `ModelRouter`，支持 fake provider 和模型别名选择。
+- 支持 fake usage 统计和 debug trace 中的 `modelProvider=fake`。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现最小 `POST /v1/chat`，串联 ChatInput、PersonaRepository、PromptBuilder、ModelRouter 和 FakeModelProvider。
+
+## 2026-07-02：Chat API v1
+
+### 完成
+
+- 添加 `SendChatMessageUseCase`。
+- 添加最小 `RoleplayOrchestrator`。
+- 添加框架无关的 `post_chat` API handler。
+- 支持 `snake_case` API body 到内部 `camelCase` DTO 的映射。
+- 串联 PersonaRepository、PromptBuilder、ModelRouter 和 FakeModelProvider。
+- 非法角色和非法 preset 会返回统一错误响应。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 Local Model Provider，在不改 Orchestrator 的前提下替换 FakeModelProvider。
+
+## 2026-07-02：Local Model Provider
+
+### 完成
+
+- 添加 OpenAI-compatible 本地模型 provider。
+- 添加模型 provider 配置和 `build_model_router` 工厂。
+- 支持通过 `MODEL_PROVIDER=fake|local|openai_compatible` 切换模型实现。
+- 支持 `MODEL_BASE_URL`、`MODEL_NAME`、`MODEL_TIMEOUT_MS` 和可选 `MODEL_API_KEY`。
+- 将本地 provider 请求失败和响应格式错误转换为统一 `AppError`。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 添加最小运行入口或 provider pack wiring，让本地启动时自动装配 persona、prompt 和 model provider。
+
+## 2026-07-02：Continuous Session v1
+
+### 完成
+
+- 添加 `Session` 和 `SessionMessage`。
+- 添加 `SessionStore` port。
+- 添加 `InMemorySessionStore`。
+- 添加框架无关的 `post_session` API handler。
+- Chat 开启 `continuous_session=true` 时读取最近消息，并在回复后写入 user / assistant 消息。
+- PromptBuilder 接收 Orchestrator 提供的 recent messages。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 `03.03 Debug Trace v1`，记录请求阶段、provider、capability 开关和耗时摘要。

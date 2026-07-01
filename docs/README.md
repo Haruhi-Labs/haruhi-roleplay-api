@@ -12,19 +12,22 @@
 2. `architecture.md`
    查看整体架构和模块边界。
 
-3. `character-schema.md`
+3. `layered-architecture.md`
+   查看 `domain`、`application`、`ports`、`adapters`、`api` 等分层含义和开发加入方式。
+
+4. `character-schema.md`
    查看角色、preset、`ToneConfig`、知识边界和可见性字段说明。
 
-4. `api-contract.md`
+5. `api-contract.md`
    查看对外 API 契约。
 
-5. `usage/frontend-integration.md`
+6. `usage/frontend-integration.md`
    前端接入从这里开始。
 
-6. `usage/interface-reference.md`
+7. `usage/interface-reference.md`
    查看更完整的接口字段说明。
 
-7. `devlog.md`
+8. `devlog.md`
    查看开发记录。
 
 ## 目录说明
