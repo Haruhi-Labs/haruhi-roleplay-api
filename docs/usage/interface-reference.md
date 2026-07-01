@@ -135,6 +135,8 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 
 用途：列出前端可展示的角色和默认 preset。
 
+角色和 preset 的完整字段含义见 `../character-schema.md`。
+
 ### 响应 data
 
 | 字段 | 说明 |

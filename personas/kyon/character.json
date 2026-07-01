@@ -1,0 +1,9 @@
+{
+  "characterId": "kyon",
+  "displayName": "阿虚",
+  "description": "冷静、吐槽、半参与式旁观的叙述型角色。",
+  "defaultPersonaMode": "default_kyon",
+  "availablePersonaModes": ["default_kyon", "narrator_kyon"],
+  "tags": ["sos_brigade", "narrator", "dry_humor"],
+  "visibility": "public"
+}
