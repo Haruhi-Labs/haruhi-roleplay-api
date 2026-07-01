@@ -120,3 +120,23 @@
 ### 下一步
 
 - 实现最小 `POST /v1/chat`，串联 ChatInput、PersonaRepository、PromptBuilder、ModelRouter 和 FakeModelProvider。
+
+## 2026-07-02：Chat API v1
+
+### 完成
+
+- 添加 `SendChatMessageUseCase`。
+- 添加最小 `RoleplayOrchestrator`。
+- 添加框架无关的 `post_chat` API handler。
+- 支持 `snake_case` API body 到内部 `camelCase` DTO 的映射。
+- 串联 PersonaRepository、PromptBuilder、ModelRouter 和 FakeModelProvider。
+- 非法角色和非法 preset 会返回统一错误响应。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 Local Model Provider，在不改 Orchestrator 的前提下替换 FakeModelProvider。

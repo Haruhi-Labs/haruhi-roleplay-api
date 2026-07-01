@@ -46,10 +46,12 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | --- | --- | --- |
 | rag | boolean | 是否启用 RAG |
 | memory | boolean | 是否启用长期记忆 |
-| continuousSession | boolean | 是否启用连续会话 |
-| safetyFilter | boolean | 是否启用安全检查 |
-| debugTrace | boolean | 是否返回调试信息 |
+| continuous_session | boolean | 是否启用连续会话 |
+| safety_filter | boolean | 是否启用安全检查 |
+| debug_trace | boolean | 是否返回调试信息 |
 | stream | boolean | 非流式接口通常为 false |
+
+当前最小 `/v1/chat` 实现只支持非流式请求，且 `rag`、`memory`、`continuous_session`、`stream` 必须为 false。
 
 ### generation
 
@@ -57,12 +59,12 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | --- | --- | --- |
 | model | string | 模型别名 |
 | temperature | number | 随机性 |
-| maxTokens | number | 最大输出 token |
-| topP | number | nucleus sampling 参数 |
-| presencePenalty | number | 话题重复惩罚 |
-| frequencyPenalty | number | 词频重复惩罚 |
-| styleIntensity | number | 角色演绎强度，0 到 1 |
-| allowNarration | boolean | 是否允许旁白 |
+| max_tokens | number | 最大输出 token |
+| top_p | number | nucleus sampling 参数 |
+| presence_penalty | number | 话题重复惩罚 |
+| frequency_penalty | number | 词频重复惩罚 |
+| style_intensity | number | 角色演绎强度，0 到 1 |
+| allow_narration | boolean | 是否允许旁白 |
 
 ### 响应 data
 
