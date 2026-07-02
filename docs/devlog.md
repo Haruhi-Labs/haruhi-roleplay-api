@@ -179,3 +179,142 @@
 ### 下一步
 
 - 实现 `03.03 Debug Trace v1`，记录请求阶段、provider、capability 开关和耗时摘要。
+
+## 2026-07-02：Debug Trace v1
+
+### 完成
+
+- 添加 `DebugTrace` 领域结构。
+- Chat Orchestrator 返回安全裁剪后的 debug 摘要。
+- 支持服务端通过 `debug_trace_enabled=false` 禁用 debug 返回。
+- debug 显示 persona、model、capability、session 读取数量、请求阶段和耗时。
+- 裁剪 provider debug 中的 prompt、secret、连接串等敏感字段。
+- 错误路径记录带 `request_id` 和错误码的安全日志。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 `04.01 RAG Metadata Validation`，先定义 RAG 文档 metadata 的最小校验边界。
+
+## 2026-07-02：RAG Metadata Validation
+
+### 完成
+
+- 添加 `RagDocumentMetadata`、`RagIngestInput` 和 `RagIngestResult`。
+- 添加 `ValidateRagDocumentMetadata` 用例，校验 RAG metadata 不越过 persona policy。
+- 添加框架无关的 `post_rag_document` API handler。
+- 支持校验 `characterId`、`timeline`、`spoilerLevel`、`language`、`sourceType`。
+- 当前只返回 `validated`，不切 chunk、不写 vector index、不调用 embedding。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 `04.02 Fake RAG Retrieve`，用固定 chunks 验证 RAG 开关、filter 和 PromptBuilder 融合。
+
+## 2026-07-02：Fake RAG Retrieve
+
+### 完成
+
+- 添加 `RagService` port。
+- 添加 `RagRetrieveInput`、`RagRetrieveFilters`、`RagChunk` 和 `RagRetrieveOutput`。
+- 添加 `FakeRagService`，用固定 chunks 验证 metadata filter。
+- Chat Orchestrator 在 `rag=true` 时调用 RagService，并把 chunks 交给 PromptBuilder。
+- PromptBuilder 支持插入 RAG chunk 摘要段。
+- ChatOutput 返回 RAG provider、hit count 和 source 摘要。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 `04.03 Local RAG v1`，在本地 provider 中接入真实文档、chunk 和检索。
+
+## 2026-07-02：Local RAG v1
+
+### 完成
+
+- 添加 `RagIngestService` port。
+- 添加 `LocalRagService`，支持本地文档导入、文本 chunk 和简单检索。
+- `POST /v1/rag/documents` 支持注入本地 ingest provider 后写入 chunks。
+- Chat RAG 分支可直接使用 `LocalRagService` 返回 source 摘要。
+- 本地检索按 character、timeline、spoilerLevel、language 和 sourceType 过滤。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 进入 Memory 模块，继续实现 `05.01 Memory CRUD`。
+
+## 2026-07-02：Memory CRUD
+
+### 完成
+
+- 添加 `MemoryItem`、`MemoryType`、`MemoryQuery` 和 `MemoryDeleteCommand`。
+- 添加 `MemoryStore` port。
+- 添加 `InMemoryMemoryStore`，支持按 app、user、character、persona 精确隔离查询。
+- 添加框架无关的 `GET /v1/memory/{user_id}` 和 `DELETE /v1/memory/{user_id}/{memory_id}` handler。
+- 删除不存在或上下文不匹配的记忆时返回 `MEMORY_NOT_FOUND`，避免泄漏其它上下文。
+- 当前只做手动查询和删除，不接入 `/v1/chat`，也不做自动写入。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+
+### 下一步
+
+- 实现 `05.02 Memory Read Policy`，在 chat 编排中按策略读取有限记忆。
+
+## 2026-07-02：Memory Read Policy
+
+### 完成
+
+- 添加 `MemoryReadPolicyInput`。
+- 添加 `MemoryPolicyEngine` port 和 `DefaultMemoryPolicyEngine`。
+- Chat 在 `capabilities.memory=true` 时通过 MemoryStore 读取有限记忆。
+- Memory 查询按 app、user、character、persona、persona allowedTypes 和服务端 limit 过滤。
+- PromptBuilder 增加“长期记忆摘要”段，包含 type、confidence 和 content。
+- ChatOutput 返回 `memory.enabled` 和 `memory.read_count`。
+- Debug trace 返回 `memoryEnabled` 和 `memoryReadCount`。
+- 当前仍不自动写入新记忆。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+
+### 下一步
+
+- 实现 `05.03 Memory Write Policy`，为自动写入记忆增加明确策略和测试。
+
+## 2026-07-02：Memory Write Policy
+
+### 完成
+
+- 添加 `MemoryWriteCandidate`、`MemoryWritePolicyInput` 和 `MemoryWriteCommand`。
+- `MemoryStore` 增加 `add_memory`。
+- `InMemoryMemoryStore` 支持写入 policy-approved memory，并保存 reason。
+- `DefaultMemoryPolicyEngine` 增加 `should_write`。
+- Chat 在模型回复完成后读取 `metadata.memory_write` 显式候选，经过策略后写入。
+- ChatOutput 返回 `memory.write_count`。
+- Debug trace 返回 `memoryWriteCount`。
+- 默认策略拒绝临时闲聊、敏感信息、低置信度和 persona 不允许的类型。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+
+### 下一步
+
+- 进入 `06.01 Stream Chat` 或先补充更完整的 memory 持久化 adapter。

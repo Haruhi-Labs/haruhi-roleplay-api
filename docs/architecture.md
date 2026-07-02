@@ -21,30 +21,30 @@
 
 ## 分层
 
-| 层 | 职责 |
-| --- | --- |
-| api | HTTP / Stream 入口，做参数校验和响应映射 |
-| application | Use case 和 Orchestrator |
-| domain | DTO、实体、值对象和策略名词 |
-| ports | 外部能力接口 |
-| adapters | provider 的具体实现 |
-| infrastructure | 配置、依赖注入、启动 |
+| 层             | 职责                                     |
+| -------------- | ---------------------------------------- |
+| api            | HTTP / Stream 入口，做参数校验和响应映射 |
+| application    | Use case 和 Orchestrator                 |
+| domain         | DTO、实体、值对象和策略名词              |
+| ports          | 外部能力接口                             |
+| adapters       | provider 的具体实现                      |
+| infrastructure | 配置、依赖注入、启动                     |
 
 更完整的分层含义、依赖方向和开发加入方式见 `layered-architecture.md`。
 
 ## 核心模块
 
-| 模块 | 职责 |
-| --- | --- |
-| PersonaRepository | 读取 `CharacterProfile` 和 `PersonaPreset` |
+| 模块                 | 职责                                              |
+| -------------------- | ------------------------------------------------- |
+| PersonaRepository    | 读取 `CharacterProfile` 和 `PersonaPreset`        |
 | RoleplayOrchestrator | 编排 persona、session、RAG、memory、prompt、model |
-| PromptBuilder | 把已准备好的上下文组装成模型 messages |
-| ModelRouter | 根据配置选择模型 provider |
-| ChatModelProvider | 调用具体模型 |
-| SessionStore | 管理连续会话 |
-| RagService | 文档接入和检索 |
-| MemoryStore | 长期记忆存取 |
-| SafetyGuard | 输入、输出和越界检查 |
+| PromptBuilder        | 把已准备好的上下文组装成模型 messages             |
+| ModelRouter          | 根据配置选择模型 provider                         |
+| ChatModelProvider    | 调用具体模型                                      |
+| SessionStore         | 管理连续会话                                      |
+| RagService           | 文档接入和检索                                    |
+| MemoryStore          | 长期记忆存取                                      |
+| SafetyGuard          | 输入、输出和越界检查                              |
 
 角色字段的含义见 `character-schema.md`。其中 `ToneConfig`、`IdentityConfig`、`KnowledgeBoundary` 会被 Orchestrator 读取，并由 PromptBuilder 融合进模型上下文。
 

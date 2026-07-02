@@ -24,6 +24,7 @@ class ErrorCode(StrEnum):
     MODEL_PROVIDER_ERROR = "MODEL_PROVIDER_ERROR"
     MODEL_TIMEOUT = "MODEL_TIMEOUT"
     MODEL_RATE_LIMIT = "MODEL_RATE_LIMIT"
+    MEMORY_NOT_FOUND = "MEMORY_NOT_FOUND"
     MEMORY_ACCESS_DENIED = "MEMORY_ACCESS_DENIED"
     SAFETY_BLOCKED = "SAFETY_BLOCKED"
     INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -44,6 +45,7 @@ ERROR_STATUS: Mapping[ErrorCode, int] = {
     ErrorCode.MODEL_PROVIDER_ERROR: 502,
     ErrorCode.MODEL_TIMEOUT: 504,
     ErrorCode.MODEL_RATE_LIMIT: 429,
+    ErrorCode.MEMORY_NOT_FOUND: 404,
     ErrorCode.MEMORY_ACCESS_DENIED: 403,
     ErrorCode.SAFETY_BLOCKED: 400,
     ErrorCode.INTERNAL_ERROR: 500,
@@ -64,6 +66,7 @@ DEFAULT_MESSAGES: Mapping[ErrorCode, str] = {
     ErrorCode.MODEL_PROVIDER_ERROR: "Model provider failed.",
     ErrorCode.MODEL_TIMEOUT: "Model provider timed out.",
     ErrorCode.MODEL_RATE_LIMIT: "Model provider rate limit exceeded.",
+    ErrorCode.MEMORY_NOT_FOUND: "Memory was not found.",
     ErrorCode.MEMORY_ACCESS_DENIED: "Memory access denied.",
     ErrorCode.SAFETY_BLOCKED: "Request was blocked by safety policy.",
     ErrorCode.INTERNAL_ERROR: "Internal server error.",

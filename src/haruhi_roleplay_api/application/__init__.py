@@ -4,9 +4,15 @@ from haruhi_roleplay_api.application.chat import (
     RoleplayOrchestrator,
     SendChatMessageUseCase,
 )
+from haruhi_roleplay_api.application.memory import (
+    DefaultMemoryPolicyEngine,
+    DeleteMemoryUseCase,
+    ListMemoryUseCase,
+)
 from haruhi_roleplay_api.application.models import ModelRouteDecision, ModelRouter
 from haruhi_roleplay_api.application.personas import ListPublicPersonas
 from haruhi_roleplay_api.application.prompts import PersonaPromptBuilder
+from haruhi_roleplay_api.application.rag import ValidateRagDocumentMetadata
 from haruhi_roleplay_api.application.sessions import (
     CreateSessionInput,
     CreateSessionUseCase,
@@ -15,10 +21,14 @@ from haruhi_roleplay_api.application.sessions import (
 __all__ = [
     "CreateSessionInput",
     "CreateSessionUseCase",
+    "DefaultMemoryPolicyEngine",
+    "DeleteMemoryUseCase",
+    "ListMemoryUseCase",
     "ListPublicPersonas",
     "ModelRouteDecision",
     "ModelRouter",
     "PersonaPromptBuilder",
     "RoleplayOrchestrator",
     "SendChatMessageUseCase",
+    "ValidateRagDocumentMetadata",
 ]

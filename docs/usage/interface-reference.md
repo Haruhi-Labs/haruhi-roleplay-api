@@ -51,7 +51,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | debug_trace | boolean | 是否返回调试信息 |
 | stream | boolean | 非流式接口通常为 false |
 
-当前最小 `/v1/chat` 实现支持非流式请求和连续会话。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag`、`memory`、`stream` 当前仍必须为 false。
+当前最小 `/v1/chat` 实现支持非流式请求、连续会话、RAG retrieve、memory read policy 和保守 memory write policy。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag=true` 时服务端必须注入 `RagService`。`memory=true` 时服务端必须注入 `MemoryStore`，并按 persona 的 `memoryPolicy.allowedTypes` 和服务端读取上限筛选记忆。`stream` 当前仍必须为 false。
 
 ### generation
 
@@ -80,6 +80,25 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | memory | 记忆结果摘要 |
 | safety | 安全检查结果 |
 | debug | 调试信息 |
+
+`rag.enabled=false` 时只返回 `{"enabled": false}`。`rag.enabled=true` 时返回 `provider`、`hit_count`、`raw_hit_count`、`filtered_hit_count` 和 `sources`。每个 source 至少包含 `document_id`、`chunk_id`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。
+
+`memory.enabled=false` 时只返回 `{"enabled": false}`。`memory.enabled=true` 时返回 `read_count` 和 `write_count`。当前不会从普通聊天内容中自由抽取记忆，只有显式候选才可能写入。
+
+如果需要写入记忆，调用方必须在 `metadata.memory_write` 传入显式候选：
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| type | 是 | 记忆类型，必须符合 persona `memoryPolicy.allowedTypes` |
+| content | 是 | 候选记忆内容 |
+| reason | 是 | 写入原因，例如“用户明确表达稳定偏好” |
+| confidence | 是 | 置信度，默认策略要求不低于 0.7 |
+
+`metadata.memory_write` 可以是单个对象或对象列表。默认策略会拒绝临时闲聊、敏感信息、低置信度和不被当前 persona 允许的类型。写入结果通过 `memory.write_count` 返回。
+
+`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`latencyMs` 和 `events`。
+
+前端只能把 `debug` 用于开发者面板或联调日志，不要展示给普通用户。`debug` 不包含完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
 
 ## Chat Stream: POST /v1/chat/stream
 
@@ -190,7 +209,7 @@ mode 字段：
 
 ## RAG: POST /v1/rag/documents
 
-用途：导入 RAG 文档。
+用途：校验 RAG 文档 metadata。当前最小实现不切 chunk、不写 vector index、不调用 embedding。
 
 ### 请求参数
 
@@ -213,7 +232,17 @@ mode 字段：
 | --- | --- |
 | document_id | 文档 ID |
 | chunk_count | chunk 数量 |
-| status | imported 或 pending |
+| status | `validated` 或 `imported` |
+| metadata | 通过校验后的 metadata 摘要 |
+
+未注入本地 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 `LocalRagService` 时返回 `imported`，并把文本切成本地 chunks，供 `/v1/chat` 的 RAG 分支检索。
+
+当前校验规则：
+
+- 必须提供 `character_id`、`timeline`、`spoiler_level`、`language`、`source_type`。
+- `persona_mode` 存在时，`timeline`、`spoiler_level` 和 `source_type` 必须符合该 persona policy。
+- `persona_mode` 不存在时，metadata 必须符合该角色至少一个公开 persona 的 policy。
+- 缺字段或 policy 越界返回统一 `VALIDATION_ERROR`。
 
 ## RAG: POST /v1/rag/search
 
@@ -241,9 +270,39 @@ mode 字段：
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | app_id | 是 | 调用方应用 |
-| character_id | 否 | 角色 ID |
-| persona_mode | 否 | 角色 preset |
+| character_id | 是 | 角色 ID |
+| persona_mode | 否 | 角色 preset；不传只查通用记忆 |
 | type | 否 | 记忆类型 |
+| limit | 否 | 返回数量上限，默认 50，最大 100 |
+
+### 响应 data
+
+| 字段 | 说明 |
+| --- | --- |
+| app_id | 调用方应用 |
+| user_id | 用户 ID |
+| character_id | 角色 ID |
+| persona_mode | 角色 preset |
+| count | 返回数量 |
+| items | 记忆列表 |
+
+item 字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| memory_id | 记忆 ID |
+| app_id | 调用方应用 |
+| user_id | 用户 ID |
+| character_id | 角色 ID |
+| persona_mode | 角色 preset |
+| type | 记忆类型 |
+| content | 记忆内容 |
+| confidence | 置信度 |
+| reason | 写入原因 |
+| created_at | 创建时间 |
+| updated_at | 更新时间 |
+
+当前查询只返回同一个 `app_id`、`user_id`、`character_id`、`persona_mode` 下的记忆。
 
 ## Memory: DELETE /v1/memory/{user_id}/{memory_id}
 
@@ -254,6 +313,10 @@ mode 字段：
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | app_id | 是 | 调用方应用 |
+| character_id | 是 | 角色 ID |
+| persona_mode | 否 | 角色 preset；必须与记忆匹配 |
+
+上下文不匹配或记忆不存在时返回 `MEMORY_NOT_FOUND`。当前删除是手动管理能力；chat 只会在 `capabilities.memory=true` 时读取有限记忆，并只写入通过 policy 的显式候选。
 
 ## 错误响应
 
@@ -265,5 +328,6 @@ mode 字段：
 | SESSION_NOT_FOUND | session 不存在 |
 | RAG_PROVIDER_ERROR | RAG provider 失败 |
 | MODEL_PROVIDER_ERROR | 模型 provider 失败 |
+| MEMORY_NOT_FOUND | 记忆不存在 |
 | SAFETY_BLOCKED | 安全策略阻断 |
 | PERSONA_NOT_FOUND | 角色不存在 |

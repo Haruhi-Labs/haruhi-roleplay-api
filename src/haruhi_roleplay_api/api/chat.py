@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Mapping
 
 from haruhi_roleplay_api.api.responses import (
@@ -13,6 +14,7 @@ from haruhi_roleplay_api.application.chat import (
     RoleplayOrchestrator,
     SendChatMessageUseCase,
 )
+from haruhi_roleplay_api.application.errors import app_error_from_exception
 from haruhi_roleplay_api.domain import (
     ChatInput,
     ChatOutput,
@@ -21,10 +23,16 @@ from haruhi_roleplay_api.domain import (
 )
 from haruhi_roleplay_api.ports import (
     ChatModelRouter,
+    MemoryPolicyEngine,
+    MemoryStore,
     PersonaRepository,
     PromptBuilder,
+    RagService,
     SessionStore,
 )
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def post_chat(
@@ -35,6 +43,11 @@ def post_chat(
     model_router: ChatModelRouter,
     request_id: RequestId | str,
     session_store: SessionStore | None = None,
+    memory_store: MemoryStore | None = None,
+    memory_policy_engine: MemoryPolicyEngine | None = None,
+    rag_service: RagService | None = None,
+    memory_read_limit: int = 5,
+    debug_trace_enabled: bool = True,
     include_error_details: bool = False,
 ) -> ApiResponse:
     effective_request_id = _effective_request_id(body, request_id)
@@ -48,9 +61,15 @@ def post_chat(
                 prompt_builder=prompt_builder,
                 model_router=model_router,
                 session_store=session_store,
+                memory_store=memory_store,
+                memory_policy_engine=memory_policy_engine,
+                rag_service=rag_service,
+                memory_read_limit=memory_read_limit,
+                debug_trace_enabled=debug_trace_enabled,
             )
         ).execute(chat_input)
     except Exception as exc:
+        _log_chat_error(effective_request_id, exc)
         return error_response(
             exc,
             effective_request_id,
@@ -66,6 +85,15 @@ def _effective_request_id(
     if isinstance(body, Mapping) and body.get("request_id") is not None:
         return str(body["request_id"])
     return str(request_id)
+
+
+def _log_chat_error(request_id: RequestId | str, exc: Exception) -> None:
+    app_error = app_error_from_exception(exc)
+    _LOGGER.info(
+        "chat request failed request_id=%s error_code=%s",
+        str(request_id),
+        str(app_error.code),
+    )
 
 
 def _chat_body_to_internal(
