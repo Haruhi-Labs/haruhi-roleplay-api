@@ -219,8 +219,10 @@ mode 字段：
 | --- | --- |
 | document_id | 文档 ID |
 | chunk_count | chunk 数量 |
-| status | 当前为 validated |
+| status | `validated` 或 `imported` |
 | metadata | 通过校验后的 metadata 摘要 |
+
+未注入本地 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 `LocalRagService` 时返回 `imported`，并把文本切成本地 chunks，供 `/v1/chat` 的 RAG 分支检索。
 
 当前校验规则：
 

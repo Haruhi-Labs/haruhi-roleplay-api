@@ -5,7 +5,7 @@ from haruhi_roleplay_api.adapters.models import (
     LocalOpenAICompatibleModelProvider,
 )
 from haruhi_roleplay_api.adapters.personas import LocalPersonaRepository
-from haruhi_roleplay_api.adapters.rag import FakeRagService
+from haruhi_roleplay_api.adapters.rag import FakeRagService, LocalRagService
 from haruhi_roleplay_api.adapters.sessions import InMemorySessionStore
 
 __all__ = [
@@ -14,5 +14,6 @@ __all__ = [
     "InMemorySessionStore",
     "LocalOpenAICompatibleModelProvider",
     "LocalPersonaRepository",
+    "LocalRagService",
 ]
 

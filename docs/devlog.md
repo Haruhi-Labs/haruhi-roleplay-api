@@ -238,3 +238,22 @@
 ### 下一步
 
 - 实现 `04.03 Local RAG v1`，在本地 provider 中接入真实文档、chunk 和检索。
+
+## 2026-07-02：Local RAG v1
+
+### 完成
+
+- 添加 `RagIngestService` port。
+- 添加 `LocalRagService`，支持本地文档导入、文本 chunk 和简单检索。
+- `POST /v1/rag/documents` 支持注入本地 ingest provider 后写入 chunks。
+- Chat RAG 分支可直接使用 `LocalRagService` 返回 source 摘要。
+- 本地检索按 character、timeline、spoilerLevel、language 和 sourceType 过滤。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 进入 Memory 模块，继续实现 `05.01 Memory CRUD`。

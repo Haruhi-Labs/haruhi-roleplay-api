@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Mapping
 
 from haruhi_roleplay_api.api.responses import (
@@ -20,6 +21,7 @@ from haruhi_roleplay_api.domain import (
     RequestId,
 )
 from haruhi_roleplay_api.ports import PersonaRepository
+from haruhi_roleplay_api.ports import RagIngestService
 
 
 def post_rag_document(
@@ -27,12 +29,20 @@ def post_rag_document(
     *,
     persona_repository: PersonaRepository,
     request_id: RequestId | str,
+    rag_ingest_service: RagIngestService | None = None,
     include_error_details: bool = False,
 ) -> ApiResponse:
     try:
-        result = ValidateRagDocumentMetadata(persona_repository).execute(
-            _rag_ingest_input_from_body(body)
+        ingest_input = _rag_ingest_input_from_body(body)
+        validation = ValidateRagDocumentMetadata(persona_repository).execute(
+            ingest_input
         )
+        if rag_ingest_service is None:
+            result = validation
+        else:
+            result = rag_ingest_service.ingest(
+                replace(ingest_input, documentId=validation.documentId)
+            )
     except Exception as exc:
         return error_response(
             exc,

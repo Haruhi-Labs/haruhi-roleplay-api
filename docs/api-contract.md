@@ -165,9 +165,11 @@ character 字段：
 | 字段        | 说明                       |
 | ----------- | -------------------------- |
 | document_id | 文档 ID                    |
-| status      | 当前为 `validated`         |
-| chunk_count | 当前为 0                   |
+| status      | `validated` 或 `imported`  |
+| chunk_count | 写入的 chunk 数量          |
 | metadata    | 通过校验后的 metadata 摘要 |
+
+未注入本地 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 `LocalRagService` 时返回 `imported`，服务会按文本切分 chunk 并保留 metadata。当前本地检索使用简单文本匹配，不做 embedding、向量库或 rerank。
 
 ### POST /v1/rag/search
 

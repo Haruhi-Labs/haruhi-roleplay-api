@@ -1,16 +1,20 @@
-"""Fake RAG adapter for local orchestration tests."""
+"""RAG adapters for local orchestration tests and local MVP."""
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from haruhi_roleplay_api.domain import (
     CharacterId,
-    PersonaModeId,
     RagChunk,
     RagChunkId,
     RagDocumentId,
     RagDocumentMetadata,
+    RagIngestInput,
+    RagIngestResult,
     RagRetrieveInput,
     RagRetrieveOutput,
+    PersonaModeId,
 )
 
 
@@ -32,6 +36,69 @@ class FakeRagService:
             provider=self.provider_name,
             rawHitCount=len(self._chunks),
             filteredHitCount=len(filtered),
+            rerankApplied=False,
+        )
+
+
+class LocalRagService:
+    provider_name = "local-rag"
+
+    def __init__(
+        self,
+        *,
+        chunk_size: int = 320,
+    ) -> None:
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        self._chunk_size = chunk_size
+        self._chunks: list[RagChunk] = []
+
+    def ingest(self, ingest_input: RagIngestInput) -> RagIngestResult:
+        document_id = ingest_input.documentId or RagDocumentId(
+            f"ragdoc-{uuid4().hex}"
+        )
+        metadata = _metadata_with_title(ingest_input.metadata, ingest_input.title)
+        chunks = tuple(
+            RagChunk(
+                chunkId=RagChunkId(f"{document_id}-chunk-{index}"),
+                documentId=document_id,
+                content=content,
+                score=0.0,
+                metadata=metadata,
+            )
+            for index, content in enumerate(
+                _chunk_text(ingest_input.content, self._chunk_size),
+                start=1,
+            )
+        )
+        self._chunks.extend(chunks)
+        return RagIngestResult(
+            documentId=document_id,
+            status="imported",
+            chunkCount=len(chunks),
+            metadata=metadata,
+        )
+
+    def retrieve(self, retrieve_input: RagRetrieveInput) -> RagRetrieveOutput:
+        metadata_filtered = tuple(
+            chunk for chunk in self._chunks if _matches_filters(chunk, retrieve_input)
+        )
+        scored = tuple(
+            _chunk_with_score(
+                chunk,
+                _simple_score(retrieve_input.query, chunk),
+            )
+            for chunk in metadata_filtered
+        )
+        ranked = tuple(
+            chunk for chunk in sorted(scored, key=lambda item: item.score, reverse=True)
+            if chunk.score > 0
+        )[: retrieve_input.topK]
+        return RagRetrieveOutput(
+            chunks=ranked,
+            provider=self.provider_name,
+            rawHitCount=len(self._chunks),
+            filteredHitCount=len(metadata_filtered),
             rerankApplied=False,
         )
 
@@ -58,6 +125,70 @@ def _matches_filters(chunk: RagChunk, retrieve_input: RagRetrieveInput) -> bool:
     if filters.language is not None and metadata.language != filters.language:
         return False
     return True
+
+
+def _chunk_text(content: str, chunk_size: int) -> tuple[str, ...]:
+    normalized = "\n".join(line.strip() for line in content.splitlines())
+    paragraphs = tuple(part for part in normalized.split("\n") if part)
+    chunks: list[str] = []
+    for paragraph in paragraphs or (content.strip(),):
+        for start in range(0, len(paragraph), chunk_size):
+            chunk = paragraph[start : start + chunk_size].strip()
+            if chunk:
+                chunks.append(chunk)
+    return tuple(chunks)
+
+
+def _metadata_with_title(
+    metadata: RagDocumentMetadata,
+    title: str,
+) -> RagDocumentMetadata:
+    return RagDocumentMetadata(
+        characterId=metadata.characterId,
+        personaMode=metadata.personaMode,
+        timeline=metadata.timeline,
+        spoilerLevel=metadata.spoilerLevel,
+        language=metadata.language,
+        sourceType=metadata.sourceType,
+        trustLevel=metadata.trustLevel,
+        extra={**dict(metadata.extra), "title": title},
+    )
+
+
+def _chunk_with_score(chunk: RagChunk, score: float) -> RagChunk:
+    return RagChunk(
+        chunkId=chunk.chunkId,
+        documentId=chunk.documentId,
+        content=chunk.content,
+        score=score,
+        metadata=chunk.metadata,
+    )
+
+
+def _simple_score(query: str, chunk: RagChunk) -> float:
+    haystack = " ".join(
+        (
+            chunk.content,
+            str(chunk.metadata.extra.get("title", "")),
+            chunk.metadata.sourceType,
+            chunk.metadata.timeline,
+        )
+    ).lower()
+    terms = _query_terms(query)
+    if not terms:
+        return 0.0
+    hits = sum(1 for term in terms if term in haystack)
+    if hits:
+        return hits / len(terms)
+    query_chars = {char for char in query.lower() if not char.isspace()}
+    if not query_chars:
+        return 0.0
+    overlap = sum(1 for char in query_chars if char in haystack)
+    return overlap / len(query_chars)
+
+
+def _query_terms(query: str) -> tuple[str, ...]:
+    return tuple(term for term in query.lower().split() if term)
 
 
 def _default_chunks() -> tuple[RagChunk, ...]:

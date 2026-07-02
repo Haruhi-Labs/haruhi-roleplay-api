@@ -49,7 +49,7 @@
 3. Chat 请求中设置 `capabilities.rag=true`。
 4. 从响应 `data.rag.sources` 获取引用来源。
 
-当前 `POST /v1/rag/documents` 最小实现只校验 metadata，不切 chunk、不写 vector index、不调用 embedding。`POST /v1/chat` 可以通过 FakeRagService 验证 RAG 编排、filter、prompt 融合和 source 返回；真实向量检索需要后续 Local RAG 步骤完成后才能启用。
+当前 `POST /v1/rag/documents` 在注入 `LocalRagService` 后会写入本地 chunks；未注入时只校验 metadata。`POST /v1/chat` 可以通过 `FakeRagService` 或 `LocalRagService` 验证 RAG 编排、filter、prompt 融合和 source 返回。当前本地检索使用简单文本匹配，不调用 embedding 或向量库。
 
 适合：
 
