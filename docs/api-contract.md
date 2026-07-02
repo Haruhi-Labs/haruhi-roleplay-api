@@ -56,6 +56,32 @@
 | memory | 记忆摘要 |
 | debug | 调试摘要 |
 
+当 `capabilities.debug_trace=true` 且服务端允许返回 debug 时，`debug` 只返回安全摘要：
+
+| 字段 | 说明 |
+| --- | --- |
+| requestId | 请求 ID |
+| characterId | 角色 ID |
+| personaMode | 角色 preset |
+| personaSource | persona 来源摘要 |
+| sessionEnabled | 是否启用连续会话 |
+| sessionReadCount | 本次读取的最近会话消息数量 |
+| memoryEnabled | 是否启用长期记忆 |
+| memoryReadCount | 本次读取的记忆数量 |
+| memoryWriteCount | 本次写入的记忆数量 |
+| ragEnabled | 是否启用 RAG |
+| ragProvider | RAG provider 摘要 |
+| ragRawHitCount | RAG 原始命中数量 |
+| ragFilteredHitCount | RAG 过滤后命中数量 |
+| modelProvider | 模型 provider |
+| modelRoute | 实际模型路由结果 |
+| safetyEnabled | 是否启用安全检查 |
+| safetyAction | 安全处理动作 |
+| latencyMs | 请求总耗时毫秒 |
+| events | 请求阶段名称列表 |
+
+`debug` 不返回完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
+
 ## Persona
 
 ### GET /v1/personas

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from time import perf_counter
+
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
     ChatInput,
     ChatOutput,
+    DebugTrace,
     DTOValidationError,
+    ModelResponse,
     PromptBuildInput,
     RequestId,
     Session,
@@ -38,25 +42,35 @@ class RoleplayOrchestrator:
         model_router: ChatModelRouter,
         session_store: SessionStore | None = None,
         recent_message_limit: int = 12,
+        debug_trace_enabled: bool = True,
     ) -> None:
         self._persona_repository = persona_repository
         self._prompt_builder = prompt_builder
         self._model_router = model_router
         self._session_store = session_store
         self._recent_message_limit = recent_message_limit
+        self._debug_trace_enabled = debug_trace_enabled
 
     def run(self, chat_input: ChatInput) -> ChatOutput:
+        started_at = perf_counter()
+        events: list[str] = []
+        _record_event(events, "validate_capabilities")
         _ensure_v1_capabilities(chat_input)
         if chat_input.requestId is None:
             raise DTOValidationError("requestId is required")
 
+        _record_event(events, "load_character")
         character = _find_public_character(self._persona_repository, chat_input)
+        _record_event(events, "load_persona")
         persona = _find_public_persona(
             self._persona_repository,
             chat_input,
         )
+        _record_event(events, "load_session")
         session = self._session_for_chat(chat_input)
+        _record_event(events, "read_session_messages")
         recent_messages = self._recent_messages(chat_input)
+        _record_event(events, "build_prompt")
         prompt_output = self._prompt_builder.build(
             PromptBuildInput(
                 character=character,
@@ -67,12 +81,15 @@ class RoleplayOrchestrator:
                 recentMessages=recent_messages,
             )
         )
+        _record_event(events, "generate_model")
         model_response = self._model_router.generate(
             model_messages_from_prompt(prompt_output.messages),
             chat_input.generation,
         )
         if session is not None:
+            _record_event(events, "write_session_messages")
             self._write_session_messages(chat_input, model_response.reply)
+        _record_event(events, "build_response")
 
         return ChatOutput(
             requestId=RequestId(str(chat_input.requestId)),
@@ -91,7 +108,15 @@ class RoleplayOrchestrator:
                 "enabled": chat_input.capabilities.safetyFilter,
                 "blocked": False,
             },
-            debug=model_response.debug if chat_input.capabilities.debugTrace else None,
+            debug=_debug_trace_for_chat(
+                chat_input=chat_input,
+                model_response=model_response,
+                persona_source=_persona_source(self._persona_repository),
+                session_read_count=len(recent_messages),
+                started_at=started_at,
+                events=tuple(events),
+                enabled=self._debug_trace_enabled,
+            ),
         )
 
     def _session_for_chat(self, chat_input: ChatInput) -> Session | None:
@@ -184,3 +209,54 @@ def _ensure_session_scope(session: Session, chat_input: ChatInput) -> None:
             code=ErrorCode.SESSION_EXPIRED,
             message="Session is not active.",
         )
+
+
+def _debug_trace_for_chat(
+    *,
+    chat_input: ChatInput,
+    model_response: ModelResponse,
+    persona_source: str,
+    session_read_count: int,
+    started_at: float,
+    events: tuple[str, ...],
+    enabled: bool,
+) -> dict[str, object] | None:
+    if not enabled or not chat_input.capabilities.debugTrace:
+        return None
+    return DebugTrace(
+        requestId=RequestId(str(chat_input.requestId)),
+        characterId=chat_input.characterId,
+        personaMode=chat_input.personaMode,
+        personaSource=persona_source,
+        sessionReadCount=session_read_count,
+        modelProvider=model_response.provider,
+        modelRoute=model_response.model,
+        safetyAction="allow",
+        latencyMs=_elapsed_ms(started_at),
+        capabilities=_capability_trace(chat_input),
+        events=events,
+        modelDebug=model_response.debug,
+    ).to_mapping()
+
+
+def _capability_trace(chat_input: ChatInput) -> dict[str, bool]:
+    capabilities = chat_input.capabilities
+    return {
+        "rag": capabilities.rag,
+        "memory": capabilities.memory,
+        "continuousSession": capabilities.continuousSession,
+        "safetyFilter": capabilities.safetyFilter,
+        "stream": capabilities.stream,
+    }
+
+
+def _persona_source(repository: PersonaRepository) -> str:
+    return type(repository).__name__
+
+
+def _record_event(events: list[str], stage: str) -> None:
+    events.append(stage)
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, round((perf_counter() - started_at) * 1000))

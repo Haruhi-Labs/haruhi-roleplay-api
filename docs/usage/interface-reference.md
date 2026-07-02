@@ -81,6 +81,10 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | safety | 安全检查结果 |
 | debug | 调试信息 |
 
+`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`latencyMs` 和 `events`。
+
+前端只能把 `debug` 用于开发者面板或联调日志，不要展示给普通用户。`debug` 不包含完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
+
 ## Chat Stream: POST /v1/chat/stream
 
 用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，但 `capabilities.stream` 应为 true。

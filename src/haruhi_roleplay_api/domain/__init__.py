@@ -13,6 +13,7 @@ from haruhi_roleplay_api.domain.chat import (
     SessionId,
     UserId,
 )
+from haruhi_roleplay_api.domain.debug import DebugTrace
 from haruhi_roleplay_api.domain.persona import (
     CharacterProfile,
     IdentityConfig,
@@ -48,6 +49,7 @@ __all__ = [
     "CharacterId",
     "ChatInput",
     "ChatOutput",
+    "DebugTrace",
     "DTOValidationError",
     "GenerationConfig",
     "IdentityConfig",

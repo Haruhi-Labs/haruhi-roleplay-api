@@ -133,6 +133,8 @@ Provider Pack 是一组后端实现绑定。
 | ENABLE_DEBUG_TRACE | true | 是否允许 debug trace |
 | ENABLE_SAFETY_FILTER | true | 是否默认启用安全过滤 |
 
+`ENABLE_DEBUG_TRACE=false` 时，后端装配 API handler 应传入 `debug_trace_enabled=false`。该配置优先级高于请求中的 `capabilities.debug_trace=true`，用于生产环境统一关闭 debug 返回。
+
 ### Persona
 
 | 配置 | 示例 | 说明 |

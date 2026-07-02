@@ -179,3 +179,23 @@
 ### 下一步
 
 - 实现 `03.03 Debug Trace v1`，记录请求阶段、provider、capability 开关和耗时摘要。
+
+## 2026-07-02：Debug Trace v1
+
+### 完成
+
+- 添加 `DebugTrace` 领域结构。
+- Chat Orchestrator 返回安全裁剪后的 debug 摘要。
+- 支持服务端通过 `debug_trace_enabled=false` 禁用 debug 返回。
+- debug 显示 persona、model、capability、session 读取数量、请求阶段和耗时。
+- 裁剪 provider debug 中的 prompt、secret、连接串等敏感字段。
+- 错误路径记录带 `request_id` 和错误码的安全日志。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 `04.01 RAG Metadata Validation`，先定义 RAG 文档 metadata 的最小校验边界。
