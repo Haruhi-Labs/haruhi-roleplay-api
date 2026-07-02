@@ -181,9 +181,57 @@ character 字段：
 
 查询用户记忆。
 
+查询参数：
+
+| 字段         | 必填 | 说明                           |
+| ------------ | ---- | ------------------------------ |
+| app_id       | 是   | 调用方应用 ID                  |
+| character_id | 是   | 角色 ID                        |
+| persona_mode | 否   | 角色 preset；不传只查通用记忆  |
+| type         | 否   | 记忆类型，例如 `user_preference` |
+| limit        | 否   | 返回数量上限，默认 50，最大 100 |
+
+响应字段：
+
+| 字段           | 说明              |
+| -------------- | ----------------- |
+| app_id         | 调用方应用 ID     |
+| user_id        | 用户 ID           |
+| character_id   | 角色 ID           |
+| persona_mode   | 角色 preset       |
+| count          | 返回的记忆数量    |
+| items          | 记忆列表          |
+
+memory item 字段：
+
+| 字段          | 说明         |
+| ------------- | ------------ |
+| memory_id     | 记忆 ID      |
+| app_id        | 调用方应用   |
+| user_id       | 用户 ID      |
+| character_id  | 角色 ID      |
+| persona_mode  | 角色 preset  |
+| type          | 记忆类型     |
+| content       | 记忆内容     |
+| confidence    | 置信度       |
+| created_at    | 创建时间     |
+| updated_at    | 更新时间     |
+
+当前实现只提供管理查询，不会被 `/v1/chat` 主动读取。
+
 ### DELETE /v1/memory/{user_id}/{memory_id}
 
 删除指定记忆。
+
+查询参数：
+
+| 字段         | 必填 | 说明                          |
+| ------------ | ---- | ----------------------------- |
+| app_id       | 是   | 调用方应用 ID                 |
+| character_id | 是   | 角色 ID                       |
+| persona_mode | 否   | 角色 preset；必须与记忆匹配   |
+
+删除只会影响同一个 `app_id`、`user_id`、`character_id`、`persona_mode` 下的记忆。上下文不匹配或记忆不存在时统一返回 `MEMORY_NOT_FOUND`，避免暴露其它用户或角色的记忆是否存在。
 
 ## 错误码
 
@@ -198,6 +246,8 @@ character 字段：
 | RAG_PROVIDER_ERROR     | RAG provider 失败  |
 | MODEL_PROVIDER_ERROR   | 模型 provider 失败 |
 | MODEL_TIMEOUT          | 模型超时           |
+| MEMORY_NOT_FOUND       | 记忆不存在         |
+| MEMORY_ACCESS_DENIED   | 记忆访问被拒绝     |
 | SAFETY_BLOCKED         | 安全策略阻断       |
 | INTERNAL_ERROR         | 内部错误           |
 

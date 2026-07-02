@@ -60,16 +60,19 @@
 
 ### 启用 Memory
 
-1. Chat 请求中设置 `capabilities.memory=true`。
-2. 服务端根据策略读取相关记忆。
-3. 服务端根据策略决定是否写入新记忆。
-4. 调用方可通过 Memory API 展示或删除记忆。
+当前 `05.01` 只实现 Memory 管理接口，`/v1/chat` 还不会主动读取或写入 memory。
+
+1. 后端注入 `InMemoryMemoryStore` 或未来的持久化 MemoryStore。
+2. 调用 `GET /v1/memory/{user_id}` 展示同一 app、用户、角色和 preset 下的记忆。
+3. 调用 `DELETE /v1/memory/{user_id}/{memory_id}` 删除指定记忆。
+4. 继续保持 `/v1/chat` 的 `capabilities.memory=false`，直到 memory read/write policy 接入。
 
 注意：
 
 - Memory 不是 session 消息。
 - 不要把用户每句话都当成记忆。
 - 删除记忆后后续请求不应继续引用。
+- 查询和删除必须携带 `app_id`、`character_id`，避免跨应用或跨角色泄漏。
 
 ## 推荐默认参数
 

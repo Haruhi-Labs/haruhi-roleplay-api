@@ -14,6 +14,13 @@ from haruhi_roleplay_api.domain.chat import (
     UserId,
 )
 from haruhi_roleplay_api.domain.debug import DebugTrace
+from haruhi_roleplay_api.domain.memory import (
+    MemoryDeleteCommand,
+    MemoryId,
+    MemoryItem,
+    MemoryQuery,
+    MemoryType,
+)
 from haruhi_roleplay_api.domain.persona import (
     CharacterProfile,
     IdentityConfig,
@@ -65,6 +72,11 @@ __all__ = [
     "GenerationConfig",
     "IdentityConfig",
     "KnowledgeBoundary",
+    "MemoryDeleteCommand",
+    "MemoryId",
+    "MemoryItem",
+    "MemoryQuery",
+    "MemoryType",
     "MessageId",
     "ModelMessage",
     "ModelRequest",

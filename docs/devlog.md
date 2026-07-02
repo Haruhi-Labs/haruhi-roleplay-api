@@ -257,3 +257,22 @@
 ### 下一步
 
 - 进入 Memory 模块，继续实现 `05.01 Memory CRUD`。
+
+## 2026-07-02：Memory CRUD
+
+### 完成
+
+- 添加 `MemoryItem`、`MemoryType`、`MemoryQuery` 和 `MemoryDeleteCommand`。
+- 添加 `MemoryStore` port。
+- 添加 `InMemoryMemoryStore`，支持按 app、user、character、persona 精确隔离查询。
+- 添加框架无关的 `GET /v1/memory/{user_id}` 和 `DELETE /v1/memory/{user_id}/{memory_id}` handler。
+- 删除不存在或上下文不匹配的记忆时返回 `MEMORY_NOT_FOUND`，避免泄漏其它上下文。
+- 当前只做手动查询和删除，不接入 `/v1/chat`，也不做自动写入。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+
+### 下一步
+
+- 实现 `05.02 Memory Read Policy`，在 chat 编排中按策略读取有限记忆。

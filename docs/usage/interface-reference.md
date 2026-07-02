@@ -51,7 +51,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | debug_trace | boolean | 是否返回调试信息 |
 | stream | boolean | 非流式接口通常为 false |
 
-当前最小 `/v1/chat` 实现支持非流式请求、连续会话和 Fake RAG retrieve。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag=true` 时服务端必须注入 `RagService`。`memory`、`stream` 当前仍必须为 false。
+当前最小 `/v1/chat` 实现支持非流式请求、连续会话和 RAG retrieve。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag=true` 时服务端必须注入 `RagService`。Memory 管理接口已经可查询和删除记忆，但 `/v1/chat` 的 `memory`、`stream` 当前仍必须为 false。
 
 ### generation
 
@@ -257,9 +257,38 @@ mode 字段：
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | app_id | 是 | 调用方应用 |
-| character_id | 否 | 角色 ID |
-| persona_mode | 否 | 角色 preset |
+| character_id | 是 | 角色 ID |
+| persona_mode | 否 | 角色 preset；不传只查通用记忆 |
 | type | 否 | 记忆类型 |
+| limit | 否 | 返回数量上限，默认 50，最大 100 |
+
+### 响应 data
+
+| 字段 | 说明 |
+| --- | --- |
+| app_id | 调用方应用 |
+| user_id | 用户 ID |
+| character_id | 角色 ID |
+| persona_mode | 角色 preset |
+| count | 返回数量 |
+| items | 记忆列表 |
+
+item 字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| memory_id | 记忆 ID |
+| app_id | 调用方应用 |
+| user_id | 用户 ID |
+| character_id | 角色 ID |
+| persona_mode | 角色 preset |
+| type | 记忆类型 |
+| content | 记忆内容 |
+| confidence | 置信度 |
+| created_at | 创建时间 |
+| updated_at | 更新时间 |
+
+当前查询只返回同一个 `app_id`、`user_id`、`character_id`、`persona_mode` 下的记忆。
 
 ## Memory: DELETE /v1/memory/{user_id}/{memory_id}
 
@@ -270,6 +299,10 @@ mode 字段：
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | app_id | 是 | 调用方应用 |
+| character_id | 是 | 角色 ID |
+| persona_mode | 否 | 角色 preset；必须与记忆匹配 |
+
+上下文不匹配或记忆不存在时返回 `MEMORY_NOT_FOUND`。当前删除是手动管理能力，不代表 chat 已经会自动写入或读取 memory。
 
 ## 错误响应
 
@@ -281,5 +314,6 @@ mode 字段：
 | SESSION_NOT_FOUND | session 不存在 |
 | RAG_PROVIDER_ERROR | RAG provider 失败 |
 | MODEL_PROVIDER_ERROR | 模型 provider 失败 |
+| MEMORY_NOT_FOUND | 记忆不存在 |
 | SAFETY_BLOCKED | 安全策略阻断 |
 | PERSONA_NOT_FOUND | 角色不存在 |

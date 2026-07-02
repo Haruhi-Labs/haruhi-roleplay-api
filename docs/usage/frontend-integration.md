@@ -95,6 +95,19 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 - Safety blocked 时展示温和提示。
 - session 过期时提示重新开始对话。
 
+## Memory 管理 UI
+
+当前前端可以通过业务后端展示和删除用户长期记忆，但 chat 还不会自动读取或写入 memory。
+
+推荐流程：
+
+1. 进入角色设置或隐私管理页时，由业务后端调用 `GET /v1/memory/{user_id}`。
+2. 查询参数必须包含 `app_id` 和 `character_id`，如果是 preset 专属记忆，还要传 `persona_mode`。
+3. UI 展示 `type`、`content`、`confidence`、`updated_at`。
+4. 用户删除时，由业务后端调用 `DELETE /v1/memory/{user_id}/{memory_id}`。
+
+前端不要自己拼接或新增 memory，写入策略会在后续 Memory Policy 中实现。
+
 ## 前端不要做什么
 
 - 不要在浏览器保存 API Key。
