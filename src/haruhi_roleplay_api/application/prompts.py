@@ -26,8 +26,9 @@ class PersonaPromptBuilder:
                     role="system",
                     content=_output_rules(prompt_input.generation),
                 ),
-                *_rag_chunk_section(prompt_input),
                 *_recent_message_section(prompt_input),
+                *_memory_item_section(prompt_input),
+                *_rag_chunk_section(prompt_input),
                 PromptMessage(role="user", content=prompt_input.userMessage),
             )
         )
@@ -102,6 +103,21 @@ def _recent_message_section(
     lines = ["最近会话消息："]
     for message in prompt_input.recentMessages:
         lines.append(f"- {message.role}: {message.content}")
+    return (PromptMessage(role="system", content="\n".join(lines)),)
+
+
+def _memory_item_section(
+    prompt_input: PromptBuildInput,
+) -> tuple[PromptMessage, ...]:
+    if not prompt_input.memoryItems:
+        return ()
+    lines = ["长期记忆摘要："]
+    for index, item in enumerate(prompt_input.memoryItems, start=1):
+        lines.append(
+            f"- [{index}] type={item.type.value}, "
+            f"confidence={item.confidence:.2f}: {item.content}"
+        )
+    lines.append("- 只把长期记忆作为角色互动的背景，不要逐字暴露记忆字段。")
     return (PromptMessage(role="system", content="\n".join(lines)),)
 
 

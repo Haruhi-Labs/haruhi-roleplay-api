@@ -5,6 +5,7 @@ from haruhi_roleplay_api.application.chat import (
     SendChatMessageUseCase,
 )
 from haruhi_roleplay_api.application.memory import (
+    DefaultMemoryPolicyEngine,
     DeleteMemoryUseCase,
     ListMemoryUseCase,
 )
@@ -20,6 +21,7 @@ from haruhi_roleplay_api.application.sessions import (
 __all__ = [
     "CreateSessionInput",
     "CreateSessionUseCase",
+    "DefaultMemoryPolicyEngine",
     "DeleteMemoryUseCase",
     "ListMemoryUseCase",
     "ListPublicPersonas",

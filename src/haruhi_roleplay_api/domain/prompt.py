@@ -9,6 +9,7 @@ from haruhi_roleplay_api.domain.chat import (
     DTOValidationError,
     GenerationConfig,
 )
+from haruhi_roleplay_api.domain.memory import MemoryItem
 from haruhi_roleplay_api.domain.persona import CharacterProfile, PersonaPreset
 from haruhi_roleplay_api.domain.rag import RagChunk
 from haruhi_roleplay_api.domain.session import SessionMessage
@@ -49,6 +50,7 @@ class PromptBuildInput:
     capabilities: CapabilityConfig = field(default_factory=CapabilityConfig)
     generation: GenerationConfig = field(default_factory=GenerationConfig)
     recentMessages: tuple[SessionMessage, ...] = ()
+    memoryItems: tuple[MemoryItem, ...] = ()
     ragChunks: tuple[RagChunk, ...] = ()
 
     def __post_init__(self) -> None:
@@ -64,6 +66,9 @@ class PromptBuildInput:
         for message in self.recentMessages:
             if not isinstance(message, SessionMessage):
                 raise DTOValidationError("recentMessages must contain SessionMessage")
+        for memory_item in self.memoryItems:
+            if not isinstance(memory_item, MemoryItem):
+                raise DTOValidationError("memoryItems must contain MemoryItem")
         for chunk in self.ragChunks:
             if not isinstance(chunk, RagChunk):
                 raise DTOValidationError("ragChunks must contain RagChunk")

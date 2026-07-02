@@ -276,3 +276,24 @@
 ### 下一步
 
 - 实现 `05.02 Memory Read Policy`，在 chat 编排中按策略读取有限记忆。
+
+## 2026-07-02：Memory Read Policy
+
+### 完成
+
+- 添加 `MemoryReadPolicyInput`。
+- 添加 `MemoryPolicyEngine` port 和 `DefaultMemoryPolicyEngine`。
+- Chat 在 `capabilities.memory=true` 时通过 MemoryStore 读取有限记忆。
+- Memory 查询按 app、user、character、persona、persona allowedTypes 和服务端 limit 过滤。
+- PromptBuilder 增加“长期记忆摘要”段，包含 type、confidence 和 content。
+- ChatOutput 返回 `memory.enabled` 和 `memory.read_count`。
+- Debug trace 返回 `memoryEnabled` 和 `memoryReadCount`。
+- 当前仍不自动写入新记忆。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+
+### 下一步
+
+- 实现 `05.03 Memory Write Policy`，为自动写入记忆增加明确策略和测试。

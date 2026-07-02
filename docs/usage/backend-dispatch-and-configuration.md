@@ -80,114 +80,114 @@ Provider Pack 是一组后端实现绑定。
 
 用于本地开发和最小验证。
 
-| 能力 | 实现 |
-| --- | --- |
+| 能力              | 实现                                         |
+| ----------------- | -------------------------------------------- |
 | PersonaRepository | 本地 YAML 或 JSON，包含角色和 preset catalog |
-| SessionStore | InMemory 或 SQLite |
-| MemoryStore | InMemory 或 SQLite |
-| RagService | LocalRagService |
-| VectorIndex | LocalVectorIndex |
-| EmbeddingProvider | LocalEmbeddingProvider |
-| ModelProvider | Ollama 或本地 OpenAI-compatible |
-| Logger | ConsoleLogger |
+| SessionStore      | InMemory 或 SQLite                           |
+| MemoryStore       | InMemory 或 SQLite                           |
+| RagService        | LocalRagService                              |
+| VectorIndex       | LocalVectorIndex                             |
+| EmbeddingProvider | LocalEmbeddingProvider                       |
+| ModelProvider     | Ollama 或本地 OpenAI-compatible              |
+| Logger            | ConsoleLogger                                |
 
 ### test
 
 用于单元测试、契约测试和 CI。
 
-| 能力 | 实现 |
-| --- | --- |
+| 能力              | 实现                                             |
+| ----------------- | ------------------------------------------------ |
 | PersonaRepository | InMemoryPersonaRepository，包含测试角色和 preset |
-| SessionStore | InMemorySessionStore |
-| MemoryStore | InMemoryMemoryStore |
-| RagService | FakeRagService |
-| VectorIndex | FakeVectorIndex |
-| EmbeddingProvider | FakeEmbeddingProvider |
-| ModelProvider | FakeModelProvider |
-| Logger | NoopLogger 或 TestLogger |
+| SessionStore      | InMemorySessionStore                             |
+| MemoryStore       | InMemoryMemoryStore                              |
+| RagService        | FakeRagService                                   |
+| VectorIndex       | FakeVectorIndex                                  |
+| EmbeddingProvider | FakeEmbeddingProvider                            |
+| ModelProvider     | FakeModelProvider                                |
+| Logger            | NoopLogger 或 TestLogger                         |
 
 ### cloud
 
 用于生产环境。
 
-| 能力 | 实现 |
-| --- | --- |
-| PersonaRepository | PostgresPersonaRepository，存储角色和 preset catalog |
-| SessionStore | PostgresSessionStore |
-| MemoryStore | PostgresMemoryStore |
-| CacheStore | RedisCacheStore |
-| RagService | QdrantRagService、PgVectorRagService 或 OpenAIVectorStoreRagService |
-| EmbeddingProvider | OpenAI-compatible EmbeddingProvider |
-| ModelProvider | OpenAI-compatible ChatModelProvider |
-| Logger | StructuredLogger 或 OpenTelemetryLogger |
+| 能力              | 实现                                                                |
+| ----------------- | ------------------------------------------------------------------- |
+| PersonaRepository | PostgresPersonaRepository，存储角色和 preset catalog                |
+| SessionStore      | PostgresSessionStore                                                |
+| MemoryStore       | PostgresMemoryStore                                                 |
+| CacheStore        | RedisCacheStore                                                     |
+| RagService        | QdrantRagService、PgVectorRagService 或 OpenAIVectorStoreRagService |
+| EmbeddingProvider | OpenAI-compatible EmbeddingProvider                                 |
+| ModelProvider     | OpenAI-compatible ChatModelProvider                                 |
+| Logger            | StructuredLogger 或 OpenTelemetryLogger                             |
 
 ## 配置项
 
 ### 基础环境
 
-| 配置 | 示例 | 说明 |
-| --- | --- | --- |
-| APP_ENV | local | 运行环境 |
-| PROVIDER_PACK | local | provider pack 名称 |
-| PORT | 3000 | HTTP 服务端口 |
-| ENABLE_DEBUG_TRACE | true | 是否允许 debug trace |
-| ENABLE_SAFETY_FILTER | true | 是否默认启用安全过滤 |
+| 配置                 | 示例  | 说明                 |
+| -------------------- | ----- | -------------------- |
+| APP_ENV              | local | 运行环境             |
+| PROVIDER_PACK        | local | provider pack 名称   |
+| PORT                 | 3000  | HTTP 服务端口        |
+| ENABLE_DEBUG_TRACE   | true  | 是否允许 debug trace |
+| ENABLE_SAFETY_FILTER | true  | 是否默认启用安全过滤 |
 
 `ENABLE_DEBUG_TRACE=false` 时，后端装配 API handler 应传入 `debug_trace_enabled=false`。该配置优先级高于请求中的 `capabilities.debug_trace=true`，用于生产环境统一关闭 debug 返回。
 
 ### Persona
 
-| 配置 | 示例 | 说明 |
-| --- | --- | --- |
-| PERSONA_PROVIDER | file | persona 来源 |
+| 配置               | 示例       | 说明                  |
+| ------------------ | ---------- | --------------------- |
+| PERSONA_PROVIDER   | file       | persona 来源          |
 | PERSONA_CONFIG_DIR | ./personas | 本地 persona 配置目录 |
 
 ### Session
 
-| 配置 | 示例 | 说明 |
-| --- | --- | --- |
-| SESSION_PROVIDER | sqlite | session provider |
-| SESSION_RECENT_LIMIT | 12 | 读取最近消息数量 |
-| SESSION_TTL_SECONDS | 604800 | session 过期时间 |
+| 配置                 | 示例   | 说明             |
+| -------------------- | ------ | ---------------- |
+| SESSION_PROVIDER     | sqlite | session provider |
+| SESSION_RECENT_LIMIT | 12     | 读取最近消息数量 |
+| SESSION_TTL_SECONDS  | 604800 | session 过期时间 |
 
 ### Memory
 
-| 配置 | 示例 | 说明 |
-| --- | --- | --- |
-| MEMORY_PROVIDER | sqlite | memory provider |
-| MEMORY_READ_LIMIT | 8 | 最多读取记忆数量 |
-| MEMORY_WRITE_ENABLED | true | 是否允许自动写入 |
+| 配置                 | 示例   | 说明             |
+| -------------------- | ------ | ---------------- |
+| MEMORY_PROVIDER      | sqlite | memory provider  |
+| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量 |
+| MEMORY_WRITE_ENABLED | true   | 是否允许自动写入 |
 
 ### RAG
 
-| 配置 | 示例 | 说明 |
-| --- | --- | --- |
-| RAG_PROVIDER | local | RAG provider |
-| VECTOR_PROVIDER | local | vector index provider |
-| EMBEDDING_PROVIDER | local | embedding provider |
-| RAG_TOP_K_DEFAULT | 5 | 默认检索数量 |
-| RAG_TOP_K_MAX | 10 | 最大检索数量 |
+| 配置               | 示例  | 说明                  |
+| ------------------ | ----- | --------------------- |
+| RAG_PROVIDER       | local | RAG provider          |
+| VECTOR_PROVIDER    | local | vector index provider |
+| EMBEDDING_PROVIDER | local | embedding provider    |
+| RAG_TOP_K_DEFAULT  | 5     | 默认检索数量          |
+| RAG_TOP_K_MAX      | 10    | 最大检索数量          |
 
 ### Model
 
-| 配置 | 示例 | 说明 |
-| --- | --- | --- |
-| MODEL_PROVIDER | local | 模型 provider，当前支持 `fake`、`local`、`openai_compatible` |
-| MODEL_BASE_URL | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址 |
-| MODEL_NAME | qwen3:8b | 默认模型 |
-| MODEL_TIMEOUT_MS | 60000 | 模型超时 |
-| MODEL_API_KEY | 可选 | OpenAI-compatible API Key，本地无鉴权服务可不设置 |
+| 配置             | 示例                      | 说明                                                         |
+| ---------------- | ------------------------- | ------------------------------------------------------------ |
+| MODEL_PROVIDER   | local                     | 模型 provider，当前支持 `fake`、`local`、`openai_compatible` |
+| MODEL_BASE_URL   | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址                               |
+| MODEL_NAME       | qwen3:8b                  | 默认模型                                                     |
+| MODEL_TIMEOUT_MS | 60000                     | 模型超时                                                     |
+| MODEL_API_KEY    | 可选                      | OpenAI-compatible API Key，本地无鉴权服务可不设置            |
 
 ### Cloud
 
-| 配置 | 说明 |
-| --- | --- |
-| DATABASE_URL | PostgreSQL 连接串 |
-| REDIS_URL | Redis 连接串 |
-| QDRANT_URL | Qdrant 地址 |
-| QDRANT_API_KEY | Qdrant API Key |
-| OPENAI_API_KEY | OpenAI-compatible provider key |
-| OBJECT_STORAGE_BUCKET | 对象存储 bucket |
+| 配置                  | 说明                           |
+| --------------------- | ------------------------------ |
+| DATABASE_URL          | PostgreSQL 连接串              |
+| REDIS_URL             | Redis 连接串                   |
+| QDRANT_URL            | Qdrant 地址                    |
+| QDRANT_API_KEY        | Qdrant API Key                 |
+| OPENAI_API_KEY        | OpenAI-compatible provider key |
+| OBJECT_STORAGE_BUCKET | 对象存储 bucket                |
 
 不要在日志、debug trace、接口响应中输出这些敏感配置值。
 
@@ -210,20 +210,20 @@ Provider Pack 是一组后端实现绑定。
 13. ChatModelProvider 生成回复。
 14. SafetyGuard 检查输出。
 15. SessionStore 写入完整消息。
-16. MemoryPolicyEngine 判断是否写入记忆。
+16. 当前不自动写入 memory，后续由 MemoryPolicyEngine 判断是否写入。
 17. Logger 写入请求摘要。
 18. API 层把内部 `camelCase` 转成外部 `snake_case` 响应。
 
 ## 能力开关如何影响调度
 
-| capability | false 时 | true 时 |
-| --- | --- | --- |
-| continuousSession | 不读写 session 上下文 | 读最近消息，回复后写入消息 |
-| rag | 不执行 RAG | 根据 persona filter 检索 chunks |
-| memory | 不读写长期记忆 | 读取相关记忆，并按 policy 写入 |
-| safetyFilter | 只做基础校验 | 执行输入和输出安全检查 |
-| debugTrace | 不返回 debug | 返回裁剪后的调试摘要 |
-| stream | 返回完整 reply | 返回 stream event |
+| capability        | false 时              | true 时                              |
+| ----------------- | --------------------- | ------------------------------------ |
+| continuousSession | 不读写 session 上下文 | 读最近消息，回复后写入消息           |
+| rag               | 不执行 RAG            | 根据 persona filter 检索 chunks      |
+| memory            | 不读写长期记忆        | 当前读取相关记忆；自动写入是后续能力 |
+| safetyFilter      | 只做基础校验          | 执行输入和输出安全检查               |
+| debugTrace        | 不返回 debug          | 返回裁剪后的调试摘要                 |
+| stream            | 返回完整 reply        | 返回 stream event                    |
 
 ## ModelRouter 调度
 
@@ -231,15 +231,15 @@ Provider Pack 是一组后端实现绑定。
 
 推荐策略：
 
-| 条件 | 模型路由 |
-| --- | --- |
-| `APP_ENV=test` | FakeModel |
-| `APP_ENV=local` | Ollama 或本地 OpenAI-compatible |
-| `generation.model` 有合法别名 | 使用别名映射 |
-| RAG query rewrite | cheap_fast_model |
-| memory policy 判断 | cheap_fast_model |
-| 高质量角色扮演 | high_quality_model |
-| provider 失败 | fallback_model |
+| 条件                          | 模型路由                        |
+| ----------------------------- | ------------------------------- |
+| `APP_ENV=test`                | FakeModel                       |
+| `APP_ENV=local`               | Ollama 或本地 OpenAI-compatible |
+| `generation.model` 有合法别名 | 使用别名映射                    |
+| RAG query rewrite             | cheap_fast_model                |
+| memory policy 判断            | cheap_fast_model                |
+| 高质量角色扮演                | high_quality_model              |
+| provider 失败                 | fallback_model                  |
 
 `generation.model` 应该是服务端定义的模型别名，不是直接暴露真实厂商模型名。
 
@@ -272,8 +272,8 @@ Memory 调度需要避免污染：
 3. MemoryPolicyEngine 判断是否读取。
 4. MemoryStore 按 app、user、character、persona 查询。
 5. PromptBuilder 只接收通过 policy 的 memory items。
-6. 回复完成后 MemoryPolicyEngine 判断是否写入。
-7. 写入时必须记录 type、reason、confidence。
+6. 当前实现到读取为止，不自动写入。
+7. 后续写入时必须记录 type、reason、confidence。
 
 ## 后端实现步骤
 
@@ -333,50 +333,50 @@ Memory 调度需要避免污染：
 
 ## 推荐本地配置
 
-| 配置 | 值 |
-| --- | --- |
-| APP_ENV | local |
-| PROVIDER_PACK | local |
-| PERSONA_PROVIDER | file |
-| SESSION_PROVIDER | sqlite |
-| MEMORY_PROVIDER | sqlite |
-| RAG_PROVIDER | local |
-| VECTOR_PROVIDER | local |
-| EMBEDDING_PROVIDER | local |
-| MODEL_PROVIDER | local |
-| MODEL_BASE_URL | http://localhost:11434/v1 |
-| MODEL_NAME | qwen3:8b |
-| ENABLE_DEBUG_TRACE | true |
-| ENABLE_SAFETY_FILTER | true |
+| 配置                 | 值                        |
+| -------------------- | ------------------------- |
+| APP_ENV              | local                     |
+| PROVIDER_PACK        | local                     |
+| PERSONA_PROVIDER     | file                      |
+| SESSION_PROVIDER     | sqlite                    |
+| MEMORY_PROVIDER      | sqlite                    |
+| RAG_PROVIDER         | local                     |
+| VECTOR_PROVIDER      | local                     |
+| EMBEDDING_PROVIDER   | local                     |
+| MODEL_PROVIDER       | local                     |
+| MODEL_BASE_URL       | http://localhost:11434/v1 |
+| MODEL_NAME           | qwen3:8b                  |
+| ENABLE_DEBUG_TRACE   | true                      |
+| ENABLE_SAFETY_FILTER | true                      |
 
 ## 推荐测试配置
 
-| 配置 | 值 |
-| --- | --- |
-| APP_ENV | test |
-| PROVIDER_PACK | test |
-| SESSION_PROVIDER | memory |
-| MEMORY_PROVIDER | memory |
-| RAG_PROVIDER | fake |
-| MODEL_PROVIDER | fake |
-| ENABLE_DEBUG_TRACE | true |
+| 配置               | 值     |
+| ------------------ | ------ |
+| APP_ENV            | test   |
+| PROVIDER_PACK      | test   |
+| SESSION_PROVIDER   | memory |
+| MEMORY_PROVIDER    | memory |
+| RAG_PROVIDER       | fake   |
+| MODEL_PROVIDER     | fake   |
+| ENABLE_DEBUG_TRACE | true   |
 
 ## 推荐生产配置
 
-| 配置 | 值 |
-| --- | --- |
-| APP_ENV | production |
-| PROVIDER_PACK | cloud |
-| PERSONA_PROVIDER | postgres |
-| SESSION_PROVIDER | postgres |
-| MEMORY_PROVIDER | postgres |
-| CACHE_PROVIDER | redis |
-| RAG_PROVIDER | qdrant |
-| VECTOR_PROVIDER | qdrant |
-| EMBEDDING_PROVIDER | openai_compatible |
-| MODEL_PROVIDER | openai_compatible |
-| ENABLE_DEBUG_TRACE | false |
-| ENABLE_SAFETY_FILTER | true |
+| 配置                 | 值                |
+| -------------------- | ----------------- |
+| APP_ENV              | production        |
+| PROVIDER_PACK        | cloud             |
+| PERSONA_PROVIDER     | postgres          |
+| SESSION_PROVIDER     | postgres          |
+| MEMORY_PROVIDER      | postgres          |
+| CACHE_PROVIDER       | redis             |
+| RAG_PROVIDER         | qdrant            |
+| VECTOR_PROVIDER      | qdrant            |
+| EMBEDDING_PROVIDER   | openai_compatible |
+| MODEL_PROVIDER       | openai_compatible |
+| ENABLE_DEBUG_TRACE   | false             |
+| ENABLE_SAFETY_FILTER | true              |
 
 ## 前端调用时的关键约束
 

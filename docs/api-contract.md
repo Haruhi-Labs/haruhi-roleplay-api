@@ -44,6 +44,8 @@
 
 当 `capabilities.rag=true` 时，服务端必须已注入 `RagService`。当前实现支持 Fake RAG retrieve，用 persona policy 过滤固定 chunks，并返回 source 摘要；真实 embedding、向量库和 rerank 尚未接入。
 
+当 `capabilities.memory=true` 时，服务端必须已注入 `MemoryStore`。当前实现只读取同一 `app_id`、`user_id`、`character_id`、`persona_mode` 下的有限记忆，并按 persona `memoryPolicy.allowedTypes` 过滤，不自动写入新记忆。
+
 响应字段：
 
 | 字段         | 说明        |
@@ -70,6 +72,13 @@
 | sources            | source 摘要列表           |
 
 `sources` 至少包含 `document_id`、`chunk_id`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。
+
+`memory` 字段：
+
+| 字段       | 说明                  |
+| ---------- | --------------------- |
+| enabled    | 是否执行长期记忆读取  |
+| read_count | 本次读入 Prompt 的数量 |
 
 当 `capabilities.debug_trace=true` 且服务端允许返回 debug 时，`debug` 只返回安全摘要：
 
@@ -217,7 +226,7 @@ memory item 字段：
 | created_at    | 创建时间     |
 | updated_at    | 更新时间     |
 
-当前实现只提供管理查询，不会被 `/v1/chat` 主动读取。
+该接口用于管理和展示记忆。`/v1/chat` 在 `capabilities.memory=true` 时会通过服务端注入的 `MemoryStore` 读取有限记忆，但不会通过该查询接口反向调用。
 
 ### DELETE /v1/memory/{user_id}/{memory_id}
 

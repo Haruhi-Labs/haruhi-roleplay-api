@@ -19,6 +19,7 @@ from haruhi_roleplay_api.domain.memory import (
     MemoryId,
     MemoryItem,
     MemoryQuery,
+    MemoryReadPolicyInput,
     MemoryType,
 )
 from haruhi_roleplay_api.domain.persona import (
@@ -76,6 +77,7 @@ __all__ = [
     "MemoryId",
     "MemoryItem",
     "MemoryQuery",
+    "MemoryReadPolicyInput",
     "MemoryType",
     "MessageId",
     "ModelMessage",

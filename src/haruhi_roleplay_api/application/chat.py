@@ -5,11 +5,16 @@ from __future__ import annotations
 from time import perf_counter
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
+from haruhi_roleplay_api.application.memory import DefaultMemoryPolicyEngine
 from haruhi_roleplay_api.domain import (
     ChatInput,
     ChatOutput,
     DebugTrace,
     DTOValidationError,
+    MemoryItem,
+    MemoryQuery,
+    MemoryReadPolicyInput,
+    MemoryType,
     ModelResponse,
     PersonaPreset,
     PromptBuildInput,
@@ -23,6 +28,8 @@ from haruhi_roleplay_api.domain import (
 )
 from haruhi_roleplay_api.ports import (
     ChatModelRouter,
+    MemoryPolicyEngine,
+    MemoryStore,
     PersonaRepository,
     PromptBuilder,
     RagService,
@@ -46,8 +53,11 @@ class RoleplayOrchestrator:
         prompt_builder: PromptBuilder,
         model_router: ChatModelRouter,
         session_store: SessionStore | None = None,
+        memory_store: MemoryStore | None = None,
+        memory_policy_engine: MemoryPolicyEngine | None = None,
         rag_service: RagService | None = None,
         recent_message_limit: int = 12,
+        memory_read_limit: int = 5,
         rag_top_k: int = 5,
         debug_trace_enabled: bool = True,
     ) -> None:
@@ -55,8 +65,11 @@ class RoleplayOrchestrator:
         self._prompt_builder = prompt_builder
         self._model_router = model_router
         self._session_store = session_store
+        self._memory_store = memory_store
+        self._memory_policy_engine = memory_policy_engine or DefaultMemoryPolicyEngine()
         self._rag_service = rag_service
         self._recent_message_limit = recent_message_limit
+        self._memory_read_limit = memory_read_limit
         self._rag_top_k = rag_top_k
         self._debug_trace_enabled = debug_trace_enabled
 
@@ -79,6 +92,8 @@ class RoleplayOrchestrator:
         session = self._session_for_chat(chat_input)
         _record_event(events, "read_session_messages")
         recent_messages = self._recent_messages(chat_input)
+        _record_event(events, "read_memory")
+        memory_items = self._memory_for_chat(chat_input, persona)
         _record_event(events, "retrieve_rag")
         rag_output = self._rag_for_chat(chat_input, persona)
         _record_event(events, "build_prompt")
@@ -90,6 +105,7 @@ class RoleplayOrchestrator:
                 capabilities=chat_input.capabilities,
                 generation=chat_input.generation,
                 recentMessages=recent_messages,
+                memoryItems=memory_items,
                 ragChunks=rag_output.chunks if rag_output is not None else (),
             )
         )
@@ -115,7 +131,7 @@ class RoleplayOrchestrator:
                 "model": model_response.model,
             },
             rag=_rag_output_to_chat_metadata(rag_output),
-            memory={"enabled": False},
+            memory=_memory_output_to_chat_metadata(chat_input, memory_items),
             safety={
                 "enabled": chat_input.capabilities.safetyFilter,
                 "blocked": False,
@@ -125,6 +141,7 @@ class RoleplayOrchestrator:
                 model_response=model_response,
                 persona_source=_persona_source(self._persona_repository),
                 session_read_count=len(recent_messages),
+                memory_read_count=len(memory_items),
                 rag_output=rag_output,
                 started_at=started_at,
                 events=tuple(events),
@@ -168,6 +185,38 @@ class RoleplayOrchestrator:
             content=reply,
         )
 
+    def _memory_for_chat(
+        self,
+        chat_input: ChatInput,
+        persona: PersonaPreset,
+    ) -> tuple[MemoryItem, ...]:
+        if not chat_input.capabilities.memory:
+            return ()
+        if self._memory_store is None:
+            raise DTOValidationError("memoryStore is required for memory")
+
+        policy_input = MemoryReadPolicyInput(
+            appId=chat_input.appId,
+            userId=chat_input.userId,
+            characterId=chat_input.characterId,
+            personaMode=chat_input.personaMode,
+            enabled=chat_input.capabilities.memory,
+            allowedTypes=_memory_types_for_persona(persona),
+            maxItems=self._memory_read_limit,
+        )
+        if not self._memory_policy_engine.should_read(policy_input):
+            return ()
+        return self._memory_store.list_memories(
+            MemoryQuery(
+                appId=policy_input.appId,
+                userId=policy_input.userId,
+                characterId=policy_input.characterId,
+                personaMode=policy_input.personaMode,
+                memoryTypes=policy_input.allowedTypes,
+                limit=policy_input.maxItems,
+            )
+        )
+
     def _rag_for_chat(
         self,
         chat_input: ChatInput,
@@ -194,8 +243,6 @@ class RoleplayOrchestrator:
 def _ensure_v1_capabilities(chat_input: ChatInput) -> None:
     if chat_input.capabilities.stream:
         raise DTOValidationError("capabilities.stream is not supported by /v1/chat")
-    if chat_input.capabilities.memory:
-        raise DTOValidationError("capabilities.memory is not supported by chat v1")
 
 
 def _find_public_character(repository: PersonaRepository, chat_input: ChatInput):
@@ -250,6 +297,7 @@ def _debug_trace_for_chat(
     model_response: ModelResponse,
     persona_source: str,
     session_read_count: int,
+    memory_read_count: int,
     rag_output: RagRetrieveOutput | None,
     started_at: float,
     events: tuple[str, ...],
@@ -263,6 +311,7 @@ def _debug_trace_for_chat(
         personaMode=chat_input.personaMode,
         personaSource=persona_source,
         sessionReadCount=session_read_count,
+        memoryReadCount=memory_read_count,
         ragProvider=rag_output.provider if rag_output is not None else None,
         ragRawHitCount=rag_output.rawHitCount if rag_output is not None else 0,
         ragFilteredHitCount=(
@@ -313,6 +362,16 @@ def _rag_filters_for_chat(
     )
 
 
+def _memory_types_for_persona(persona: PersonaPreset) -> tuple[MemoryType, ...]:
+    raw_types = persona.memoryPolicy.get("allowedTypes", ())
+    try:
+        return tuple(MemoryType(str(item)) for item in raw_types)
+    except ValueError as exc:
+        raise DTOValidationError(
+            "memoryPolicy.allowedTypes contains unsupported memory type"
+        ) from exc
+
+
 def _rag_output_to_chat_metadata(
     rag_output: RagRetrieveOutput | None,
 ) -> dict[str, object]:
@@ -325,4 +384,16 @@ def _rag_output_to_chat_metadata(
         "raw_hit_count": rag_output.rawHitCount,
         "filtered_hit_count": rag_output.filteredHitCount,
         "sources": [chunk.to_source_mapping() for chunk in rag_output.chunks],
+    }
+
+
+def _memory_output_to_chat_metadata(
+    chat_input: ChatInput,
+    memory_items: tuple[MemoryItem, ...],
+) -> dict[str, object]:
+    if not chat_input.capabilities.memory:
+        return {"enabled": False}
+    return {
+        "enabled": True,
+        "read_count": len(memory_items),
     }

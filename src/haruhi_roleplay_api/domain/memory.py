@@ -116,3 +116,25 @@ class MemoryDeleteCommand:
         _require_non_empty(str(self.characterId), "characterId")
         if self.personaMode is not None:
             _require_non_empty(str(self.personaMode), "personaMode")
+
+
+@dataclass(frozen=True, kw_only=True)
+class MemoryReadPolicyInput:
+    appId: AppId
+    userId: UserId
+    characterId: CharacterId
+    personaMode: PersonaModeId
+    enabled: bool
+    allowedTypes: tuple[MemoryType, ...]
+    maxItems: int
+
+    def __post_init__(self) -> None:
+        _require_non_empty(str(self.appId), "appId")
+        _require_non_empty(str(self.userId), "userId")
+        _require_non_empty(str(self.characterId), "characterId")
+        _require_non_empty(str(self.personaMode), "personaMode")
+        for memory_type in self.allowedTypes:
+            if not isinstance(memory_type, MemoryType):
+                raise DTOValidationError("allowedTypes must contain MemoryType")
+        if self.maxItems <= 0:
+            raise DTOValidationError("maxItems must be positive")

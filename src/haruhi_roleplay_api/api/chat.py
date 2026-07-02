@@ -23,6 +23,8 @@ from haruhi_roleplay_api.domain import (
 )
 from haruhi_roleplay_api.ports import (
     ChatModelRouter,
+    MemoryPolicyEngine,
+    MemoryStore,
     PersonaRepository,
     PromptBuilder,
     RagService,
@@ -41,7 +43,10 @@ def post_chat(
     model_router: ChatModelRouter,
     request_id: RequestId | str,
     session_store: SessionStore | None = None,
+    memory_store: MemoryStore | None = None,
+    memory_policy_engine: MemoryPolicyEngine | None = None,
     rag_service: RagService | None = None,
+    memory_read_limit: int = 5,
     debug_trace_enabled: bool = True,
     include_error_details: bool = False,
 ) -> ApiResponse:
@@ -56,7 +61,10 @@ def post_chat(
                 prompt_builder=prompt_builder,
                 model_router=model_router,
                 session_store=session_store,
+                memory_store=memory_store,
+                memory_policy_engine=memory_policy_engine,
                 rag_service=rag_service,
+                memory_read_limit=memory_read_limit,
                 debug_trace_enabled=debug_trace_enabled,
             )
         ).execute(chat_input)

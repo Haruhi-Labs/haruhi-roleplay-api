@@ -60,12 +60,14 @@
 
 ### 启用 Memory
 
-当前 `05.01` 只实现 Memory 管理接口，`/v1/chat` 还不会主动读取或写入 memory。
+当前 Memory 已支持管理查询、删除和 chat 只读策略，但还不会自动写入新记忆。
 
 1. 后端注入 `InMemoryMemoryStore` 或未来的持久化 MemoryStore。
 2. 调用 `GET /v1/memory/{user_id}` 展示同一 app、用户、角色和 preset 下的记忆。
 3. 调用 `DELETE /v1/memory/{user_id}/{memory_id}` 删除指定记忆。
-4. 继续保持 `/v1/chat` 的 `capabilities.memory=false`，直到 memory read/write policy 接入。
+4. Chat 请求中设置 `capabilities.memory=true`。
+5. Orchestrator 通过 MemoryPolicyEngine 判断是否读取。
+6. MemoryStore 按 app、user、character、persona、allowedTypes 和服务端读取上限返回记忆。
 
 注意：
 
@@ -73,6 +75,7 @@
 - 不要把用户每句话都当成记忆。
 - 删除记忆后后续请求不应继续引用。
 - 查询和删除必须携带 `app_id`、`character_id`，避免跨应用或跨角色泄漏。
+- 当前不会自动写入新 memory，写入策略在后续步骤实现。
 
 ## 推荐默认参数
 
