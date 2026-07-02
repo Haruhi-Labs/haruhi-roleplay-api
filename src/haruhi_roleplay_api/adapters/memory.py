@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import UTC, datetime
+from uuid import uuid4
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
-from haruhi_roleplay_api.domain import MemoryDeleteCommand, MemoryItem, MemoryQuery
+from haruhi_roleplay_api.domain import (
+    MemoryDeleteCommand,
+    MemoryId,
+    MemoryItem,
+    MemoryQuery,
+    MemoryWriteCommand,
+)
 
 
 class InMemoryMemoryStore:
@@ -28,6 +36,24 @@ class InMemoryMemoryStore:
                 message="Memory was not found.",
             )
         del self._items[str(command.memoryId)]
+        return item
+
+    def add_memory(self, command: MemoryWriteCommand) -> MemoryItem:
+        now = _now()
+        item = MemoryItem(
+            memoryId=MemoryId(f"mem-{uuid4().hex}"),
+            appId=command.appId,
+            userId=command.userId,
+            characterId=command.characterId,
+            personaMode=command.personaMode,
+            type=command.candidate.type,
+            content=command.candidate.content,
+            confidence=command.candidate.confidence,
+            reason=command.candidate.reason,
+            createdAt=now,
+            updatedAt=now,
+        )
+        self._items[str(item.memoryId)] = item
         return item
 
 
@@ -62,3 +88,7 @@ def _persona_mode_value(
     value: MemoryItem | MemoryQuery | MemoryDeleteCommand,
 ) -> str | None:
     return str(value.personaMode) if value.personaMode is not None else None
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()

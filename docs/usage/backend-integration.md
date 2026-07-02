@@ -60,7 +60,7 @@
 
 ### 启用 Memory
 
-当前 Memory 已支持管理查询、删除和 chat 只读策略，但还不会自动写入新记忆。
+当前 Memory 已支持管理查询、删除、chat 读取和显式候选写入。
 
 1. 后端注入 `InMemoryMemoryStore` 或未来的持久化 MemoryStore。
 2. 调用 `GET /v1/memory/{user_id}` 展示同一 app、用户、角色和 preset 下的记忆。
@@ -68,6 +68,8 @@
 4. Chat 请求中设置 `capabilities.memory=true`。
 5. Orchestrator 通过 MemoryPolicyEngine 判断是否读取。
 6. MemoryStore 按 app、user、character、persona、allowedTypes 和服务端读取上限返回记忆。
+7. 如果后端已经得到明确、稳定、低敏感的候选记忆，可在 `metadata.memory_write` 中传入候选。
+8. MemoryPolicyEngine 判断是否允许写入，通过后写入 MemoryStore。
 
 注意：
 
@@ -75,7 +77,9 @@
 - 不要把用户每句话都当成记忆。
 - 删除记忆后后续请求不应继续引用。
 - 查询和删除必须携带 `app_id`、`character_id`，避免跨应用或跨角色泄漏。
-- 当前不会自动写入新 memory，写入策略在后续步骤实现。
+- 不要把普通聊天全文直接塞进 `metadata.memory_write`。
+- 写入候选必须包含 `type`、`content`、`reason`、`confidence`。
+- 默认策略会拒绝临时闲聊、敏感信息、低置信度和 persona 不允许的类型。
 
 ## 推荐默认参数
 

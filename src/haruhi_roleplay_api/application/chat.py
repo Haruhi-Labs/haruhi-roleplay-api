@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from time import perf_counter
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
@@ -15,6 +16,9 @@ from haruhi_roleplay_api.domain import (
     MemoryQuery,
     MemoryReadPolicyInput,
     MemoryType,
+    MemoryWriteCandidate,
+    MemoryWriteCommand,
+    MemoryWritePolicyInput,
     ModelResponse,
     PersonaPreset,
     PromptBuildInput,
@@ -117,6 +121,8 @@ class RoleplayOrchestrator:
         if session is not None:
             _record_event(events, "write_session_messages")
             self._write_session_messages(chat_input, model_response.reply)
+        _record_event(events, "write_memory")
+        written_memories = self._write_memory_for_chat(chat_input, persona)
         _record_event(events, "build_response")
 
         return ChatOutput(
@@ -131,7 +137,11 @@ class RoleplayOrchestrator:
                 "model": model_response.model,
             },
             rag=_rag_output_to_chat_metadata(rag_output),
-            memory=_memory_output_to_chat_metadata(chat_input, memory_items),
+            memory=_memory_output_to_chat_metadata(
+                chat_input,
+                memory_items,
+                written_memories,
+            ),
             safety={
                 "enabled": chat_input.capabilities.safetyFilter,
                 "blocked": False,
@@ -142,6 +152,7 @@ class RoleplayOrchestrator:
                 persona_source=_persona_source(self._persona_repository),
                 session_read_count=len(recent_messages),
                 memory_read_count=len(memory_items),
+                memory_write_count=len(written_memories),
                 rag_output=rag_output,
                 started_at=started_at,
                 events=tuple(events),
@@ -216,6 +227,47 @@ class RoleplayOrchestrator:
                 limit=policy_input.maxItems,
             )
         )
+
+    def _write_memory_for_chat(
+        self,
+        chat_input: ChatInput,
+        persona: PersonaPreset,
+    ) -> tuple[MemoryItem, ...]:
+        if not chat_input.capabilities.memory:
+            return ()
+        if self._memory_store is None:
+            raise DTOValidationError("memoryStore is required for memory")
+
+        candidates = _memory_write_candidates(chat_input)
+        if not candidates:
+            return ()
+
+        written: list[MemoryItem] = []
+        allowed_types = _memory_types_for_persona(persona)
+        for candidate in candidates:
+            policy_input = MemoryWritePolicyInput(
+                appId=chat_input.appId,
+                userId=chat_input.userId,
+                characterId=chat_input.characterId,
+                personaMode=chat_input.personaMode,
+                enabled=chat_input.capabilities.memory,
+                allowedTypes=allowed_types,
+                candidate=candidate,
+            )
+            if not self._memory_policy_engine.should_write(policy_input):
+                continue
+            written.append(
+                self._memory_store.add_memory(
+                    MemoryWriteCommand(
+                        appId=chat_input.appId,
+                        userId=chat_input.userId,
+                        characterId=chat_input.characterId,
+                        personaMode=chat_input.personaMode,
+                        candidate=candidate,
+                    )
+                )
+            )
+        return tuple(written)
 
     def _rag_for_chat(
         self,
@@ -298,6 +350,7 @@ def _debug_trace_for_chat(
     persona_source: str,
     session_read_count: int,
     memory_read_count: int,
+    memory_write_count: int,
     rag_output: RagRetrieveOutput | None,
     started_at: float,
     events: tuple[str, ...],
@@ -312,6 +365,7 @@ def _debug_trace_for_chat(
         personaSource=persona_source,
         sessionReadCount=session_read_count,
         memoryReadCount=memory_read_count,
+        memoryWriteCount=memory_write_count,
         ragProvider=rag_output.provider if rag_output is not None else None,
         ragRawHitCount=rag_output.rawHitCount if rag_output is not None else 0,
         ragFilteredHitCount=(
@@ -372,6 +426,22 @@ def _memory_types_for_persona(persona: PersonaPreset) -> tuple[MemoryType, ...]:
         ) from exc
 
 
+def _memory_write_candidates(chat_input: ChatInput) -> tuple[MemoryWriteCandidate, ...]:
+    if not isinstance(chat_input.metadata, Mapping):
+        raise DTOValidationError("metadata must be an object")
+    raw_candidates = chat_input.metadata.get("memory_write")
+    if raw_candidates is None:
+        return ()
+    if isinstance(raw_candidates, Mapping):
+        return (MemoryWriteCandidate.from_mapping(raw_candidates),)
+    if isinstance(raw_candidates, (list, tuple)):
+        return tuple(
+            MemoryWriteCandidate.from_mapping(raw_candidate)
+            for raw_candidate in raw_candidates
+        )
+    raise DTOValidationError("metadata.memory_write must be an object or list")
+
+
 def _rag_output_to_chat_metadata(
     rag_output: RagRetrieveOutput | None,
 ) -> dict[str, object]:
@@ -390,10 +460,12 @@ def _rag_output_to_chat_metadata(
 def _memory_output_to_chat_metadata(
     chat_input: ChatInput,
     memory_items: tuple[MemoryItem, ...],
+    written_memories: tuple[MemoryItem, ...],
 ) -> dict[str, object]:
     if not chat_input.capabilities.memory:
         return {"enabled": False}
     return {
         "enabled": True,
         "read_count": len(memory_items),
+        "write_count": len(written_memories),
     }

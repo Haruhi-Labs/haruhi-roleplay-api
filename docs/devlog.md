@@ -297,3 +297,24 @@
 ### 下一步
 
 - 实现 `05.03 Memory Write Policy`，为自动写入记忆增加明确策略和测试。
+
+## 2026-07-02：Memory Write Policy
+
+### 完成
+
+- 添加 `MemoryWriteCandidate`、`MemoryWritePolicyInput` 和 `MemoryWriteCommand`。
+- `MemoryStore` 增加 `add_memory`。
+- `InMemoryMemoryStore` 支持写入 policy-approved memory，并保存 reason。
+- `DefaultMemoryPolicyEngine` 增加 `should_write`。
+- Chat 在模型回复完成后读取 `metadata.memory_write` 显式候选，经过策略后写入。
+- ChatOutput 返回 `memory.write_count`。
+- Debug trace 返回 `memoryWriteCount`。
+- 默认策略拒绝临时闲聊、敏感信息、低置信度和 persona 不允许的类型。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+
+### 下一步
+
+- 进入 `06.01 Stream Chat` 或先补充更完整的 memory 持久化 adapter。

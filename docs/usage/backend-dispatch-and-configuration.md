@@ -156,7 +156,7 @@ Provider Pack 是一组后端实现绑定。
 | -------------------- | ------ | ---------------- |
 | MEMORY_PROVIDER      | sqlite | memory provider  |
 | MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量 |
-| MEMORY_WRITE_ENABLED | true   | 是否允许自动写入 |
+| MEMORY_WRITE_ENABLED | true   | 是否允许显式候选写入 |
 
 ### RAG
 
@@ -210,7 +210,7 @@ Provider Pack 是一组后端实现绑定。
 13. ChatModelProvider 生成回复。
 14. SafetyGuard 检查输出。
 15. SessionStore 写入完整消息。
-16. 当前不自动写入 memory，后续由 MemoryPolicyEngine 判断是否写入。
+16. 如果存在 `metadata.memory_write`，MemoryPolicyEngine 判断是否写入。
 17. Logger 写入请求摘要。
 18. API 层把内部 `camelCase` 转成外部 `snake_case` 响应。
 
@@ -220,7 +220,7 @@ Provider Pack 是一组后端实现绑定。
 | ----------------- | --------------------- | ------------------------------------ |
 | continuousSession | 不读写 session 上下文 | 读最近消息，回复后写入消息           |
 | rag               | 不执行 RAG            | 根据 persona filter 检索 chunks      |
-| memory            | 不读写长期记忆        | 当前读取相关记忆；自动写入是后续能力 |
+| memory            | 不读写长期记忆        | 读取相关记忆，并审核显式写入候选 |
 | safetyFilter      | 只做基础校验          | 执行输入和输出安全检查               |
 | debugTrace        | 不返回 debug          | 返回裁剪后的调试摘要                 |
 | stream            | 返回完整 reply        | 返回 stream event                    |
@@ -237,7 +237,7 @@ Provider Pack 是一组后端实现绑定。
 | `APP_ENV=local`               | Ollama 或本地 OpenAI-compatible |
 | `generation.model` 有合法别名 | 使用别名映射                    |
 | RAG query rewrite             | cheap_fast_model                |
-| memory policy 判断            | cheap_fast_model                |
+| memory policy 判断            | 当前使用规则策略，不调用模型    |
 | 高质量角色扮演                | high_quality_model              |
 | provider 失败                 | fallback_model                  |
 
@@ -272,8 +272,9 @@ Memory 调度需要避免污染：
 3. MemoryPolicyEngine 判断是否读取。
 4. MemoryStore 按 app、user、character、persona 查询。
 5. PromptBuilder 只接收通过 policy 的 memory items。
-6. 当前实现到读取为止，不自动写入。
-7. 后续写入时必须记录 type、reason、confidence。
+6. 如果 `metadata.memory_write` 存在，MemoryPolicyEngine 判断是否写入。
+7. 写入候选必须记录 type、reason、confidence。
+8. 默认策略拒绝临时闲聊、敏感信息、低置信度和不被 persona 允许的类型。
 
 ## 后端实现步骤
 

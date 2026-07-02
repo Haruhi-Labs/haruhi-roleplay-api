@@ -39,12 +39,15 @@
 | language     | 是   | 输出语言      |
 | capabilities | 是   | 能力开关      |
 | generation   | 否   | 生成参数      |
+| metadata     | 否   | 调用方透传对象 |
 
 当 `capabilities.continuous_session=true` 时，`session_id` 必须来自 `POST /v1/sessions` 创建的 active session，并且与当前 `app_id`、`user_id`、`character_id`、`persona_mode` 匹配。
 
 当 `capabilities.rag=true` 时，服务端必须已注入 `RagService`。当前实现支持 Fake RAG retrieve，用 persona policy 过滤固定 chunks，并返回 source 摘要；真实 embedding、向量库和 rerank 尚未接入。
 
-当 `capabilities.memory=true` 时，服务端必须已注入 `MemoryStore`。当前实现只读取同一 `app_id`、`user_id`、`character_id`、`persona_mode` 下的有限记忆，并按 persona `memoryPolicy.allowedTypes` 过滤，不自动写入新记忆。
+当 `capabilities.memory=true` 时，服务端必须已注入 `MemoryStore`。服务会读取同一 `app_id`、`user_id`、`character_id`、`persona_mode` 下的有限记忆，并按 persona `memoryPolicy.allowedTypes` 过滤。
+
+写入长期记忆时，调用方必须在 `metadata.memory_write` 中提供显式候选。候选必须包含 `type`、`content`、`reason`、`confidence`。默认策略只接受稳定偏好、关系或约定类信息，并拒绝临时闲聊和敏感信息。
 
 响应字段：
 
@@ -79,6 +82,7 @@
 | ---------- | --------------------- |
 | enabled    | 是否执行长期记忆读取  |
 | read_count | 本次读入 Prompt 的数量 |
+| write_count | 本次写入长期记忆的数量 |
 
 当 `capabilities.debug_trace=true` 且服务端允许返回 debug 时，`debug` 只返回安全摘要：
 
@@ -223,10 +227,11 @@ memory item 字段：
 | type          | 记忆类型     |
 | content       | 记忆内容     |
 | confidence    | 置信度       |
+| reason        | 写入原因     |
 | created_at    | 创建时间     |
 | updated_at    | 更新时间     |
 
-该接口用于管理和展示记忆。`/v1/chat` 在 `capabilities.memory=true` 时会通过服务端注入的 `MemoryStore` 读取有限记忆，但不会通过该查询接口反向调用。
+该接口用于管理和展示记忆。`/v1/chat` 在 `capabilities.memory=true` 时会通过服务端注入的 `MemoryStore` 读取和写入记忆，但不会通过该查询接口反向调用。
 
 ### DELETE /v1/memory/{user_id}/{memory_id}
 

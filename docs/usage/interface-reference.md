@@ -51,7 +51,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | debug_trace | boolean | 是否返回调试信息 |
 | stream | boolean | 非流式接口通常为 false |
 
-当前最小 `/v1/chat` 实现支持非流式请求、连续会话、RAG retrieve 和 memory read policy。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag=true` 时服务端必须注入 `RagService`。`memory=true` 时服务端必须注入 `MemoryStore`，并按 persona 的 `memoryPolicy.allowedTypes` 和服务端读取上限筛选记忆。`stream` 当前仍必须为 false。
+当前最小 `/v1/chat` 实现支持非流式请求、连续会话、RAG retrieve、memory read policy 和保守 memory write policy。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag=true` 时服务端必须注入 `RagService`。`memory=true` 时服务端必须注入 `MemoryStore`，并按 persona 的 `memoryPolicy.allowedTypes` 和服务端读取上限筛选记忆。`stream` 当前仍必须为 false。
 
 ### generation
 
@@ -83,7 +83,18 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 
 `rag.enabled=false` 时只返回 `{"enabled": false}`。`rag.enabled=true` 时返回 `provider`、`hit_count`、`raw_hit_count`、`filtered_hit_count` 和 `sources`。每个 source 至少包含 `document_id`、`chunk_id`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。
 
-`memory.enabled=false` 时只返回 `{"enabled": false}`。`memory.enabled=true` 时返回 `read_count`，表示本次读入 PromptBuilder 的长期记忆数量。当前不会自动写入新记忆。
+`memory.enabled=false` 时只返回 `{"enabled": false}`。`memory.enabled=true` 时返回 `read_count` 和 `write_count`。当前不会从普通聊天内容中自由抽取记忆，只有显式候选才可能写入。
+
+如果需要写入记忆，调用方必须在 `metadata.memory_write` 传入显式候选：
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| type | 是 | 记忆类型，必须符合 persona `memoryPolicy.allowedTypes` |
+| content | 是 | 候选记忆内容 |
+| reason | 是 | 写入原因，例如“用户明确表达稳定偏好” |
+| confidence | 是 | 置信度，默认策略要求不低于 0.7 |
+
+`metadata.memory_write` 可以是单个对象或对象列表。默认策略会拒绝临时闲聊、敏感信息、低置信度和不被当前 persona 允许的类型。写入结果通过 `memory.write_count` 返回。
 
 `debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`latencyMs` 和 `events`。
 
@@ -287,6 +298,7 @@ item 字段：
 | type | 记忆类型 |
 | content | 记忆内容 |
 | confidence | 置信度 |
+| reason | 写入原因 |
 | created_at | 创建时间 |
 | updated_at | 更新时间 |
 
@@ -304,7 +316,7 @@ item 字段：
 | character_id | 是 | 角色 ID |
 | persona_mode | 否 | 角色 preset；必须与记忆匹配 |
 
-上下文不匹配或记忆不存在时返回 `MEMORY_NOT_FOUND`。当前删除是手动管理能力；chat 只会在 `capabilities.memory=true` 时读取有限记忆，不会自动写入 memory。
+上下文不匹配或记忆不存在时返回 `MEMORY_NOT_FOUND`。当前删除是手动管理能力；chat 只会在 `capabilities.memory=true` 时读取有限记忆，并只写入通过 policy 的显式候选。
 
 ## 错误响应
 

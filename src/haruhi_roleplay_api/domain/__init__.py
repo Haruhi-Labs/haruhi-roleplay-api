@@ -21,6 +21,9 @@ from haruhi_roleplay_api.domain.memory import (
     MemoryQuery,
     MemoryReadPolicyInput,
     MemoryType,
+    MemoryWriteCandidate,
+    MemoryWriteCommand,
+    MemoryWritePolicyInput,
 )
 from haruhi_roleplay_api.domain.persona import (
     CharacterProfile,
@@ -79,6 +82,9 @@ __all__ = [
     "MemoryQuery",
     "MemoryReadPolicyInput",
     "MemoryType",
+    "MemoryWriteCandidate",
+    "MemoryWriteCommand",
+    "MemoryWritePolicyInput",
     "MessageId",
     "ModelMessage",
     "ModelRequest",

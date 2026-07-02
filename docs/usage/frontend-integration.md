@@ -97,7 +97,7 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 ## Memory 管理 UI
 
-当前前端可以通过业务后端展示和删除用户长期记忆。产品允许时，也可以在 chat 请求中开启 `capabilities.memory=true`，由服务端按策略读取有限记忆。
+当前前端可以通过业务后端展示和删除用户长期记忆。产品允许时，也可以在 chat 请求中开启 `capabilities.memory=true`，由服务端按策略读取有限记忆，并写入通过 policy 的显式候选。
 
 推荐流程：
 
@@ -106,7 +106,7 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 3. UI 展示 `type`、`content`、`confidence`、`updated_at`。
 4. 用户删除时，由业务后端调用 `DELETE /v1/memory/{user_id}/{memory_id}`。
 
-前端不要自己拼接或新增 memory，也不要把 memory 内容直接塞进用户消息。写入策略会在后续 Memory Policy 中实现。
+前端不要自己拼接或新增 memory，也不要把 memory 内容直接塞进用户消息。若产品需要写入候选，应由业务后端生成 `metadata.memory_write`，并携带明确 reason 和 confidence。
 
 ## 前端不要做什么
 
