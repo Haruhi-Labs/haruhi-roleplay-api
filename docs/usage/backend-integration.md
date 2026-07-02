@@ -42,6 +42,22 @@
 - App 内长期对话。
 - 游戏 NPC 连续交互。
 
+### 流式对话
+
+1. 调用方收到用户输入。
+2. 调用 `POST /v1/chat/stream`。
+3. 业务后端把 `data.events` 中的事件逐条转成 SSE 或等价流式响应。
+4. 前端收到 `delta` 时追加文本。
+5. 收到 `done` 后结束 loading，并使用 `usage`、`rag`、`memory`、`debug` 做界面和联调处理。
+
+当前框架无关 handler 用数组表达 stream event，真实 HTTP 层负责逐条发送。流式接口复用同一 Orchestrator，正常结束后仍会写入完整 assistant message；provider 中途失败时返回 `error` event。
+
+适合：
+
+- Web 打字机效果。
+- 长回复。
+- 需要降低等待感的角色对话。
+
 ### 启用 RAG
 
 1. 先通过 `POST /v1/rag/documents` 导入资料。

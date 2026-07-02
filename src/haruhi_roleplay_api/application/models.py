@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
@@ -10,6 +11,7 @@ from haruhi_roleplay_api.domain import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    ModelStreamEvent,
 )
 from haruhi_roleplay_api.ports import ChatModelProvider
 
@@ -62,6 +64,20 @@ class ModelRouter:
     ) -> ModelResponse:
         decision = self.route(generation)
         return self._provider.generate(
+            ModelRequest(
+                messages=messages,
+                model=decision.model,
+                generation=generation,
+            )
+        )
+
+    def stream(
+        self,
+        messages: tuple[ModelMessage, ...],
+        generation: GenerationConfig | None = None,
+    ) -> Iterable[ModelStreamEvent]:
+        decision = self.route(generation)
+        return self._provider.stream(
             ModelRequest(
                 messages=messages,
                 model=decision.model,

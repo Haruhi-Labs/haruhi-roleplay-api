@@ -193,7 +193,7 @@ Provider Pack 是一组后端实现绑定。
 
 ## Chat 请求内部调度
 
-收到 `POST /v1/chat` 后的推荐调度：
+收到 `POST /v1/chat` 或 `POST /v1/chat/stream` 后的推荐调度：
 
 1. API 层校验请求字段。
 2. 把 `persona_mode` 转成内部 `personaMode`。
@@ -207,12 +207,14 @@ Provider Pack 是一组后端实现绑定。
 10. PromptBuilder 组装 messages。
 11. SafetyGuard 检查输入。
 12. ModelRouter 根据 generation 和配置选择模型。
-13. ChatModelProvider 生成回复。
-14. SafetyGuard 检查输出。
-15. SessionStore 写入完整消息。
-16. 如果存在 `metadata.memory_write`，MemoryPolicyEngine 判断是否写入。
-17. Logger 写入请求摘要。
-18. API 层把内部 `camelCase` 转成外部 `snake_case` 响应。
+13. 非流式接口调用 `ChatModelProvider.generate`，流式接口调用 `ChatModelProvider.stream`。
+14. 流式接口把 provider delta 转成统一 `delta` event，并累积完整 assistant reply。
+15. SafetyGuard 检查输出。
+16. SessionStore 写入完整消息。
+17. 如果存在 `metadata.memory_write`，MemoryPolicyEngine 判断是否写入。
+18. Logger 写入请求摘要。
+19. 非流式接口返回完整响应，流式接口返回或发送 `start/source/delta/usage/done/error` events。
+20. API 层把内部 `camelCase` 转成外部 `snake_case` 响应。
 
 ## 能力开关如何影响调度
 

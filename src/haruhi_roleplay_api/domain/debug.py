@@ -83,6 +83,7 @@ class DebugTrace:
             "modelRoute": self.modelRoute,
             "model": self.modelRoute,
             "safetyEnabled": bool(self.capabilities.get("safetyFilter", True)),
+            "streamEnabled": bool(self.capabilities.get("stream", False)),
             "safetyAction": self.safetyAction,
             "latencyMs": self.latencyMs,
             "events": list(self.events),

@@ -318,3 +318,23 @@
 ### 下一步
 
 - 进入 `06.01 Stream Chat` 或先补充更完整的 memory 持久化 adapter。
+
+## 2026-07-02：Stream Chat
+
+### 完成
+
+- 添加 `ModelStreamEvent` 和 `ChatStreamEvent`。
+- `ChatModelProvider` 和 `ModelRouter` 增加 `stream` 契约。
+- `FakeModelProvider` 支持确定性 delta 输出。
+- `LocalOpenAICompatibleModelProvider` 支持最小 OpenAI-compatible SSE delta 解析。
+- 添加 `POST /v1/chat/stream` 框架无关 handler，返回 `data.events`。
+- 流式 Chat 复用同一 Orchestrator 前置编排，不改变 session、RAG、memory 语义。
+- 正常流式结束后写入完整 assistant message，中途 provider 失败时返回 `error` event。
+
+### 验证
+
+- `uv run python -m unittest tests.test_stream_chat tests.test_local_model_provider tests.test_debug_trace_v1` 通过。
+
+### 下一步
+
+- 进入 `06.02 Cloud Provider Pack`，或先补真实 HTTP/SSE adapter。

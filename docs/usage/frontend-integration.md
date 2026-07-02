@@ -64,12 +64,14 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 1. 用户输入消息。
 2. 前端请求业务后端的 stream endpoint。
-3. 业务后端转发 Roleplay API 的 stream event。
+3. 业务后端调用 `POST /v1/chat/stream`，并把 Roleplay API 的 stream event 转发给前端。
 4. 前端收到 `start` 后创建 assistant 消息占位。
 5. 前端收到 `delta` 后追加文本。
 6. 前端收到 `source` 后缓存引用来源。
 7. 前端收到 `done` 后结束 loading。
 8. 前端收到 `error` 后展示失败状态。
+
+当前项目的框架无关 handler 以 `data.events` 数组表达 stream event；业务后端接入真实 HTTP 框架后，应逐条转成 SSE 或等价流式协议。
 
 适合：
 

@@ -104,11 +104,31 @@
 | modelProvider       | 模型 provider              |
 | modelRoute          | 实际模型路由结果           |
 | safetyEnabled       | 是否启用安全检查           |
+| streamEnabled       | 是否启用流式输出           |
 | safetyAction        | 安全处理动作               |
 | latencyMs           | 请求总耗时毫秒             |
 | events              | 请求阶段名称列表           |
 
 `debug` 不返回完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
+
+### POST /v1/chat/stream
+
+发送一次流式角色扮演请求。请求字段与 `/v1/chat` 一致，服务端会把 `capabilities.stream` 视为 true。流式接口复用同一个 Orchestrator 和 PromptBuilder，不改变 session、RAG、memory 或 safety 语义。
+
+当前框架无关 API handler 返回 `data.events` 数组；真实 HTTP adapter 应把数组中的每个对象编码为 SSE 或等价流式事件。
+
+事件格式：
+
+| event  | data 说明 |
+| ------ | --------- |
+| start  | `request_id`、`session_id`、`character_id`、`persona_mode` |
+| source | 单条 RAG source 摘要 |
+| delta  | `text` 增量文本 |
+| usage  | token 使用、provider 和 model |
+| done   | 完整 chat 结果摘要，包含最终 `reply` |
+| error  | `error.code` 和 `error.message` |
+
+正常事件顺序为 `start -> source* -> delta+ -> usage -> done`。模型开始前失败时返回普通错误响应；模型开始后失败时返回 `error` event。正常结束后服务端会累积完整 assistant reply，并按连续会话规则保存完整消息。
 
 ## Persona
 

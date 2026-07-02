@@ -49,9 +49,9 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | continuous_session | boolean | 是否启用连续会话 |
 | safety_filter | boolean | 是否启用安全检查 |
 | debug_trace | boolean | 是否返回调试信息 |
-| stream | boolean | 非流式接口通常为 false |
+| stream | boolean | `/v1/chat` 必须为 false；`/v1/chat/stream` 会强制视为 true |
 
-当前最小 `/v1/chat` 实现支持非流式请求、连续会话、RAG retrieve、memory read policy 和保守 memory write policy。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag=true` 时服务端必须注入 `RagService`。`memory=true` 时服务端必须注入 `MemoryStore`，并按 persona 的 `memoryPolicy.allowedTypes` 和服务端读取上限筛选记忆。`stream` 当前仍必须为 false。
+当前最小 `/v1/chat` 实现支持非流式请求、连续会话、RAG retrieve、memory read policy 和保守 memory write policy。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag=true` 时服务端必须注入 `RagService`。`memory=true` 时服务端必须注入 `MemoryStore`，并按 persona 的 `memoryPolicy.allowedTypes` 和服务端读取上限筛选记忆。非流式 `/v1/chat` 不接受 `stream=true`，需要流式输出时使用 `/v1/chat/stream`。
 
 ### generation
 
@@ -96,24 +96,40 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 
 `metadata.memory_write` 可以是单个对象或对象列表。默认策略会拒绝临时闲聊、敏感信息、低置信度和不被当前 persona 允许的类型。写入结果通过 `memory.write_count` 返回。
 
-`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`latencyMs` 和 `events`。
+`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`streamEnabled`、`latencyMs` 和 `events`。
 
 前端只能把 `debug` 用于开发者面板或联调日志，不要展示给普通用户。`debug` 不包含完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
 
 ## Chat Stream: POST /v1/chat/stream
 
-用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，但 `capabilities.stream` 应为 true。
+用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，服务端会把 `capabilities.stream` 强制视为 true。模型开始前失败时返回普通错误响应；模型开始后失败时返回 `error` event。
+
+当前框架无关 handler 返回 `data.events` 数组；真实 HTTP adapter 应逐条编码为 SSE 或等价流式协议。
 
 ### Stream Event
 
 | event | data |
 | --- | --- |
-| start | request_id、session_id |
-| source | RAG source 摘要 |
-| delta | 增量文本 |
-| usage | token 使用 |
-| done | 完成标记 |
-| error | 错误码和错误信息 |
+| start | `request_id`、`session_id`、`character_id`、`persona_mode` |
+| source | `source`，单条 RAG source 摘要 |
+| delta | `text`，模型增量文本 |
+| usage | `prompt_tokens`、`completion_tokens`、`total_tokens`、`provider`、`model` |
+| done | `request_id`、`session_id`、`character_id`、`persona_mode`、`reply`、`rag`、`memory`、`safety`、`debug` |
+| error | `request_id` 和 `error.code`、`error.message` |
+
+正常事件顺序：
+
+```text
+start -> source* -> delta+ -> usage -> done
+```
+
+中途 provider 失败时：
+
+```text
+start -> source* -> delta* -> error
+```
+
+流式请求仍复用同一个 Orchestrator、PromptBuilder、RAG、memory 和 session 语义。正常结束后服务端会累积完整 assistant reply，并按连续会话规则写入完整消息。
 
 ## Session: POST /v1/sessions
 
