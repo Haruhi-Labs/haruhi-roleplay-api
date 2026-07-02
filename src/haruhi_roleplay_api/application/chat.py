@@ -11,7 +11,11 @@ from haruhi_roleplay_api.domain import (
     DebugTrace,
     DTOValidationError,
     ModelResponse,
+    PersonaPreset,
     PromptBuildInput,
+    RagRetrieveFilters,
+    RagRetrieveInput,
+    RagRetrieveOutput,
     RequestId,
     Session,
     Visibility,
@@ -21,6 +25,7 @@ from haruhi_roleplay_api.ports import (
     ChatModelRouter,
     PersonaRepository,
     PromptBuilder,
+    RagService,
     SessionStore,
 )
 
@@ -41,14 +46,18 @@ class RoleplayOrchestrator:
         prompt_builder: PromptBuilder,
         model_router: ChatModelRouter,
         session_store: SessionStore | None = None,
+        rag_service: RagService | None = None,
         recent_message_limit: int = 12,
+        rag_top_k: int = 5,
         debug_trace_enabled: bool = True,
     ) -> None:
         self._persona_repository = persona_repository
         self._prompt_builder = prompt_builder
         self._model_router = model_router
         self._session_store = session_store
+        self._rag_service = rag_service
         self._recent_message_limit = recent_message_limit
+        self._rag_top_k = rag_top_k
         self._debug_trace_enabled = debug_trace_enabled
 
     def run(self, chat_input: ChatInput) -> ChatOutput:
@@ -70,6 +79,8 @@ class RoleplayOrchestrator:
         session = self._session_for_chat(chat_input)
         _record_event(events, "read_session_messages")
         recent_messages = self._recent_messages(chat_input)
+        _record_event(events, "retrieve_rag")
+        rag_output = self._rag_for_chat(chat_input, persona)
         _record_event(events, "build_prompt")
         prompt_output = self._prompt_builder.build(
             PromptBuildInput(
@@ -79,6 +90,7 @@ class RoleplayOrchestrator:
                 capabilities=chat_input.capabilities,
                 generation=chat_input.generation,
                 recentMessages=recent_messages,
+                ragChunks=rag_output.chunks if rag_output is not None else (),
             )
         )
         _record_event(events, "generate_model")
@@ -102,7 +114,7 @@ class RoleplayOrchestrator:
                 "provider": model_response.provider,
                 "model": model_response.model,
             },
-            rag={"enabled": False},
+            rag=_rag_output_to_chat_metadata(rag_output),
             memory={"enabled": False},
             safety={
                 "enabled": chat_input.capabilities.safetyFilter,
@@ -113,6 +125,7 @@ class RoleplayOrchestrator:
                 model_response=model_response,
                 persona_source=_persona_source(self._persona_repository),
                 session_read_count=len(recent_messages),
+                rag_output=rag_output,
                 started_at=started_at,
                 events=tuple(events),
                 enabled=self._debug_trace_enabled,
@@ -155,12 +168,32 @@ class RoleplayOrchestrator:
             content=reply,
         )
 
+    def _rag_for_chat(
+        self,
+        chat_input: ChatInput,
+        persona: PersonaPreset,
+    ) -> RagRetrieveOutput | None:
+        if not chat_input.capabilities.rag:
+            return None
+        if self._rag_service is None:
+            raise DTOValidationError("ragService is required for RAG")
+        return self._rag_service.retrieve(
+            RagRetrieveInput(
+                appId=chat_input.appId,
+                userId=chat_input.userId,
+                characterId=chat_input.characterId,
+                personaMode=chat_input.personaMode,
+                query=chat_input.message,
+                topK=self._rag_top_k,
+                filters=_rag_filters_for_chat(chat_input, persona),
+                debug=chat_input.capabilities.debugTrace,
+            )
+        )
+
 
 def _ensure_v1_capabilities(chat_input: ChatInput) -> None:
     if chat_input.capabilities.stream:
         raise DTOValidationError("capabilities.stream is not supported by /v1/chat")
-    if chat_input.capabilities.rag:
-        raise DTOValidationError("capabilities.rag is not supported by chat v1")
     if chat_input.capabilities.memory:
         raise DTOValidationError("capabilities.memory is not supported by chat v1")
 
@@ -217,6 +250,7 @@ def _debug_trace_for_chat(
     model_response: ModelResponse,
     persona_source: str,
     session_read_count: int,
+    rag_output: RagRetrieveOutput | None,
     started_at: float,
     events: tuple[str, ...],
     enabled: bool,
@@ -229,6 +263,11 @@ def _debug_trace_for_chat(
         personaMode=chat_input.personaMode,
         personaSource=persona_source,
         sessionReadCount=session_read_count,
+        ragProvider=rag_output.provider if rag_output is not None else None,
+        ragRawHitCount=rag_output.rawHitCount if rag_output is not None else 0,
+        ragFilteredHitCount=(
+            rag_output.filteredHitCount if rag_output is not None else 0
+        ),
         modelProvider=model_response.provider,
         modelRoute=model_response.model,
         safetyAction="allow",
@@ -260,3 +299,30 @@ def _record_event(events: list[str], stage: str) -> None:
 
 def _elapsed_ms(started_at: float) -> int:
     return max(0, round((perf_counter() - started_at) * 1000))
+
+
+def _rag_filters_for_chat(
+    chat_input: ChatInput,
+    persona: PersonaPreset,
+) -> RagRetrieveFilters:
+    return RagRetrieveFilters(
+        sourceTypes=tuple(str(item) for item in persona.ragPolicy.get("sourceTypes", ())),
+        timelines=persona.knowledgeBoundary.allowedTimelines,
+        spoilerLevelMax=persona.knowledgeBoundary.spoilerLevel,
+        language=chat_input.language,
+    )
+
+
+def _rag_output_to_chat_metadata(
+    rag_output: RagRetrieveOutput | None,
+) -> dict[str, object]:
+    if rag_output is None:
+        return {"enabled": False}
+    return {
+        "enabled": True,
+        "provider": rag_output.provider,
+        "hit_count": len(rag_output.chunks),
+        "raw_hit_count": rag_output.rawHitCount,
+        "filtered_hit_count": rag_output.filteredHitCount,
+        "sources": [chunk.to_source_mapping() for chunk in rag_output.chunks],
+    }

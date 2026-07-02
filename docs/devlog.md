@@ -218,3 +218,23 @@
 ### 下一步
 
 - 实现 `04.02 Fake RAG Retrieve`，用固定 chunks 验证 RAG 开关、filter 和 PromptBuilder 融合。
+
+## 2026-07-02：Fake RAG Retrieve
+
+### 完成
+
+- 添加 `RagService` port。
+- 添加 `RagRetrieveInput`、`RagRetrieveFilters`、`RagChunk` 和 `RagRetrieveOutput`。
+- 添加 `FakeRagService`，用固定 chunks 验证 metadata filter。
+- Chat Orchestrator 在 `rag=true` 时调用 RagService，并把 chunks 交给 PromptBuilder。
+- PromptBuilder 支持插入 RAG chunk 摘要段。
+- ChatOutput 返回 RAG provider、hit count 和 source 摘要。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 `04.03 Local RAG v1`，在本地 provider 中接入真实文档、chunk 和检索。

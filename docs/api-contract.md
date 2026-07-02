@@ -42,6 +42,8 @@
 
 当 `capabilities.continuous_session=true` 时，`session_id` 必须来自 `POST /v1/sessions` 创建的 active session，并且与当前 `app_id`、`user_id`、`character_id`、`persona_mode` 匹配。
 
+当 `capabilities.rag=true` 时，服务端必须已注入 `RagService`。当前实现支持 Fake RAG retrieve，用 persona policy 过滤固定 chunks，并返回 source 摘要；真实 embedding、向量库和 rerank 尚未接入。
+
 响应字段：
 
 | 字段         | 说明        |
@@ -55,6 +57,19 @@
 | rag          | RAG 摘要    |
 | memory       | 记忆摘要    |
 | debug        | 调试摘要    |
+
+`rag` 字段：
+
+| 字段               | 说明                      |
+| ------------------ | ------------------------- |
+| enabled            | 是否执行 RAG              |
+| provider           | RAG provider 名称         |
+| hit_count          | 返回给 PromptBuilder 的数 |
+| raw_hit_count      | provider 原始候选数       |
+| filtered_hit_count | metadata 过滤后候选数     |
+| sources            | source 摘要列表           |
+
+`sources` 至少包含 `document_id`、`chunk_id`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。
 
 当 `capabilities.debug_trace=true` 且服务端允许返回 debug 时，`debug` 只返回安全摘要：
 

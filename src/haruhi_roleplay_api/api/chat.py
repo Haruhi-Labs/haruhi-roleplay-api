@@ -25,6 +25,7 @@ from haruhi_roleplay_api.ports import (
     ChatModelRouter,
     PersonaRepository,
     PromptBuilder,
+    RagService,
     SessionStore,
 )
 
@@ -40,6 +41,7 @@ def post_chat(
     model_router: ChatModelRouter,
     request_id: RequestId | str,
     session_store: SessionStore | None = None,
+    rag_service: RagService | None = None,
     debug_trace_enabled: bool = True,
     include_error_details: bool = False,
 ) -> ApiResponse:
@@ -54,6 +56,7 @@ def post_chat(
                 prompt_builder=prompt_builder,
                 model_router=model_router,
                 session_store=session_store,
+                rag_service=rag_service,
                 debug_trace_enabled=debug_trace_enabled,
             )
         ).execute(chat_input)

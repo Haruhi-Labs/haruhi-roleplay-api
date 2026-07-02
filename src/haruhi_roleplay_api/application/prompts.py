@@ -26,6 +26,7 @@ class PersonaPromptBuilder:
                     role="system",
                     content=_output_rules(prompt_input.generation),
                 ),
+                *_rag_chunk_section(prompt_input),
                 *_recent_message_section(prompt_input),
                 PromptMessage(role="user", content=prompt_input.userMessage),
             )
@@ -101,6 +102,21 @@ def _recent_message_section(
     lines = ["最近会话消息："]
     for message in prompt_input.recentMessages:
         lines.append(f"- {message.role}: {message.content}")
+    return (PromptMessage(role="system", content="\n".join(lines)),)
+
+
+def _rag_chunk_section(prompt_input: PromptBuildInput) -> tuple[PromptMessage, ...]:
+    if not prompt_input.ragChunks:
+        return ()
+    lines = ["检索资料摘要："]
+    for index, chunk in enumerate(prompt_input.ragChunks, start=1):
+        lines.append(
+            f"- [{index}] {chunk.content} "
+            f"(source={chunk.documentId}/{chunk.chunkId}, "
+            f"timeline={chunk.metadata.timeline}, "
+            f"spoilerLevel={chunk.metadata.spoilerLevel})"
+        )
+    lines.append("- 只把这些资料作为当前对话的辅助上下文，不要逐字复述来源。")
     return (PromptMessage(role="system", content="\n".join(lines)),)
 
 
