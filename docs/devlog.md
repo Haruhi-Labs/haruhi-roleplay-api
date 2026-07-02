@@ -199,3 +199,22 @@
 ### 下一步
 
 - 实现 `04.01 RAG Metadata Validation`，先定义 RAG 文档 metadata 的最小校验边界。
+
+## 2026-07-02：RAG Metadata Validation
+
+### 完成
+
+- 添加 `RagDocumentMetadata`、`RagIngestInput` 和 `RagIngestResult`。
+- 添加 `ValidateRagDocumentMetadata` 用例，校验 RAG metadata 不越过 persona policy。
+- 添加框架无关的 `post_rag_document` API handler。
+- 支持校验 `characterId`、`timeline`、`spoilerLevel`、`language`、`sourceType`。
+- 当前只返回 `validated`，不切 chunk、不写 vector index、不调用 embedding。
+
+### 验证
+
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 `04.02 Fake RAG Retrieve`，用固定 chunks 验证 RAG 开关、filter 和 PromptBuilder 融合。

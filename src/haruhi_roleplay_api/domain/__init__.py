@@ -28,6 +28,12 @@ from haruhi_roleplay_api.domain.prompt import (
     PromptBuildOutput,
     PromptMessage,
 )
+from haruhi_roleplay_api.domain.rag import (
+    RagDocumentId,
+    RagDocumentMetadata,
+    RagIngestInput,
+    RagIngestResult,
+)
 from haruhi_roleplay_api.domain.session import (
     MessageId,
     Session,
@@ -64,6 +70,10 @@ __all__ = [
     "PromptBuildInput",
     "PromptBuildOutput",
     "PromptMessage",
+    "RagDocumentId",
+    "RagDocumentMetadata",
+    "RagIngestInput",
+    "RagIngestResult",
     "RequestId",
     "Session",
     "SessionId",

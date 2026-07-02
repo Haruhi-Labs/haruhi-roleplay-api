@@ -194,7 +194,7 @@ mode 字段：
 
 ## RAG: POST /v1/rag/documents
 
-用途：导入 RAG 文档。
+用途：校验 RAG 文档 metadata。当前最小实现不切 chunk、不写 vector index、不调用 embedding。
 
 ### 请求参数
 
@@ -217,7 +217,15 @@ mode 字段：
 | --- | --- |
 | document_id | 文档 ID |
 | chunk_count | chunk 数量 |
-| status | imported 或 pending |
+| status | 当前为 validated |
+| metadata | 通过校验后的 metadata 摘要 |
+
+当前校验规则：
+
+- 必须提供 `character_id`、`timeline`、`spoiler_level`、`language`、`source_type`。
+- `persona_mode` 存在时，`timeline`、`spoiler_level` 和 `source_type` 必须符合该 persona policy。
+- `persona_mode` 不存在时，metadata 必须符合该角色至少一个公开 persona 的 policy。
+- 缺字段或 policy 越界返回统一 `VALIDATION_ERROR`。
 
 ## RAG: POST /v1/rag/search
 
