@@ -338,3 +338,40 @@
 ### 下一步
 
 - 进入 `06.02 Cloud Provider Pack`，或先补真实 HTTP/SSE adapter。
+
+## 2026-07-03：产品化路线重审
+
+### 完成
+
+- 重新确认项目定位：面向前端和业务后端的凉宫春日 Roleplay API 中转服务。
+- 明确 HTTP 运行层、模型/RAG provider、Agent 编排和前端 demo 都合理，但必须拆阶段实现。
+- 更新 roadmap、architecture、design spec 和 backend dispatch 文档。
+- 新增 HTTP runtime、provider registry、DeepSeek、OpenAI、Cloud RAG、Agent context、Backend context、Frontend demo 实现卡片。
+
+### 验证
+
+- 本次只修改文档，使用 `rg` 检查关键章节和卡片索引。
+
+### 下一步
+
+- 优先实现 `06.03 HTTP Runtime Adapter`，让当前 framework-agnostic handler 通过真实 HTTP/SSE 暴露。
+
+## 2026-07-03：HTTP Runtime Adapter
+
+### 完成
+
+- 添加标准库 HTTP runtime 和本地 server 入口。
+- 暴露 `GET /health`、`GET /v1/personas`、`POST /v1/sessions`、`POST /v1/chat`、`POST /v1/chat/stream`、`POST /v1/rag/documents`、memory 查询和删除接口。
+- `POST /v1/chat/stream` 将框架无关 stream events 编码为 SSE。
+- 本地 runtime 共享 Session、Memory 和 Local RAG 实例，便于前端和 curl 进行端到端验证。
+- 支持可选 `ROLEPLAY_API_KEY`，允许使用 `Authorization: Bearer ...` 或 `X-API-Key`。
+- 补充本地启动命令和 curl 示例。
+
+### 验证
+
+- 新增 HTTP runtime adapter 单元测试，覆盖 personas、chat、SSE、RAG 共享状态、API key 和 404。
+- 本地 smoke test 通过标准库 HTTP server 调用 health、personas、chat 和 stream。
+
+### 下一步
+
+- 进入 provider registry / cloud provider pack，逐步接入 DeepSeek、OpenAI-compatible 和云端 RAG。

@@ -2,7 +2,20 @@
 
 ## 项目目标
 
-本项目要实现一个 Roleplay API 中转服务，用统一接口封装角色 preset、连续会话、RAG、记忆和模型 provider 调度。第一阶段优先保证本地可运行、接口稳定、前端可接入。
+本项目要实现一个面向前端和业务后端的凉宫春日 Roleplay API 中转服务。它通过 HTTP/Stream 接口接收角色对话请求，在本项目内部解析、校验、分析请求，再按策略调度模型 provider、RAG、session、memory 和后续业务后端上下文，最后把统一响应返回给调用方。
+
+项目定位合理，但不能把 HTTP 运行层、多模型 provider、云端 RAG、完整 Agent 编排和前端 demo 放在同一个 milestone。作为个人开发者，应按“先可运行、再可替换、再会分析、最后可展示”的顺序推进。
+
+## 需求合理性判断
+
+当前四个方向整体合理：
+
+1. HTTP API 调用封装是必须项，否则前端和业务后端无法真实接入。
+2. 可用后端实现是必须项，但要按 provider 一个个接入，不能一次性接完 Ollama、DeepSeek、OpenAI、云端 RAG。
+3. 完整 Agent 编排是项目的中长期核心，但第一版必须先做 deterministic planner，再考虑模型辅助 planner。
+4. 最简前端 demo 合理，但它应该验证接入体验，不应该变成完整产品后台。
+
+不合理的部分是交付方式：如果把以上内容作为一个大任务实现，会造成 diff 过大、测试困难、人工 review 负担过高，也会让 provider、Agent、UI 的问题互相干扰。因此必须拆成可独立验证的 cards。
 
 ## MVP 范围
 
@@ -24,28 +37,32 @@
 - 自动 memory consolidation。
 - 完整评测平台。
 
+当前 MVP 已逐步扩展出 session、debug trace、RAG、memory 和 stream。后续路线要从“功能原型”转向“产品化中转服务”。
+
 ## 开发阶段
 
-| 阶段    | 目标              | 验收                                             |
-| ------- | ----------------- | ------------------------------------------------ |
-| Phase A | 契约和骨架        | DTO、错误格式、persona schema 清楚               |
-| Phase B | 最小 Chat 闭环    | `GET /v1/personas` 和 `POST /v1/chat` 可本地调用 |
-| Phase C | 本地可用性        | 本地模型、连续会话、debug trace 可用             |
-| Phase D | RAG 最小闭环      | 本地文档可导入、检索、返回 source                |
-| Phase E | Memory 最小闭环   | memory 可查询、读取、写入、删除                  |
-| Phase F | Stream 和云端替换 | 流式输出和 cloud provider 按需替换               |
+| 阶段    | 目标                  | 验收                                                                 |
+| ------- | --------------------- | -------------------------------------------------------------------- |
+| Phase A | 契约和骨架            | DTO、错误格式、persona schema 清楚                                   |
+| Phase B | 最小 Chat 闭环        | `GET /v1/personas` 和 `POST /v1/chat` 可本地调用                     |
+| Phase C | 本地可用性            | 本地模型、连续会话、debug trace 可用                                 |
+| Phase D | RAG 最小闭环          | 本地文档可导入、检索、返回 source                                    |
+| Phase E | Memory 最小闭环       | memory 可查询、读取、写入、删除                                      |
+| Phase F | Stream 和 HTTP 运行层 | 流式输出和真实 HTTP/SSE adapter 可调用                               |
+| Phase G | Provider Pack 产品化  | Ollama/OpenAI-compatible、DeepSeek、OpenAI、本地/云端 RAG 可替换     |
+| Phase H | Agent 编排 v1         | 能根据请求分析上下文需求，调度 session、memory、RAG 和业务后端上下文 |
+| Phase I | 前端 Demo             | 最简聊天界面可选择角色、发消息、展示 stream、source 和 memory 状态   |
 
 ## 当前优先级
 
-1. Chat DTO 契约。
-2. 统一响应和错误格式。
-3. Persona catalog schema。
-4. `GET /v1/personas`。
-5. PromptBuilder v1。
-6. FakeModelProvider。
-7. `POST /v1/chat` v1。
+1. 补真实 HTTP API 运行封装，让 `GET /v1/personas`、`POST /v1/chat`、`POST /v1/chat/stream` 可通过本地服务调用。
+2. 把现有 fake/local provider 装配为明确的 provider pack。
+3. 逐个增加常见模型 provider：Ollama local、DeepSeek、OpenAI/OpenAI-compatible。
+4. 把 RAG 拆成本地检索和云端检索两类 provider，先稳定 port，再接具体实现。
+5. 增加 AgentContextPlanner 和 ContextExecutor，让本项目能分析请求并决定要拉取哪些上下文。
+6. 做最简前端 demo，用 catalog 选择角色，用 chat/stream 展示回复和 sources。
 
-完成以上 7 步后，项目进入“最小可运行 Roleplay API”状态。
+完成以上步骤后，项目进入“可被前端真实接入的 Roleplay API 中转服务”状态。
 
 ## 交付原则
 
@@ -53,4 +70,7 @@
 - 每步都能人工 review。
 - 每步都有本地验证方式。
 - 不一次性实现多个 provider。
-- 不在第一版同时推进 RAG、memory、stream 和 cloud。
+- 不把所有 provider 放进一个 PR。
+- 不让前端直接选择真实 provider、数据库、向量库或密钥。
+- Agent 先做 deterministic planner，再考虑模型辅助 planner。
+- 前端 demo 先做最小聊天体验，不先做完整产品后台。

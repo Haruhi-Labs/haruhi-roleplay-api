@@ -152,10 +152,10 @@ Provider Pack 是一组后端实现绑定。
 
 ### Memory
 
-| 配置                 | 示例   | 说明             |
-| -------------------- | ------ | ---------------- |
-| MEMORY_PROVIDER      | sqlite | memory provider  |
-| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量 |
+| 配置                 | 示例   | 说明                 |
+| -------------------- | ------ | -------------------- |
+| MEMORY_PROVIDER      | sqlite | memory provider      |
+| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量     |
 | MEMORY_WRITE_ENABLED | true   | 是否允许显式候选写入 |
 
 ### RAG
@@ -218,14 +218,14 @@ Provider Pack 是一组后端实现绑定。
 
 ## 能力开关如何影响调度
 
-| capability        | false 时              | true 时                              |
-| ----------------- | --------------------- | ------------------------------------ |
-| continuousSession | 不读写 session 上下文 | 读最近消息，回复后写入消息           |
-| rag               | 不执行 RAG            | 根据 persona filter 检索 chunks      |
+| capability        | false 时              | true 时                          |
+| ----------------- | --------------------- | -------------------------------- |
+| continuousSession | 不读写 session 上下文 | 读最近消息，回复后写入消息       |
+| rag               | 不执行 RAG            | 根据 persona filter 检索 chunks  |
 | memory            | 不读写长期记忆        | 读取相关记忆，并审核显式写入候选 |
-| safetyFilter      | 只做基础校验          | 执行输入和输出安全检查               |
-| debugTrace        | 不返回 debug          | 返回裁剪后的调试摘要                 |
-| stream            | 返回完整 reply        | 返回 stream event                    |
+| safetyFilter      | 只做基础校验          | 执行输入和输出安全检查           |
+| debugTrace        | 不返回 debug          | 返回裁剪后的调试摘要             |
+| stream            | 返回完整 reply        | 返回 stream event                |
 
 ## ModelRouter 调度
 
@@ -244,6 +244,26 @@ Provider Pack 是一组后端实现绑定。
 | provider 失败                 | fallback_model                  |
 
 `generation.model` 应该是服务端定义的模型别名，不是直接暴露真实厂商模型名。
+
+## 模型 Provider 产品化顺序
+
+模型 provider 需要逐个接入，不在一个卡片里同时接多个厂商。
+
+推荐顺序：
+
+1. `fake`：测试和 CI。
+2. `local_openai_compatible`：本地 Ollama、LM Studio、vLLM 等 OpenAI-compatible endpoint。
+3. `deepseek`：云端 OpenAI-compatible 调用，单独配置 API key 和 base URL。
+4. `openai`：云端 OpenAI-compatible 调用，单独配置 API key、model alias 和超时。
+5. fallback routing：仅在基础 provider 稳定后实现。
+
+所有 provider 都必须满足：
+
+- 实现同一个 `ChatModelProvider` port。
+- 支持非流式 `generate`。
+- 支持流式 `stream`，或明确在配置校验时报错。
+- provider 错误转换为统一 `AppError`。
+- debug trace 只返回 provider 名称、model alias 和安全摘要。
 
 ## RAG 调度
 
@@ -265,6 +285,18 @@ RAG filter 必须至少包含：
 - `spoilerLevelMax`
 - `language`
 
+## RAG Provider 产品化顺序
+
+RAG provider 也需要分阶段：
+
+1. `fake_rag`：固定 chunks，验证 Orchestrator 和 PromptBuilder 融合。
+2. `local_rag`：本地文档、chunk、简单文本检索。
+3. `local_vector_rag`：本地 embedding 和向量索引。
+4. `cloud_rag`：Qdrant、pgvector、OpenAI Vector Store 或其它云端检索。
+5. rerank/query rewrite：仅在基础 retrieve 稳定后增加。
+
+无论本地还是云端，RAG 输出都必须是统一 `RagRetrieveOutput`，并且 source 摘要必须可追溯。
+
 ## Memory 调度
 
 Memory 调度需要避免污染：
@@ -277,6 +309,48 @@ Memory 调度需要避免污染：
 6. 如果 `metadata.memory_write` 存在，MemoryPolicyEngine 判断是否写入。
 7. 写入候选必须记录 type、reason、confidence。
 8. 默认策略拒绝临时闲聊、敏感信息、低置信度和不被 persona 允许的类型。
+
+## Agent 编排调度
+
+当前 Orchestrator 已经有确定性编排顺序。完整 Agent 编排应在这个基础上增加“上下文计划”层，而不是让模型直接调用工具。
+
+推荐链路：
+
+1. API 层生成 `ChatInput`。
+2. `AgentContextPlanner` 读取 `ChatInput`、persona policy、capabilities 和 app 权限。
+3. Planner 输出结构化 `ContextPlan`。
+4. `ContextExecutor` 按 plan 调用 session、memory、RAG 和 backend context ports。
+5. Executor 输出 `ContextBundle`。
+6. `PromptBuilder` 融合 persona、ContextBundle 和用户消息。
+7. `ModelRouter` 调用模型 provider。
+8. `MemoryCandidateExtractor` 可在回复后生成候选记忆。
+9. `MemoryPolicyEngine` 决定是否写入。
+
+`ContextPlan` 示例：
+
+```json
+{
+  "read_session": true,
+  "read_memory": {
+    "enabled": true,
+    "types": ["user_preference", "relationship"],
+    "limit": 5
+  },
+  "retrieve_rag": {
+    "enabled": true,
+    "query": "改写后的检索查询",
+    "top_k": 5
+  },
+  "backend_fetches": [
+    {
+      "source": "user_profile",
+      "required": false
+    }
+  ]
+}
+```
+
+第一版 planner 应该用确定性规则实现。模型辅助 planner 放到后续阶段，避免一开始就引入不可控工具调用。
 
 ## 后端实现步骤
 
@@ -313,7 +387,91 @@ Memory 调度需要避免污染：
 - 内置角色和自定义角色 preset 可切换。
 - RAG 和 memory 可独立启用。
 
-### 第四步：实现 cloud provider
+### 第四步：实现 HTTP runtime adapter
+
+在 framework-agnostic API handler 稳定后，再接真实 HTTP 服务。
+
+验收重点：
+
+- `GET /v1/personas` 可通过浏览器或 curl 调用。
+- `POST /v1/chat` 返回统一 envelope。
+- `POST /v1/chat/stream` 可编码为 SSE。
+- HTTP 层不直接创建 provider。
+
+当前本地 HTTP runtime adapter 已实现，默认使用标准库 `http.server`，不新增 Web 框架依赖。
+
+启动命令：
+
+```powershell
+$env:PYTHONPATH="src"
+$env:MODEL_PROVIDER="fake"
+$env:MODEL_NAME="fake-roleplay-model"
+$env:ROLEPLAY_PORT="8000"
+uv run python -m haruhi_roleplay_api.infrastructure.http_server
+```
+
+本地验证命令：
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/v1/personas
+```
+
+最小 chat 请求：
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "web",
+    "user_id": "user-1",
+    "character_id": "haruhi",
+    "persona_mode": "mid_late_haruhi",
+    "message": "今天有什么计划？",
+    "language": "zh-CN",
+    "capabilities": {
+      "rag": false,
+      "memory": false,
+      "continuous_session": false,
+      "safety_filter": true,
+      "debug_trace": true,
+      "stream": false
+    },
+    "generation": {
+      "model": "fake-roleplay-model"
+    }
+  }'
+```
+
+SSE stream 请求：
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "web",
+    "user_id": "user-1",
+    "character_id": "haruhi",
+    "persona_mode": "mid_late_haruhi",
+    "message": "社团活动怎么安排？",
+    "language": "zh-CN",
+    "capabilities": {
+      "rag": false,
+      "memory": false,
+      "continuous_session": false,
+      "safety_filter": true,
+      "debug_trace": true,
+      "stream": true
+    },
+    "generation": {
+      "model": "fake-roleplay-model"
+    }
+  }'
+```
+
+前端 demo 或业务后端接入时，只需要请求这些 HTTP 接口。模型、RAG、Memory、Session 的具体实现由本项目启动时的环境变量和 composition root 装配，不应该由前端传 `provider` 字段决定。
+
+### 第五步：实现 cloud provider
 
 最后接 PostgreSQL、Redis、Qdrant 或其它云服务。
 
@@ -322,6 +480,17 @@ Memory 调度需要避免污染：
 - 只改配置，不改 application。
 - provider 错误会转换成统一 AppError。
 - debug trace 不泄露敏感配置。
+
+### 第六步：实现 Agent planner 和 backend context
+
+在已有 session、memory、RAG 能力稳定后，再让本项目分析请求并决定拉取哪些上下文。
+
+验收重点：
+
+- planner 输出结构化 plan。
+- executor 只调用白名单 ports。
+- debug trace 能看到 plan 摘要。
+- 模型 provider 不直接访问 backend context。
 
 ## 配置校验
 
