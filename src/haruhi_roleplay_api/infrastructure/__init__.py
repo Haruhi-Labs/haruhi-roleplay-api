@@ -7,6 +7,8 @@ from haruhi_roleplay_api.infrastructure.http_runtime import (
     create_local_runtime,
 )
 from haruhi_roleplay_api.infrastructure.models import (
+    ModelAliasConfig,
+    ModelProviderConfig,
     ModelProviderSettings,
     build_model_router,
 )
@@ -14,6 +16,8 @@ from haruhi_roleplay_api.infrastructure.models import (
 __all__ = [
     "HttpRuntimeResponse",
     "HttpRuntimeSettings",
+    "ModelAliasConfig",
+    "ModelProviderConfig",
     "ModelProviderSettings",
     "RoleplayHttpRuntime",
     "build_model_router",

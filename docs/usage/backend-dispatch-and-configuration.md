@@ -170,13 +170,50 @@ Provider Pack 是一组后端实现绑定。
 
 ### Model
 
-| 配置             | 示例                      | 说明                                                         |
-| ---------------- | ------------------------- | ------------------------------------------------------------ |
-| MODEL_PROVIDER   | local                     | 模型 provider，当前支持 `fake`、`local`、`openai_compatible` |
-| MODEL_BASE_URL   | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址                               |
-| MODEL_NAME       | qwen3:8b                  | 默认模型                                                     |
-| MODEL_TIMEOUT_MS | 60000                     | 模型超时                                                     |
-| MODEL_API_KEY    | 可选                      | OpenAI-compatible API Key，本地无鉴权服务可不设置            |
+推荐使用 `MODEL_PROVIDER_REGISTRY` 统一声明 provider 和模型别名。旧的 `MODEL_PROVIDER`、`MODEL_BASE_URL`、`MODEL_NAME` 仍然兼容，但只适合单 provider 本地验证。
+
+| 配置                    | 示例                      | 说明                                                         |
+| ----------------------- | ------------------------- | ------------------------------------------------------------ |
+| MODEL_PROVIDER_REGISTRY | JSON 字符串               | 推荐配置；声明 providers、aliases 和 default_alias           |
+| MODEL_PROVIDER          | local                     | 兼容配置；支持 `fake`、`local`、`openai_compatible`、`ollama` |
+| MODEL_ALIAS             | haruhi-ollama             | 兼容配置；暴露给前端的模型别名，不填时等于 `MODEL_NAME`      |
+| MODEL_BASE_URL          | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址                               |
+| MODEL_NAME              | qwen2.5:7b                | provider 侧真实模型名                                        |
+| MODEL_TIMEOUT_MS        | 60000                     | 模型超时                                                     |
+| MODEL_API_KEY           | 可选                      | OpenAI-compatible API Key，本地无鉴权服务可不设置            |
+
+Ollama local 示例：
+
+```powershell
+$env:MODEL_PROVIDER_REGISTRY='{
+  "default_alias": "haruhi-ollama",
+  "providers": {
+    "ollama-local": {
+      "type": "ollama",
+      "base_url": "http://localhost:11434/v1",
+      "timeout_ms": 60000
+    }
+  },
+  "aliases": {
+    "haruhi-ollama": {
+      "provider": "ollama-local",
+      "model": "qwen2.5:7b"
+    }
+  }
+}'
+```
+
+前端或业务后端只能传：
+
+```json
+{
+  "generation": {
+    "model": "haruhi-ollama"
+  }
+}
+```
+
+不能传 `provider=ollama`、`base_url` 或真实 API key。未配置的 alias 会返回统一 `MODEL_PROVIDER_ERROR`。
 
 ### Cloud
 
@@ -515,9 +552,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | RAG_PROVIDER         | local                     |
 | VECTOR_PROVIDER      | local                     |
 | EMBEDDING_PROVIDER   | local                     |
-| MODEL_PROVIDER       | local                     |
-| MODEL_BASE_URL       | http://localhost:11434/v1 |
-| MODEL_NAME           | qwen3:8b                  |
+| MODEL_PROVIDER_REGISTRY | 见 Ollama local 示例    |
 | ENABLE_DEBUG_TRACE   | true                      |
 | ENABLE_SAFETY_FILTER | true                      |
 

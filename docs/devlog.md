@@ -375,3 +375,25 @@
 ### 下一步
 
 - 进入 provider registry / cloud provider pack，逐步接入 DeepSeek、OpenAI-compatible 和云端 RAG。
+
+## 2026-07-03：Model Provider Registry
+
+### 完成
+
+- 添加模型 provider registry router，支持 `generation.model` 作为服务端白名单 alias。
+- 支持 alias 映射到具体 provider 和 provider 侧真实模型名。
+- 保留旧的 `MODEL_PROVIDER`、`MODEL_BASE_URL`、`MODEL_NAME` 单 provider 配置。
+- 新增 `MODEL_PROVIDER_REGISTRY` JSON 配置，支持 `fake`、`local_openai_compatible`、`openai_compatible` 和 `ollama` provider type。
+- Ollama 通过 OpenAI-compatible `/v1/chat/completions` 接口接入。
+- API usage 和 debug trace 返回模型 alias，不要求前端知道真实 provider/model。
+
+### 验证
+
+- `uv run python -m unittest tests.test_model_provider_registry tests.test_local_model_provider` 通过。
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+- 本地 HTTP 服务使用 `haruhi-ollama -> qwen2.5:7b` registry 调用 Ollama 成功，返回完整中文回复。
+
+### 下一步
+
+- 继续实现 DeepSeek provider 配置模板，或补 provider registry 的生产环境配置校验。

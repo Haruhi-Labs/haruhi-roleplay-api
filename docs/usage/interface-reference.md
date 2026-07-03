@@ -57,7 +57,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| model | string | 模型别名 |
+| model | string | 服务端白名单模型别名，例如 `haruhi-ollama`；不能传 provider 名、base URL 或真实密钥 |
 | temperature | number | 随机性 |
 | max_tokens | number | 最大输出 token |
 | top_p | number | nucleus sampling 参数 |
@@ -96,7 +96,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 
 `metadata.memory_write` 可以是单个对象或对象列表。默认策略会拒绝临时闲聊、敏感信息、低置信度和不被当前 persona 允许的类型。写入结果通过 `memory.write_count` 返回。
 
-`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`streamEnabled`、`latencyMs` 和 `events`。
+`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`streamEnabled`、`latencyMs` 和 `events`。`modelRoute` 返回服务端模型别名，不返回 provider 侧真实模型配置。
 
 前端只能把 `debug` 用于开发者面板或联调日志，不要展示给普通用户。`debug` 不包含完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
 

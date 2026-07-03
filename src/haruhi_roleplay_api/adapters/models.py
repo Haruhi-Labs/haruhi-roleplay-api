@@ -69,6 +69,7 @@ class LocalOpenAICompatibleModelProvider:
         base_url: str,
         timeout_seconds: float,
         api_key: str | None = None,
+        provider_name: str | None = None,
     ) -> None:
         if not base_url.strip():
             raise AppError(
@@ -83,6 +84,8 @@ class LocalOpenAICompatibleModelProvider:
         self._endpoint = _chat_completions_endpoint(base_url)
         self._timeout_seconds = timeout_seconds
         self._api_key = api_key
+        if provider_name is not None and provider_name.strip():
+            self.provider_name = provider_name.strip()
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         payload = _request_payload(request)
@@ -114,7 +117,11 @@ class LocalOpenAICompatibleModelProvider:
                 message="Local model provider request failed.",
             ) from exc
 
-        return _response_from_mapping(response_data, request)
+        return _response_from_mapping(
+            response_data,
+            request,
+            provider_name=self.provider_name,
+        )
 
     def stream(self, request: ModelRequest) -> tuple[ModelStreamEvent, ...]:
         payload = {**_request_payload(request), "stream": True}
@@ -129,7 +136,13 @@ class LocalOpenAICompatibleModelProvider:
                 http_request,
                 timeout=self._timeout_seconds,
             ) as response:
-                return tuple(_stream_response_events(response, request))
+                return tuple(
+                    _stream_response_events(
+                        response,
+                        request,
+                        provider_name=self.provider_name,
+                    )
+                )
         except (TimeoutError, socket.timeout) as exc:
             raise AppError(
                 code=ErrorCode.MODEL_TIMEOUT,
@@ -182,6 +195,8 @@ def _request_payload(request: ModelRequest) -> dict[str, Any]:
 def _stream_response_events(
     response: Any,
     request: ModelRequest,
+    *,
+    provider_name: str,
 ) -> tuple[ModelStreamEvent, ...]:
     deltas: list[str] = []
     usage: ModelUsage | None = None
@@ -214,11 +229,11 @@ def _stream_response_events(
             event="done",
             response=ModelResponse(
                 reply=reply,
-                provider=LocalOpenAICompatibleModelProvider.provider_name,
+                provider=provider_name,
                 model=request.model,
                 usage=final_usage,
                 debug={
-                    "modelProvider": LocalOpenAICompatibleModelProvider.provider_name,
+                    "modelProvider": provider_name,
                     "model": request.model,
                 },
             ),
@@ -255,6 +270,8 @@ def _delta_from_stream_mapping(data: Mapping[str, Any]) -> str:
 def _response_from_mapping(
     data: Mapping[str, Any],
     request: ModelRequest,
+    *,
+    provider_name: str,
 ) -> ModelResponse:
     try:
         reply = str(data["choices"][0]["message"]["content"])
@@ -268,11 +285,11 @@ def _response_from_mapping(
     usage = _usage_from_mapping(usage_data, fallback_completion=reply)
     return ModelResponse(
         reply=reply,
-        provider=LocalOpenAICompatibleModelProvider.provider_name,
+        provider=provider_name,
         model=request.model,
         usage=usage,
         debug={
-            "modelProvider": LocalOpenAICompatibleModelProvider.provider_name,
+            "modelProvider": provider_name,
             "model": request.model,
         },
     )

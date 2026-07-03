@@ -9,7 +9,12 @@ from haruhi_roleplay_api.application.memory import (
     DeleteMemoryUseCase,
     ListMemoryUseCase,
 )
-from haruhi_roleplay_api.application.models import ModelRouteDecision, ModelRouter
+from haruhi_roleplay_api.application.models import (
+    ModelAliasRoute,
+    ModelProviderRegistryRouter,
+    ModelRouteDecision,
+    ModelRouter,
+)
 from haruhi_roleplay_api.application.personas import ListPublicPersonas
 from haruhi_roleplay_api.application.prompts import PersonaPromptBuilder
 from haruhi_roleplay_api.application.rag import ValidateRagDocumentMetadata
@@ -25,6 +30,8 @@ __all__ = [
     "DeleteMemoryUseCase",
     "ListMemoryUseCase",
     "ListPublicPersonas",
+    "ModelAliasRoute",
+    "ModelProviderRegistryRouter",
     "ModelRouteDecision",
     "ModelRouter",
     "PersonaPromptBuilder",
