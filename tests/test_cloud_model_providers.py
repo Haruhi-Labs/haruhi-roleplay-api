@@ -73,6 +73,10 @@ def cloud_registry() -> str:
                     "api_key_env": "GEMINI_API_KEY",
                     "timeout_ms": 60000,
                 },
+                "openai-cloud": {
+                    "type": "openai",
+                    "timeout_ms": 60000,
+                },
             },
             "aliases": {
                 "haruhi-deepseek": {
@@ -82,6 +86,10 @@ def cloud_registry() -> str:
                 "haruhi-gemini": {
                     "provider": "gemini-cloud",
                     "model": "gemini-3.5-flash",
+                },
+                "haruhi-openai": {
+                    "provider": "openai-cloud",
+                    "model": "gpt-4.1-mini",
                 },
             },
         }
@@ -94,6 +102,7 @@ def settings() -> ModelProviderSettings:
             "MODEL_PROVIDER_REGISTRY": cloud_registry(),
             "DEEPSEEK_API_KEY": "deepseek-secret",
             "GEMINI_API_KEY": "gemini-secret",
+            "OPENAI_API_KEY": "openai-secret",
         }
     )
 
@@ -156,6 +165,35 @@ class CloudModelProviderTests(unittest.TestCase):
         self.assertEqual(response.provider, "gemini")
         self.assertEqual(response.model, "haruhi-gemini")
 
+    def test_openai_alias_uses_official_chat_completions_endpoint(self) -> None:
+        with patch(
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
+            return_value=FakeHTTPResponse(
+                {
+                    "choices": [{"message": {"content": "OpenAI 回复"}}],
+                    "usage": {"prompt_tokens": 9, "completion_tokens": 3},
+                }
+            ),
+        ) as urlopen:
+            response = build_model_router(settings()).generate(
+                model_messages(),
+                GenerationConfig(model="haruhi-openai", topP=0.8),
+            )
+
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+
+        self.assertEqual(
+            request.full_url,
+            "https://api.openai.com/v1/chat/completions",
+        )
+        self.assertEqual(request.headers["Authorization"], "Bearer openai-secret")
+        self.assertEqual(payload["model"], "gpt-4.1-mini")
+        self.assertEqual(payload["top_p"], 0.8)
+        self.assertEqual(response.provider, "openai")
+        self.assertEqual(response.model, "haruhi-openai")
+        self.assertEqual(response.reply, "OpenAI 回复")
+
     def test_deepseek_stream_uses_sse_delta_parser(self) -> None:
         with patch(
             "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
@@ -185,6 +223,35 @@ class CloudModelProviderTests(unittest.TestCase):
         self.assertEqual(done.provider, "deepseek")
         self.assertEqual(done.model, "haruhi-deepseek")
 
+    def test_openai_stream_uses_sse_delta_parser(self) -> None:
+        with patch(
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
+            return_value=FakeStreamingHTTPResponse(
+                (
+                    {"choices": [{"delta": {"content": "OpenAI"}}]},
+                    {"choices": [{"delta": {"content": "流式"}}]},
+                    "[DONE]",
+                )
+            ),
+        ) as urlopen:
+            events = tuple(
+                build_model_router(settings()).stream(
+                    model_messages(),
+                    GenerationConfig(model="haruhi-openai"),
+                )
+            )
+
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        done = events[-1].response
+
+        self.assertTrue(payload["stream"])
+        self.assertEqual(
+            "".join(event.delta for event in events if event.event == "delta"),
+            "OpenAI流式",
+        )
+        self.assertEqual(done.provider, "openai")
+        self.assertEqual(done.model, "haruhi-openai")
+
     def test_cloud_provider_http_error_maps_to_app_error(self) -> None:
         http_error = urllib.error.HTTPError(
             url="https://api.deepseek.com/chat/completions",
@@ -207,6 +274,47 @@ class CloudModelProviderTests(unittest.TestCase):
         self.assertEqual(
             context.exception.public_message,
             "deepseek model provider failed with HTTP 429.",
+        )
+
+    def test_openai_provider_http_error_maps_to_app_error(self) -> None:
+        http_error = urllib.error.HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=500,
+            msg="server error",
+            hdrs=None,
+            fp=None,
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
+            side_effect=http_error,
+        ):
+            with self.assertRaises(AppError) as context:
+                build_model_router(settings()).generate(
+                    model_messages(),
+                    GenerationConfig(model="haruhi-openai"),
+                )
+
+        self.assertEqual(context.exception.code, ErrorCode.MODEL_PROVIDER_ERROR)
+        self.assertEqual(
+            context.exception.public_message,
+            "openai model provider failed with HTTP 500.",
+        )
+
+    def test_openai_provider_invalid_response_maps_to_app_error(self) -> None:
+        with patch(
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
+            return_value=FakeHTTPResponse({"choices": [{}]}),
+        ):
+            with self.assertRaises(AppError) as context:
+                build_model_router(settings()).generate(
+                    model_messages(),
+                    GenerationConfig(model="haruhi-openai"),
+                )
+
+        self.assertEqual(context.exception.code, ErrorCode.MODEL_PROVIDER_ERROR)
+        self.assertEqual(
+            context.exception.public_message,
+            "openai model provider response was invalid.",
         )
 
     def test_cloud_provider_timeout_maps_to_timeout_error(self) -> None:
@@ -236,6 +344,35 @@ class CloudModelProviderTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, ErrorCode.MODEL_PROVIDER_ERROR)
         self.assertIn("DEEPSEEK_API_KEY is required", context.exception.public_message)
+
+    def test_openai_provider_uses_default_api_key_env(self) -> None:
+        registry = json.dumps(
+            {
+                "default_alias": "haruhi-openai",
+                "providers": {
+                    "openai-cloud": {
+                        "type": "openai",
+                        "timeout_ms": 60000,
+                    }
+                },
+                "aliases": {
+                    "haruhi-openai": {
+                        "provider": "openai-cloud",
+                        "model": "gpt-4.1-mini",
+                    }
+                },
+            }
+        )
+
+        with self.assertRaises(AppError) as context:
+            build_model_router(
+                ModelProviderSettings.from_mapping(
+                    {"MODEL_PROVIDER_REGISTRY": registry}
+                )
+            )
+
+        self.assertEqual(context.exception.code, ErrorCode.MODEL_PROVIDER_ERROR)
+        self.assertIn("OPENAI_API_KEY is required", context.exception.public_message)
 
     def test_cloud_provider_debug_does_not_expose_secret(self) -> None:
         with patch(

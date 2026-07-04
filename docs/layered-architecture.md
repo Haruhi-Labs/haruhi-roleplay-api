@@ -88,7 +88,7 @@ ports 是可替换能力的边界。以后从本地 JSON 换成 PostgreSQL，app
 - `adapters/personas.py`：`LocalPersonaRepository`，从本地 `personas/` 目录读 JSON。
 - `adapters/models/fake.py`：测试和 CI 使用的 fake 模型 provider。
 - `adapters/models/openai_compatible.py`：OpenAI-compatible HTTP/SSE 基础实现。
-- `adapters/models/ollama.py`、`deepseek.py`、`gemini.py`：具体模型后端的薄适配。
+- `adapters/models/ollama.py`、`deepseek.py`、`gemini.py`、`openai.py`：具体模型后端的薄适配。
 
 adapter 可以知道文件路径、SDK、数据库连接，但要把结果转换成 domain 对象再交给 application。
 

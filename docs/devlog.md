@@ -425,3 +425,25 @@
 ### 下一步
 
 - 实现 OpenAI provider preset，或补 model alias catalog 给前端展示可选模型。
+
+## 2026-07-04：OpenAI Provider
+
+### 完成
+
+- 新增 OpenAI 官方 provider preset，复用 OpenAI-compatible chat completions 传输实现。
+- 支持 `MODEL_PROVIDER_REGISTRY` 中配置 `"type": "openai"`。
+- OpenAI 默认使用 `https://api.openai.com/v1/chat/completions`。
+- OpenAI 默认从 `OPENAI_API_KEY` 读取 secret，也支持 registry 中配置 `api_key_env`。
+- 旧兼容配置 `MODEL_PROVIDER=openai` 会使用 `openai` 作为 provider id。
+- debug trace 只返回 provider 名称和模型 alias，不暴露 secret。
+
+### 验证
+
+- `uv run python -m unittest tests.test_cloud_model_providers` 通过。
+- `uv run python -m unittest tests.test_model_provider_registry tests.test_local_model_provider` 通过。
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 补 model alias catalog，让前端可以读取服务端允许展示的模型别名列表。

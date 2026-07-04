@@ -167,7 +167,7 @@ def _legacy_provider_id(provider_type: str) -> str:
     provider_type = provider_type.strip().lower().replace("-", "_")
     if provider_type == "fake":
         return "fake"
-    if provider_type in {"ollama", "deepseek", "gemini"}:
+    if provider_type in {"ollama", "deepseek", "gemini", "openai"}:
         return provider_type
     return "local"
 

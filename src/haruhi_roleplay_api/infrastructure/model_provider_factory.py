@@ -12,6 +12,7 @@ from haruhi_roleplay_api.adapters import (
     GeminiModelProvider,
     LocalOpenAICompatibleModelProvider,
     OllamaModelProvider,
+    OpenAIModelProvider,
 )
 from haruhi_roleplay_api.application import (
     ModelAliasRoute,
@@ -161,6 +162,18 @@ def _build_gemini_provider(
     )
 
 
+def _build_openai_provider(
+    config: ModelProviderConfig,
+    env: Mapping[str, str],
+) -> ChatModelProvider:
+    return OpenAIModelProvider(
+        base_url=config.baseUrl,
+        timeout_seconds=config.timeoutMs / 1000,
+        api_key=_required_api_key(config),
+        chat_completions_path=config.chatCompletionsPath,
+    )
+
+
 PROVIDER_FACTORIES: Mapping[str, ProviderFactorySpec] = {
     "fake": ProviderFactorySpec(factory=_build_fake_provider),
     "local": ProviderFactorySpec(factory=_build_openai_compatible_provider),
@@ -186,6 +199,15 @@ PROVIDER_FACTORIES: Mapping[str, ProviderFactorySpec] = {
         default_api_key_env=GeminiModelProvider.default_api_key_env,
         default_chat_completions_path=(
             GeminiModelProvider.default_chat_completions_path
+        ),
+        requires_api_key=True,
+    ),
+    "openai": ProviderFactorySpec(
+        factory=_build_openai_provider,
+        default_base_url=OpenAIModelProvider.default_base_url,
+        default_api_key_env=OpenAIModelProvider.default_api_key_env,
+        default_chat_completions_path=(
+            OpenAIModelProvider.default_chat_completions_path
         ),
         requires_api_key=True,
     ),

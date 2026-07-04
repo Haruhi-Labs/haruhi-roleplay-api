@@ -175,7 +175,7 @@ Provider Pack 是一组后端实现绑定。
 | 配置                    | 示例                      | 说明                                                         |
 | ----------------------- | ------------------------- | ------------------------------------------------------------ |
 | MODEL_PROVIDER_REGISTRY | JSON 字符串               | 推荐配置；声明 providers、aliases 和 default_alias           |
-| MODEL_PROVIDER          | local                     | 兼容配置；支持 `fake`、`local`、`openai_compatible`、`ollama`、`deepseek`、`gemini` |
+| MODEL_PROVIDER          | local                     | 兼容配置；支持 `fake`、`local`、`openai_compatible`、`ollama`、`deepseek`、`gemini`、`openai` |
 | MODEL_ALIAS             | haruhi-ollama             | 兼容配置；暴露给前端的模型别名，不填时等于 `MODEL_NAME`      |
 | MODEL_BASE_URL          | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址                               |
 | MODEL_NAME              | qwen2.5:7b                | provider 侧真实模型名                                        |
@@ -215,11 +215,12 @@ $env:MODEL_PROVIDER_REGISTRY='{
 
 不能传 `provider=ollama`、`base_url` 或真实 API key。未配置的 alias 会返回统一 `MODEL_PROVIDER_ERROR`。
 
-DeepSeek / Gemini 示例：
+DeepSeek / Gemini / OpenAI 示例：
 
 ```powershell
 $env:DEEPSEEK_API_KEY="..."
 $env:GEMINI_API_KEY="..."
+$env:OPENAI_API_KEY="..."
 $env:MODEL_PROVIDER_REGISTRY='{
   "default_alias": "haruhi-deepseek",
   "providers": {
@@ -232,6 +233,10 @@ $env:MODEL_PROVIDER_REGISTRY='{
       "type": "gemini",
       "api_key_env": "GEMINI_API_KEY",
       "timeout_ms": 60000
+    },
+    "openai-cloud": {
+      "type": "openai",
+      "timeout_ms": 60000
     }
   },
   "aliases": {
@@ -242,12 +247,16 @@ $env:MODEL_PROVIDER_REGISTRY='{
     "haruhi-gemini": {
       "provider": "gemini-cloud",
       "model": "gemini-3.5-flash"
+    },
+    "haruhi-openai": {
+      "provider": "openai-cloud",
+      "model": "gpt-4.1-mini"
     }
   }
 }'
 ```
 
-`deepseek` 默认使用 `https://api.deepseek.com/chat/completions`。`gemini` 默认使用 `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`。secret 通过环境变量读取，不写入前端请求，也不要写入公开文档。
+`deepseek` 默认使用 `https://api.deepseek.com/chat/completions`。`gemini` 默认使用 `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`。`openai` 默认使用 `https://api.openai.com/v1/chat/completions`，默认从 `OPENAI_API_KEY` 读取 secret。secret 通过环境变量读取，不写入前端请求，也不要写入公开文档。
 
 #### Model Provider 实现落层
 
@@ -257,7 +266,7 @@ $env:MODEL_PROVIDER_REGISTRY='{
 | --- | --- | --- |
 | application | `application/models.py` | 只保留 `ModelProviderRegistryRouter`，根据服务端 alias 白名单选择 provider 和真实模型名 |
 | ports | `ports/models.py` | 定义 `ChatModelProvider` 和 `ChatModelRouter`，让 Orchestrator 不依赖具体厂商 |
-| adapters | `adapters/models/*.py` | 放具体 provider：`fake`、`openai_compatible`、`ollama`、`deepseek`、`gemini` |
+| adapters | `adapters/models/*.py` | 放具体 provider：`fake`、`openai_compatible`、`ollama`、`deepseek`、`gemini`、`openai` |
 | infrastructure | `infrastructure/model_registry.py` | 解析 `MODEL_PROVIDER_REGISTRY` 和兼容环境变量 |
 | infrastructure | `infrastructure/model_provider_factory.py` | 注册 provider factory，填充厂商默认配置，并做启动期校验 |
 
@@ -638,7 +647,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | RAG_PROVIDER         | qdrant            |
 | VECTOR_PROVIDER      | qdrant            |
 | EMBEDDING_PROVIDER   | openai_compatible |
-| MODEL_PROVIDER       | openai_compatible |
+| MODEL_PROVIDER_REGISTRY | 见 DeepSeek / Gemini / OpenAI 示例 |
 | ENABLE_DEBUG_TRACE   | false             |
 | ENABLE_SAFETY_FILTER | true              |
 

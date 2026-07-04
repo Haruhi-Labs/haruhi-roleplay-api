@@ -7,6 +7,7 @@ from haruhi_roleplay_api.adapters.models import (
     GeminiModelProvider,
     LocalOpenAICompatibleModelProvider,
     OllamaModelProvider,
+    OpenAIModelProvider,
     OpenAICompatibleModelProvider,
 )
 from haruhi_roleplay_api.adapters.personas import LocalPersonaRepository
@@ -24,6 +25,7 @@ __all__ = [
     "LocalPersonaRepository",
     "LocalRagService",
     "OllamaModelProvider",
+    "OpenAIModelProvider",
     "OpenAICompatibleModelProvider",
 ]
 
