@@ -46,6 +46,7 @@
 | ChatModelProvider      | 调用具体模型                                                       |
 | SessionStore           | 管理连续会话                                                       |
 | RagService             | 文档接入和检索                                                     |
+| TextEmbeddingProvider  | 把文本转成向量，供本地/云端 RAG provider 使用                     |
 | MemoryStore            | 长期记忆存取                                                       |
 | BackendContextProvider | 从业务后端或其它数据库读取受控上下文                               |
 | SafetyGuard            | 输入、输出和越界检查                                               |
@@ -92,6 +93,7 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 - `infrastructure/model_registry.py` 只解析 `MODEL_PROVIDER_REGISTRY` 和兼容环境变量。
 - `infrastructure/model_provider_factory.py` 负责 provider factory 注册、默认 URL/API key env 和启动期校验。
 - 每个模型厂商放在 `adapters/models/<provider>.py`，共享 OpenAI-compatible 逻辑时继承或包装 `openai_compatible.py`。
+- embedding provider 通过 `ports/embeddings.py`、`adapters/embeddings/` 和 `infrastructure/embedding_provider_factory.py` 独立装配，再注入 RAG provider。
 
 ## 第一阶段实现建议
 

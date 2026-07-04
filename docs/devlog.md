@@ -424,7 +424,7 @@
 
 ### 下一步
 
-- 实现 OpenAI provider preset，或补 model alias catalog 给前端展示可选模型。
+- 继续实现 `07.03.openai-provider.md`。
 
 ## 2026-07-04：OpenAI Provider
 
@@ -446,7 +446,7 @@
 
 ### 下一步
 
-- 补 model alias catalog，让前端可以读取服务端允许展示的模型别名列表。
+- 继续实现 `07.04.cloud-rag-provider.md`。
 
 ## 2026-07-04：Cloud / Vector RAG Provider
 
@@ -468,4 +468,26 @@
 
 ### 下一步
 
-- 补 RAG provider health check 和真实 Qdrant smoke 文档，或增加云端 embedding provider。
+- 继续实现 `07.05.embedding-provider.md`。
+
+## 2026-07-04：Embedding Provider
+
+### 完成
+
+- 新增 `TextEmbeddingProvider` port，RAG 不再直接依赖具体 embedding 实现。
+- 新增 hash、本地 OpenAI-compatible、Ollama 和 OpenAI embedding adapter。
+- 新增 `EmbeddingProviderSettings` 和 `build_embedding_provider`，支持 `EMBEDDING_PROVIDER=hash|local_openai_compatible|ollama|openai`。
+- `LocalVectorRagService` 和 `QdrantRagService` 改为接收 `TextEmbeddingProvider`。
+- `RagProviderSettings` 通过 embedding provider factory 注入向量生成能力。
+- 云端 OpenAI embedding 默认使用 `OPENAI_API_KEY`，本地 Ollama 默认使用 `http://localhost:11434/v1/embeddings`。
+
+### 验证
+
+- `uv run python -m unittest tests.test_embedding_providers` 通过。
+- `uv run python -m unittest tests.test_local_vector_rag_provider tests.test_qdrant_rag_provider tests.test_http_runtime_adapter` 通过。
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 继续实现 `08.01.agent-context-plan.md`。

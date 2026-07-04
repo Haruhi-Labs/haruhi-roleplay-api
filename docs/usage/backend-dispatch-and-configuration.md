@@ -87,7 +87,7 @@ Provider Pack 是一组后端实现绑定。
 | MemoryStore       | InMemory 或 SQLite                           |
 | RagService        | LocalRagService                              |
 | VectorIndex       | LocalVectorIndex                             |
-| EmbeddingProvider | LocalEmbeddingProvider                       |
+| EmbeddingProvider | HashEmbeddingProvider、OllamaEmbeddingProvider 或本地 OpenAI-compatible endpoint |
 | ModelProvider     | Ollama 或本地 OpenAI-compatible              |
 | Logger            | ConsoleLogger                                |
 
@@ -102,7 +102,7 @@ Provider Pack 是一组后端实现绑定。
 | MemoryStore       | InMemoryMemoryStore                              |
 | RagService        | FakeRagService                                   |
 | VectorIndex       | FakeVectorIndex                                  |
-| EmbeddingProvider | FakeEmbeddingProvider                            |
+| EmbeddingProvider | HashEmbeddingProvider                            |
 | ModelProvider     | FakeModelProvider                                |
 | Logger            | NoopLogger 或 TestLogger                         |
 
@@ -117,7 +117,7 @@ Provider Pack 是一组后端实现绑定。
 | MemoryStore       | PostgresMemoryStore                                                           |
 | CacheStore        | RedisCacheStore                                                               |
 | RagService        | 当前实现 `QdrantRagService`；pgvector / OpenAI Vector Store 留作后续 provider |
-| EmbeddingProvider | OpenAI-compatible EmbeddingProvider                                           |
+| EmbeddingProvider | OpenAIEmbeddingProvider 或 OpenAI-compatible EmbeddingProvider                |
 | ModelProvider     | OpenAI-compatible ChatModelProvider                                           |
 | Logger            | StructuredLogger 或 OpenTelemetryLogger                                       |
 
@@ -164,7 +164,7 @@ Provider Pack 是一组后端实现绑定。
 | ------------------------ | ----------- | ------------------------------------------------------------------------------- |
 | RAG_PROVIDER             | local       | RAG provider；支持 `fake`、`local`、`local_vector`、`chroma`、`faiss`、`qdrant` |
 | RAG_CHUNK_SIZE           | 320         | 文档切分 chunk 大小                                                             |
-| RAG_EMBEDDING_DIMENSIONS | 384         | 本地 hash embedding 维度                                                        |
+| RAG_EMBEDDING_DIMENSIONS | 384         | 兼容配置；未设置 `EMBEDDING_DIMENSIONS` 时作为 embedding 维度回退                 |
 | RAG_VECTOR_BACKEND       | memory      | `local_vector` 的本地 backend，可选 `memory`、`chroma`、`faiss`                 |
 | CHROMA_COLLECTION        | haruhi_rag  | Chroma collection 名称                                                          |
 | CHROMA_PERSIST_PATH      | .chroma     | Chroma 本地持久化目录，可选                                                     |
@@ -175,6 +175,50 @@ Provider Pack 是一组后端实现绑定。
 | QDRANT_ENSURE_COLLECTION | false       | 是否由服务尝试创建 collection                                                   |
 | RAG_TOP_K_DEFAULT        | 5           | 默认检索数量                                                                    |
 | RAG_TOP_K_MAX            | 10          | 最大检索数量                                                                    |
+
+### Embedding
+
+Embedding provider 只由服务端配置决定，前端和业务后端不能传 provider、URL 或 API key。
+
+| 配置 | 示例 | 说明 |
+| --- | --- | --- |
+| EMBEDDING_PROVIDER | hash | 支持 `hash`、`local_openai_compatible`、`ollama`、`openai` |
+| EMBEDDING_MODEL | text-embedding-3-small | provider 侧真实 embedding 模型名 |
+| EMBEDDING_BASE_URL | http://localhost:11434/v1 | 本地或 OpenAI-compatible embedding endpoint |
+| EMBEDDING_DIMENSIONS | 1536 | 向量维度；必须和向量库 collection 维度一致 |
+| EMBEDDING_TIMEOUT_MS | 30000 | embedding 请求超时 |
+| EMBEDDING_API_KEY | 可选 | embedding provider API key；不写入前端请求 |
+| EMBEDDING_API_KEY_ENV | OPENAI_API_KEY | 从指定环境变量读取 key |
+| EMBEDDING_PATH | embeddings | 自定义 OpenAI-compatible embeddings path |
+
+本地 Ollama 示例：
+
+```powershell
+$env:RAG_PROVIDER="local_vector"
+$env:EMBEDDING_PROVIDER="ollama"
+$env:EMBEDDING_MODEL="nomic-embed-text"
+$env:EMBEDDING_DIMENSIONS="768"
+```
+
+本地 OpenAI-compatible 示例：
+
+```powershell
+$env:RAG_PROVIDER="local_vector"
+$env:EMBEDDING_PROVIDER="local_openai_compatible"
+$env:EMBEDDING_BASE_URL="http://localhost:9999/v1"
+$env:EMBEDDING_MODEL="local-embed"
+$env:EMBEDDING_DIMENSIONS="768"
+```
+
+云端 OpenAI 示例：
+
+```powershell
+$env:RAG_PROVIDER="qdrant"
+$env:EMBEDDING_PROVIDER="openai"
+$env:EMBEDDING_MODEL="text-embedding-3-small"
+$env:EMBEDDING_DIMENSIONS="1536"
+$env:OPENAI_API_KEY="..."
+```
 
 ### Model
 
@@ -402,7 +446,7 @@ RAG provider 也需要分阶段：
 
 1. `fake`：固定 chunks，验证 Orchestrator 和 PromptBuilder 融合。
 2. `local`：本地文档、chunk、简单文本检索。
-3. `local_vector`：标准库 hash embedding + 内存向量索引，不需要额外依赖。
+3. `local_vector`：可使用 hash、Ollama、本地 OpenAI-compatible 或云端 embedding provider。
 4. `chroma`：可选 Chroma backend；需要本地环境安装 `chromadb`。
 5. `faiss`：可选 Faiss backend；需要本地环境安装 `faiss-cpu`。
 6. `qdrant`：Qdrant REST 云端 provider。
@@ -414,8 +458,8 @@ RAG provider 也需要分阶段：
 
 ```powershell
 $env:RAG_PROVIDER="local_vector"
-$env:RAG_VECTOR_BACKEND="memory"
-$env:RAG_EMBEDDING_DIMENSIONS="384"
+$env:EMBEDDING_PROVIDER="hash"
+$env:EMBEDDING_DIMENSIONS="384"
 ```
 
 推荐 Qdrant 配置：
@@ -426,6 +470,10 @@ $env:QDRANT_URL="https://your-qdrant.example"
 $env:QDRANT_COLLECTION="haruhi_rag"
 $env:QDRANT_API_KEY="..."
 $env:QDRANT_ENSURE_COLLECTION="false"
+$env:EMBEDDING_PROVIDER="openai"
+$env:EMBEDDING_MODEL="text-embedding-3-small"
+$env:EMBEDDING_DIMENSIONS="1536"
+$env:OPENAI_API_KEY="..."
 ```
 
 Chroma/Faiss 是可选本地库支持，不进入默认依赖。需要使用时先在本地环境安装对应包，再设置 `RAG_PROVIDER=chroma` 或 `RAG_PROVIDER=faiss`。
@@ -645,9 +693,11 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | PERSONA_PROVIDER        | file                 |
 | SESSION_PROVIDER        | sqlite               |
 | MEMORY_PROVIDER         | sqlite               |
-| RAG_PROVIDER            | local                |
-| VECTOR_PROVIDER         | local                |
-| EMBEDDING_PROVIDER      | local                |
+| RAG_PROVIDER            | local_vector         |
+| RAG_VECTOR_BACKEND      | memory               |
+| EMBEDDING_PROVIDER      | ollama               |
+| EMBEDDING_MODEL         | nomic-embed-text     |
+| EMBEDDING_DIMENSIONS    | 768                  |
 | MODEL_PROVIDER_REGISTRY | 见 Ollama local 示例 |
 | ENABLE_DEBUG_TRACE      | true                 |
 | ENABLE_SAFETY_FILTER    | true                 |
@@ -677,7 +727,9 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | RAG_PROVIDER            | qdrant                             |
 | QDRANT_URL              | 生产 Qdrant 地址                   |
 | QDRANT_COLLECTION       | haruhi_rag                         |
-| EMBEDDING_PROVIDER      | openai_compatible                  |
+| EMBEDDING_PROVIDER      | openai                             |
+| EMBEDDING_MODEL         | text-embedding-3-small             |
+| EMBEDDING_DIMENSIONS    | 1536                               |
 | MODEL_PROVIDER_REGISTRY | 见 DeepSeek / Gemini / OpenAI 示例 |
 | ENABLE_DEBUG_TRACE      | false                              |
 | ENABLE_SAFETY_FILTER    | true                               |

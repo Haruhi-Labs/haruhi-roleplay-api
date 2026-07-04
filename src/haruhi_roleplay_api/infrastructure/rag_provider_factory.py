@@ -5,13 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from haruhi_roleplay_api.adapters import FakeRagService, LocalRagService
-from haruhi_roleplay_api.adapters.rag_qdrant import QdrantRagService
-from haruhi_roleplay_api.adapters.rag_vector import (
+from haruhi_roleplay_api.adapters import (
+    FakeRagService,
     HashEmbeddingProvider,
-    LocalVectorRagService,
+    LocalRagService,
+)
+from haruhi_roleplay_api.adapters.rag_qdrant import QdrantRagService
+from haruhi_roleplay_api.adapters.rag_vector import LocalVectorRagService
+from haruhi_roleplay_api.infrastructure.embedding_provider_factory import (
+    EmbeddingProviderSettings,
+    build_embedding_provider,
 )
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
+from haruhi_roleplay_api.ports import TextEmbeddingProvider
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -58,7 +64,11 @@ class RagProviderSettings:
         )
 
 
-def build_rag_service(settings: RagProviderSettings):
+def build_rag_service(
+    settings: RagProviderSettings,
+    *,
+    embedding_provider: TextEmbeddingProvider | None = None,
+):
     provider = settings.provider.strip().lower().replace("-", "_")
     if settings.chunkSize <= 0:
         raise AppError(
@@ -75,11 +85,23 @@ def build_rag_service(settings: RagProviderSettings):
     if provider in {"local", "local_rag"}:
         return LocalRagService(chunk_size=settings.chunkSize)
     if provider in {"local_vector", "local_vector_rag"}:
-        return _local_vector_service(settings, backend=settings.localVectorBackend)
+        return _local_vector_service(
+            settings,
+            backend=settings.localVectorBackend,
+            embedding_provider=embedding_provider,
+        )
     if provider in {"chroma", "chromadb"}:
-        return _local_vector_service(settings, backend="chroma")
+        return _local_vector_service(
+            settings,
+            backend="chroma",
+            embedding_provider=embedding_provider,
+        )
     if provider == "faiss":
-        return _local_vector_service(settings, backend="faiss")
+        return _local_vector_service(
+            settings,
+            backend="faiss",
+            embedding_provider=embedding_provider,
+        )
     if provider in {"qdrant", "cloud_rag"}:
         if not settings.qdrantUrl:
             raise AppError(
@@ -92,9 +114,7 @@ def build_rag_service(settings: RagProviderSettings):
             api_key=settings.qdrantApiKey,
             timeout_seconds=settings.qdrantTimeoutMs / 1000,
             chunk_size=settings.chunkSize,
-            embedding_provider=HashEmbeddingProvider(
-                dimensions=settings.embeddingDimensions,
-            ),
+            embedding_provider=embedding_provider or _hash_embedding(settings),
             ensure_collection=settings.qdrantEnsureCollection,
         )
     raise AppError(
@@ -104,23 +124,45 @@ def build_rag_service(settings: RagProviderSettings):
 
 
 def build_rag_service_from_env(env: Mapping[str, str]):
-    return build_rag_service(RagProviderSettings.from_mapping(env))
+    settings = RagProviderSettings.from_mapping(env)
+    provider = settings.provider.strip().lower().replace("-", "_")
+    embedding_provider = (
+        build_embedding_provider(EmbeddingProviderSettings.from_mapping(env))
+        if _requires_embedding_provider(provider)
+        else None
+    )
+    return build_rag_service(settings, embedding_provider=embedding_provider)
+
+
+def _requires_embedding_provider(provider: str) -> bool:
+    return provider in {
+        "local_vector",
+        "local_vector_rag",
+        "chroma",
+        "chromadb",
+        "faiss",
+        "qdrant",
+        "cloud_rag",
+    }
 
 
 def _local_vector_service(
     settings: RagProviderSettings,
     *,
     backend: str,
+    embedding_provider: TextEmbeddingProvider | None,
 ) -> LocalVectorRagService:
     return LocalVectorRagService(
         chunk_size=settings.chunkSize,
-        embedding_provider=HashEmbeddingProvider(
-            dimensions=settings.embeddingDimensions,
-        ),
+        embedding_provider=embedding_provider or _hash_embedding(settings),
         backend=backend,
         chroma_collection=settings.chromaCollection,
         chroma_persist_path=settings.chromaPersistPath,
     )
+
+
+def _hash_embedding(settings: RagProviderSettings) -> HashEmbeddingProvider:
+    return HashEmbeddingProvider(dimensions=settings.embeddingDimensions)
 
 
 def _int_from_mapping(

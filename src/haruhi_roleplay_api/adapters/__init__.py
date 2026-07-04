@@ -1,5 +1,12 @@
 """External system adapters."""
 
+from haruhi_roleplay_api.adapters.embeddings import (
+    HashEmbeddingProvider,
+    LocalOpenAICompatibleEmbeddingProvider,
+    OllamaEmbeddingProvider,
+    OpenAICompatibleEmbeddingProvider,
+    OpenAIEmbeddingProvider,
+)
 from haruhi_roleplay_api.adapters.memory import InMemoryMemoryStore
 from haruhi_roleplay_api.adapters.models import (
     DeepSeekModelProvider,
@@ -21,14 +28,19 @@ __all__ = [
     "FakeModelProvider",
     "FakeRagService",
     "GeminiModelProvider",
+    "HashEmbeddingProvider",
     "InMemoryMemoryStore",
     "InMemorySessionStore",
+    "LocalOpenAICompatibleEmbeddingProvider",
     "LocalOpenAICompatibleModelProvider",
     "LocalPersonaRepository",
     "LocalRagService",
     "LocalVectorRagService",
+    "OllamaEmbeddingProvider",
     "OllamaModelProvider",
+    "OpenAICompatibleEmbeddingProvider",
     "OpenAIModelProvider",
+    "OpenAIEmbeddingProvider",
     "OpenAICompatibleModelProvider",
     "QdrantRagService",
 ]

@@ -14,7 +14,7 @@ from haruhi_roleplay_api.adapters.rag import (
     _matches_filters,
     _metadata_with_title,
 )
-from haruhi_roleplay_api.adapters.rag_vector import HashEmbeddingProvider
+from haruhi_roleplay_api.adapters.embeddings import HashEmbeddingProvider
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
     RagChunk,
@@ -26,6 +26,7 @@ from haruhi_roleplay_api.domain import (
     RagRetrieveInput,
     RagRetrieveOutput,
 )
+from haruhi_roleplay_api.ports import TextEmbeddingProvider
 
 
 class QdrantRagService:
@@ -39,7 +40,7 @@ class QdrantRagService:
         api_key: str | None = None,
         timeout_seconds: float = 10.0,
         chunk_size: int = 320,
-        embedding_provider: HashEmbeddingProvider | None = None,
+        embedding_provider: TextEmbeddingProvider | None = None,
         ensure_collection: bool = False,
     ) -> None:
         if not base_url.strip():

@@ -9,6 +9,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
+from haruhi_roleplay_api.adapters.embeddings import HashEmbeddingProvider
 from haruhi_roleplay_api.adapters.rag import (
     _chunk_text,
     _matches_filters,
@@ -25,13 +26,7 @@ from haruhi_roleplay_api.domain import (
     RagRetrieveInput,
     RagRetrieveOutput,
 )
-
-
-class TextEmbeddingProvider(Protocol):
-    dimensions: int
-
-    def embed(self, text: str) -> tuple[float, ...]:
-        """Embed one text into a normalized vector."""
+from haruhi_roleplay_api.ports import TextEmbeddingProvider
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -51,24 +46,6 @@ class VectorStore(Protocol):
         retrieve_input: RagRetrieveInput,
     ) -> tuple[VectorSearchHit, ...]:
         """Search and return candidate hits."""
-
-
-class HashEmbeddingProvider:
-    """Deterministic local embedding for tests and offline local RAG."""
-
-    def __init__(self, *, dimensions: int = 384) -> None:
-        if dimensions <= 0:
-            raise ValueError("dimensions must be positive")
-        self.dimensions = dimensions
-
-    def embed(self, text: str) -> tuple[float, ...]:
-        values = [0.0] * self.dimensions
-        for token in _tokens(text):
-            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
-            bucket = int.from_bytes(digest[:4], "big") % self.dimensions
-            sign = 1.0 if digest[4] % 2 == 0 else -1.0
-            values[bucket] += sign
-        return _normalize(values)
 
 
 class InMemoryVectorStore:
@@ -255,7 +232,10 @@ class LocalVectorRagService:
                 start=1,
             )
         )
-        vectors = tuple(self._embedding_provider.embed(chunk.content) for chunk in chunks)
+        vectors = tuple(
+            _normalize_embedding(self._embedding_provider.embed(chunk.content))
+            for chunk in chunks
+        )
         self._vector_store.upsert(chunks, vectors)
         return RagIngestResult(
             documentId=document_id,
@@ -265,7 +245,9 @@ class LocalVectorRagService:
         )
 
     def retrieve(self, retrieve_input: RagRetrieveInput) -> RagRetrieveOutput:
-        query_vector = self._embedding_provider.embed(retrieve_input.query)
+        query_vector = _normalize_embedding(
+            self._embedding_provider.embed(retrieve_input.query)
+        )
         hits = self._vector_store.search(
             query_vector=query_vector,
             retrieve_input=retrieve_input,
@@ -308,19 +290,11 @@ def _vector_store_for_backend(
     )
 
 
-def _tokens(text: str) -> tuple[str, ...]:
-    normalized = text.lower()
-    terms = [term for term in normalized.split() if term]
-    chars = [char for char in normalized if not char.isspace()]
-    bigrams = ["".join(chars[index : index + 2]) for index in range(len(chars) - 1)]
-    return tuple(terms + chars + bigrams)
-
-
-def _normalize(values: list[float]) -> tuple[float, ...]:
-    magnitude = math.sqrt(sum(value * value for value in values))
+def _normalize_embedding(vector: tuple[float, ...]) -> tuple[float, ...]:
+    magnitude = math.sqrt(sum(value * value for value in vector))
     if magnitude == 0:
-        return tuple(values)
-    return tuple(value / magnitude for value in values)
+        return vector
+    return tuple(value / magnitude for value in vector)
 
 
 def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
