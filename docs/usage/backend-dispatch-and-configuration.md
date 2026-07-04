@@ -110,16 +110,16 @@ Provider Pack 是一组后端实现绑定。
 
 用于生产环境。
 
-| 能力              | 实现                                                                |
-| ----------------- | ------------------------------------------------------------------- |
-| PersonaRepository | PostgresPersonaRepository，存储角色和 preset catalog                |
-| SessionStore      | PostgresSessionStore                                                |
-| MemoryStore       | PostgresMemoryStore                                                 |
-| CacheStore        | RedisCacheStore                                                     |
-| RagService        | QdrantRagService、PgVectorRagService 或 OpenAIVectorStoreRagService |
-| EmbeddingProvider | OpenAI-compatible EmbeddingProvider                                 |
-| ModelProvider     | OpenAI-compatible ChatModelProvider                                 |
-| Logger            | StructuredLogger 或 OpenTelemetryLogger                             |
+| 能力              | 实现                                                                          |
+| ----------------- | ----------------------------------------------------------------------------- |
+| PersonaRepository | PostgresPersonaRepository，存储角色和 preset catalog                          |
+| SessionStore      | PostgresSessionStore                                                          |
+| MemoryStore       | PostgresMemoryStore                                                           |
+| CacheStore        | RedisCacheStore                                                               |
+| RagService        | 当前实现 `QdrantRagService`；pgvector / OpenAI Vector Store 留作后续 provider |
+| EmbeddingProvider | OpenAI-compatible EmbeddingProvider                                           |
+| ModelProvider     | OpenAI-compatible ChatModelProvider                                           |
+| Logger            | StructuredLogger 或 OpenTelemetryLogger                                       |
 
 ## 配置项
 
@@ -160,27 +160,35 @@ Provider Pack 是一组后端实现绑定。
 
 ### RAG
 
-| 配置               | 示例  | 说明                  |
-| ------------------ | ----- | --------------------- |
-| RAG_PROVIDER       | local | RAG provider          |
-| VECTOR_PROVIDER    | local | vector index provider |
-| EMBEDDING_PROVIDER | local | embedding provider    |
-| RAG_TOP_K_DEFAULT  | 5     | 默认检索数量          |
-| RAG_TOP_K_MAX      | 10    | 最大检索数量          |
+| 配置                     | 示例        | 说明                                                                            |
+| ------------------------ | ----------- | ------------------------------------------------------------------------------- |
+| RAG_PROVIDER             | local       | RAG provider；支持 `fake`、`local`、`local_vector`、`chroma`、`faiss`、`qdrant` |
+| RAG_CHUNK_SIZE           | 320         | 文档切分 chunk 大小                                                             |
+| RAG_EMBEDDING_DIMENSIONS | 384         | 本地 hash embedding 维度                                                        |
+| RAG_VECTOR_BACKEND       | memory      | `local_vector` 的本地 backend，可选 `memory`、`chroma`、`faiss`                 |
+| CHROMA_COLLECTION        | haruhi_rag  | Chroma collection 名称                                                          |
+| CHROMA_PERSIST_PATH      | .chroma     | Chroma 本地持久化目录，可选                                                     |
+| QDRANT_URL               | https://... | Qdrant 服务地址                                                                 |
+| QDRANT_COLLECTION        | haruhi_rag  | Qdrant collection 名称                                                          |
+| QDRANT_API_KEY           | 可选        | Qdrant API key                                                                  |
+| QDRANT_TIMEOUT_MS        | 10000       | Qdrant 请求超时                                                                 |
+| QDRANT_ENSURE_COLLECTION | false       | 是否由服务尝试创建 collection                                                   |
+| RAG_TOP_K_DEFAULT        | 5           | 默认检索数量                                                                    |
+| RAG_TOP_K_MAX            | 10          | 最大检索数量                                                                    |
 
 ### Model
 
 推荐使用 `MODEL_PROVIDER_REGISTRY` 统一声明 provider 和模型别名。旧的 `MODEL_PROVIDER`、`MODEL_BASE_URL`、`MODEL_NAME` 仍然兼容，但只适合单 provider 本地验证。
 
-| 配置                    | 示例                      | 说明                                                         |
-| ----------------------- | ------------------------- | ------------------------------------------------------------ |
-| MODEL_PROVIDER_REGISTRY | JSON 字符串               | 推荐配置；声明 providers、aliases 和 default_alias           |
+| 配置                    | 示例                      | 说明                                                                                          |
+| ----------------------- | ------------------------- | --------------------------------------------------------------------------------------------- |
+| MODEL_PROVIDER_REGISTRY | JSON 字符串               | 推荐配置；声明 providers、aliases 和 default_alias                                            |
 | MODEL_PROVIDER          | local                     | 兼容配置；支持 `fake`、`local`、`openai_compatible`、`ollama`、`deepseek`、`gemini`、`openai` |
-| MODEL_ALIAS             | haruhi-ollama             | 兼容配置；暴露给前端的模型别名，不填时等于 `MODEL_NAME`      |
-| MODEL_BASE_URL          | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址                               |
-| MODEL_NAME              | qwen2.5:7b                | provider 侧真实模型名                                        |
-| MODEL_TIMEOUT_MS        | 60000                     | 模型超时                                                     |
-| MODEL_API_KEY           | 可选                      | OpenAI-compatible API Key，本地无鉴权服务可不设置            |
+| MODEL_ALIAS             | haruhi-ollama             | 兼容配置；暴露给前端的模型别名，不填时等于 `MODEL_NAME`                                       |
+| MODEL_BASE_URL          | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址                                                                |
+| MODEL_NAME              | qwen2.5:7b                | provider 侧真实模型名                                                                         |
+| MODEL_TIMEOUT_MS        | 60000                     | 模型超时                                                                                      |
+| MODEL_API_KEY           | 可选                      | OpenAI-compatible API Key，本地无鉴权服务可不设置                                             |
 
 Ollama local 示例：
 
@@ -262,13 +270,13 @@ $env:MODEL_PROVIDER_REGISTRY='{
 
 模型后端接入拆成四层，避免一个 `models.py` 随着厂商增加而无限膨胀：
 
-| 层 | 文件 | 作用 |
-| --- | --- | --- |
-| application | `application/models.py` | 只保留 `ModelProviderRegistryRouter`，根据服务端 alias 白名单选择 provider 和真实模型名 |
-| ports | `ports/models.py` | 定义 `ChatModelProvider` 和 `ChatModelRouter`，让 Orchestrator 不依赖具体厂商 |
-| adapters | `adapters/models/*.py` | 放具体 provider：`fake`、`openai_compatible`、`ollama`、`deepseek`、`gemini`、`openai` |
-| infrastructure | `infrastructure/model_registry.py` | 解析 `MODEL_PROVIDER_REGISTRY` 和兼容环境变量 |
-| infrastructure | `infrastructure/model_provider_factory.py` | 注册 provider factory，填充厂商默认配置，并做启动期校验 |
+| 层             | 文件                                       | 作用                                                                                    |
+| -------------- | ------------------------------------------ | --------------------------------------------------------------------------------------- |
+| application    | `application/models.py`                    | 只保留 `ModelProviderRegistryRouter`，根据服务端 alias 白名单选择 provider 和真实模型名 |
+| ports          | `ports/models.py`                          | 定义 `ChatModelProvider` 和 `ChatModelRouter`，让 Orchestrator 不依赖具体厂商           |
+| adapters       | `adapters/models/*.py`                     | 放具体 provider：`fake`、`openai_compatible`、`ollama`、`deepseek`、`gemini`、`openai`  |
+| infrastructure | `infrastructure/model_registry.py`         | 解析 `MODEL_PROVIDER_REGISTRY` 和兼容环境变量                                           |
+| infrastructure | `infrastructure/model_provider_factory.py` | 注册 provider factory，填充厂商默认配置，并做启动期校验                                 |
 
 新增模型后端的最小路径：
 
@@ -392,13 +400,35 @@ RAG filter 必须至少包含：
 
 RAG provider 也需要分阶段：
 
-1. `fake_rag`：固定 chunks，验证 Orchestrator 和 PromptBuilder 融合。
-2. `local_rag`：本地文档、chunk、简单文本检索。
-3. `local_vector_rag`：本地 embedding 和向量索引。
-4. `cloud_rag`：Qdrant、pgvector、OpenAI Vector Store 或其它云端检索。
-5. rerank/query rewrite：仅在基础 retrieve 稳定后增加。
+1. `fake`：固定 chunks，验证 Orchestrator 和 PromptBuilder 融合。
+2. `local`：本地文档、chunk、简单文本检索。
+3. `local_vector`：标准库 hash embedding + 内存向量索引，不需要额外依赖。
+4. `chroma`：可选 Chroma backend；需要本地环境安装 `chromadb`。
+5. `faiss`：可选 Faiss backend；需要本地环境安装 `faiss-cpu`。
+6. `qdrant`：Qdrant REST 云端 provider。
+7. rerank/query rewrite：仅在基础 retrieve 稳定后增加。
 
 无论本地还是云端，RAG 输出都必须是统一 `RagRetrieveOutput`，并且 source 摘要必须可追溯。
+
+推荐本地向量配置：
+
+```powershell
+$env:RAG_PROVIDER="local_vector"
+$env:RAG_VECTOR_BACKEND="memory"
+$env:RAG_EMBEDDING_DIMENSIONS="384"
+```
+
+推荐 Qdrant 配置：
+
+```powershell
+$env:RAG_PROVIDER="qdrant"
+$env:QDRANT_URL="https://your-qdrant.example"
+$env:QDRANT_COLLECTION="haruhi_rag"
+$env:QDRANT_API_KEY="..."
+$env:QDRANT_ENSURE_COLLECTION="false"
+```
+
+Chroma/Faiss 是可选本地库支持，不进入默认依赖。需要使用时先在本地环境安装对应包，再设置 `RAG_PROVIDER=chroma` 或 `RAG_PROVIDER=faiss`。
 
 ## Memory 调度
 
@@ -608,19 +638,19 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 
 ## 推荐本地配置
 
-| 配置                 | 值                        |
-| -------------------- | ------------------------- |
-| APP_ENV              | local                     |
-| PROVIDER_PACK        | local                     |
-| PERSONA_PROVIDER     | file                      |
-| SESSION_PROVIDER     | sqlite                    |
-| MEMORY_PROVIDER      | sqlite                    |
-| RAG_PROVIDER         | local                     |
-| VECTOR_PROVIDER      | local                     |
-| EMBEDDING_PROVIDER   | local                     |
-| MODEL_PROVIDER_REGISTRY | 见 Ollama local 示例    |
-| ENABLE_DEBUG_TRACE   | true                      |
-| ENABLE_SAFETY_FILTER | true                      |
+| 配置                    | 值                   |
+| ----------------------- | -------------------- |
+| APP_ENV                 | local                |
+| PROVIDER_PACK           | local                |
+| PERSONA_PROVIDER        | file                 |
+| SESSION_PROVIDER        | sqlite               |
+| MEMORY_PROVIDER         | sqlite               |
+| RAG_PROVIDER            | local                |
+| VECTOR_PROVIDER         | local                |
+| EMBEDDING_PROVIDER      | local                |
+| MODEL_PROVIDER_REGISTRY | 见 Ollama local 示例 |
+| ENABLE_DEBUG_TRACE      | true                 |
+| ENABLE_SAFETY_FILTER    | true                 |
 
 ## 推荐测试配置
 
@@ -636,20 +666,21 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 
 ## 推荐生产配置
 
-| 配置                 | 值                |
-| -------------------- | ----------------- |
-| APP_ENV              | production        |
-| PROVIDER_PACK        | cloud             |
-| PERSONA_PROVIDER     | postgres          |
-| SESSION_PROVIDER     | postgres          |
-| MEMORY_PROVIDER      | postgres          |
-| CACHE_PROVIDER       | redis             |
-| RAG_PROVIDER         | qdrant            |
-| VECTOR_PROVIDER      | qdrant            |
-| EMBEDDING_PROVIDER   | openai_compatible |
+| 配置                    | 值                                 |
+| ----------------------- | ---------------------------------- |
+| APP_ENV                 | production                         |
+| PROVIDER_PACK           | cloud                              |
+| PERSONA_PROVIDER        | postgres                           |
+| SESSION_PROVIDER        | postgres                           |
+| MEMORY_PROVIDER         | postgres                           |
+| CACHE_PROVIDER          | redis                              |
+| RAG_PROVIDER            | qdrant                             |
+| QDRANT_URL              | 生产 Qdrant 地址                   |
+| QDRANT_COLLECTION       | haruhi_rag                         |
+| EMBEDDING_PROVIDER      | openai_compatible                  |
 | MODEL_PROVIDER_REGISTRY | 见 DeepSeek / Gemini / OpenAI 示例 |
-| ENABLE_DEBUG_TRACE   | false             |
-| ENABLE_SAFETY_FILTER | true              |
+| ENABLE_DEBUG_TRACE      | false                              |
+| ENABLE_SAFETY_FILTER    | true                               |
 
 ## 前端调用时的关键约束
 

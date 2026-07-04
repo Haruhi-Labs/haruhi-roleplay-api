@@ -13,12 +13,11 @@ from haruhi_roleplay_api.adapters import (
     InMemoryMemoryStore,
     InMemorySessionStore,
     LocalPersonaRepository,
-    LocalRagService,
 )
 from haruhi_roleplay_api.api.chat import post_chat, post_chat_stream
 from haruhi_roleplay_api.api.memory import delete_memory, get_memory
 from haruhi_roleplay_api.api.personas import get_personas
-from haruhi_roleplay_api.api.rag import post_rag_document
+from haruhi_roleplay_api.api.rag import post_rag_document, post_rag_search
 from haruhi_roleplay_api.api.responses import ApiResponse, error_response
 from haruhi_roleplay_api.api.sessions import post_session
 from haruhi_roleplay_api.application import PersonaPromptBuilder
@@ -27,6 +26,9 @@ from haruhi_roleplay_api.domain import DTOValidationError
 from haruhi_roleplay_api.infrastructure.models import (
     ModelProviderSettings,
     build_model_router,
+)
+from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
+    build_rag_service_from_env,
 )
 
 
@@ -65,7 +67,7 @@ class RoleplayHttpRuntime:
         model_router: object,
         session_store: InMemorySessionStore,
         memory_store: InMemoryMemoryStore,
-        rag_service: LocalRagService,
+        rag_service: object,
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
     ) -> None:
@@ -81,14 +83,13 @@ class RoleplayHttpRuntime:
     @classmethod
     def local(cls, *, project_root: Path, env: Mapping[str, str]) -> "RoleplayHttpRuntime":
         settings = HttpRuntimeSettings.from_env(env)
-        rag_service = LocalRagService()
         return cls(
             persona_repository=LocalPersonaRepository(project_root / "personas"),
             prompt_builder=PersonaPromptBuilder(),
             model_router=build_model_router(ModelProviderSettings.from_mapping(env)),
             session_store=InMemorySessionStore(),
             memory_store=InMemoryMemoryStore(),
-            rag_service=rag_service,
+            rag_service=build_rag_service_from_env(env),
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
         )
@@ -162,6 +163,14 @@ class RoleplayHttpRuntime:
                     json_body,
                     persona_repository=self._persona_repository,
                     rag_ingest_service=self._rag_service,
+                    request_id=request_id,
+                )
+            )
+        if method == "POST" and path_parts == ["v1", "rag", "search"]:
+            return _json_response(
+                post_rag_search(
+                    json_body,
+                    rag_service=self._rag_service,
                     request_id=request_id,
                 )
             )

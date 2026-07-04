@@ -11,6 +11,8 @@ from haruhi_roleplay_api.adapters.models import (
     OpenAICompatibleModelProvider,
 )
 from haruhi_roleplay_api.adapters.personas import LocalPersonaRepository
+from haruhi_roleplay_api.adapters.rag_qdrant import QdrantRagService
+from haruhi_roleplay_api.adapters.rag_vector import LocalVectorRagService
 from haruhi_roleplay_api.adapters.rag import FakeRagService, LocalRagService
 from haruhi_roleplay_api.adapters.sessions import InMemorySessionStore
 
@@ -24,8 +26,10 @@ __all__ = [
     "LocalOpenAICompatibleModelProvider",
     "LocalPersonaRepository",
     "LocalRagService",
+    "LocalVectorRagService",
     "OllamaModelProvider",
     "OpenAIModelProvider",
     "OpenAICompatibleModelProvider",
+    "QdrantRagService",
 ]
 

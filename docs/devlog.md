@@ -447,3 +447,25 @@
 ### 下一步
 
 - 补 model alias catalog，让前端可以读取服务端允许展示的模型别名列表。
+
+## 2026-07-04：Cloud / Vector RAG Provider
+
+### 完成
+
+- 新增 `LocalVectorRagService`，使用标准库 hash embedding + 内存向量索引跑通本地向量 RAG。
+- 预留可选 Chroma/Faiss backend；本地安装 `chromadb` 或 `faiss-cpu` 后可通过 `RAG_PROVIDER=chroma|faiss` 切换。
+- 新增 `QdrantRagService`，通过 Qdrant REST upsert/search 接入云端向量库。
+- 新增 `RagProviderSettings` 和 `build_rag_service`，通过 `RAG_PROVIDER`、`QDRANT_URL` 等环境变量装配 RAG provider。
+- HTTP runtime 改为通过 RAG provider factory 装配，并新增 `POST /v1/rag/search` 调试检索入口。
+- RAG 输出继续统一为 `RagRetrieveOutput`，source 摘要保持可追溯。
+
+### 验证
+
+- `uv run python -m unittest tests.test_local_vector_rag_provider tests.test_qdrant_rag_provider tests.test_http_runtime_adapter` 通过。
+- `uv run python -m unittest tests.test_local_rag_v1 tests.test_rag_metadata_validation tests.test_fake_rag_retrieve` 通过。
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 补 RAG provider health check 和真实 Qdrant smoke 文档，或增加云端 embedding provider。

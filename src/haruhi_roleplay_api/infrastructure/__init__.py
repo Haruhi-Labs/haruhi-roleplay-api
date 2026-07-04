@@ -12,6 +12,11 @@ from haruhi_roleplay_api.infrastructure.models import (
     ModelProviderSettings,
     build_model_router,
 )
+from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
+    RagProviderSettings,
+    build_rag_service,
+    build_rag_service_from_env,
+)
 
 __all__ = [
     "HttpRuntimeResponse",
@@ -19,7 +24,10 @@ __all__ = [
     "ModelAliasConfig",
     "ModelProviderConfig",
     "ModelProviderSettings",
+    "RagProviderSettings",
     "RoleplayHttpRuntime",
     "build_model_router",
+    "build_rag_service",
+    "build_rag_service_from_env",
     "create_local_runtime",
 ]

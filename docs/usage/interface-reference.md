@@ -225,7 +225,7 @@ mode 字段：
 
 ## RAG: POST /v1/rag/documents
 
-用途：校验 RAG 文档 metadata。当前最小实现不切 chunk、不写 vector index、不调用 embedding。
+用途：校验 RAG 文档 metadata，并在服务端注入 RAG provider 时写入本地或云端索引。
 
 ### 请求参数
 
@@ -251,7 +251,7 @@ mode 字段：
 | status | `validated` 或 `imported` |
 | metadata | 通过校验后的 metadata 摘要 |
 
-未注入本地 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 `LocalRagService` 时返回 `imported`，并把文本切成本地 chunks，供 `/v1/chat` 的 RAG 分支检索。
+未注入 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 RAG provider 时返回 `imported`，并把文本切成本地或云端 chunks，供 `/v1/chat` 的 RAG 分支检索。
 
 当前校验规则：
 
@@ -276,6 +276,26 @@ mode 字段：
 | top_k | 是 | 返回数量 |
 | filters | 否 | metadata filter |
 | debug | 否 | 是否返回调试信息 |
+
+### filters 字段
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| source_types | 否 | 来源类型列表，例如 `["timeline"]` |
+| timelines | 否 | 时间线列表，例如 `["mid_late"]` |
+| spoiler_level_max | 否 | 最大剧透等级 |
+| language | 否 | `zh-CN`、`ja-JP`、`en-US` |
+
+### 响应 data
+
+| 字段 | 说明 |
+| --- | --- |
+| provider | RAG provider 名称，例如 `local-vector-rag` 或 `qdrant-rag` |
+| hit_count | 返回 chunk 数量 |
+| raw_hit_count | provider 原始命中数量 |
+| filtered_hit_count | metadata filter 后数量 |
+| rerank_applied | 是否执行 rerank |
+| chunks | 命中的 chunk，包含 source 摘要和 `content` |
 
 ## Memory: GET /v1/memory/{user_id}
 

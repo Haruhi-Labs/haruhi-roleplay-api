@@ -148,6 +148,42 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
             "doc-http-rag",
         )
 
+    def test_rag_search_uses_runtime_provider(self) -> None:
+        app = runtime({"RAG_PROVIDER": "local_vector", "RAG_CHUNK_SIZE": "24"})
+        app.handle(
+            method="POST",
+            target="/v1/rag/documents",
+            headers={"content-type": "application/json"},
+            body=json_body(rag_document_body()),
+        )
+        search_response = app.handle(
+            method="POST",
+            target="/v1/rag/search",
+            headers={"content-type": "application/json"},
+            body=json_body(
+                {
+                    "app_id": "web",
+                    "user_id": "user-1",
+                    "character_id": "haruhi",
+                    "persona_mode": "mid_late_haruhi",
+                    "query": "社团 活动",
+                    "top_k": 3,
+                    "filters": {
+                        "source_types": ["timeline"],
+                        "timelines": ["mid_late"],
+                        "spoiler_level_max": 2,
+                        "language": "zh-CN",
+                    },
+                }
+            ),
+        )
+        body = json_response(search_response.body)
+
+        self.assertEqual(search_response.status, 200)
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["provider"], "local-vector-rag")
+        self.assertEqual(body["data"]["chunks"][0]["document_id"], "doc-http-rag")
+
     def test_api_key_can_guard_runtime(self) -> None:
         app = runtime({"ROLEPLAY_API_KEY": "secret"})
         denied = app.handle(method="GET", target="/v1/personas", headers={})

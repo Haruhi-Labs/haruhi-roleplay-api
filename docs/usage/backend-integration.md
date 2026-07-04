@@ -65,7 +65,7 @@
 3. Chat 请求中设置 `capabilities.rag=true`。
 4. 从响应 `data.rag.sources` 获取引用来源。
 
-当前 `POST /v1/rag/documents` 在注入 `LocalRagService` 后会写入本地 chunks；未注入时只校验 metadata。`POST /v1/chat` 可以通过 `FakeRagService` 或 `LocalRagService` 验证 RAG 编排、filter、prompt 融合和 source 返回。当前本地检索使用简单文本匹配，不调用 embedding 或向量库。
+当前 `POST /v1/rag/documents` 在注入 RAG provider 后会写入本地或云端 chunks；未注入时只校验 metadata。`POST /v1/chat` 可以通过 `FakeRagService`、`LocalRagService`、`LocalVectorRagService` 或 `QdrantRagService` 验证 RAG 编排、filter、prompt 融合和 source 返回。`POST /v1/rag/search` 可用于直接调试检索结果。
 
 适合：
 
@@ -99,13 +99,13 @@
 
 ## 推荐默认参数
 
-| 场景 | character_id | persona_mode | rag | memory | continuousSession | temperature | styleIntensity |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 首次体验 | haruhi | entrance_haruhi | false | false | false | 0.8 | 0.75 |
-| 长期聊天 | haruhi | mid_late_haruhi | true | true | true | 0.8 | 0.7 |
-| 日常轻互动 | haruhi | disappearance_haruhi | false | true | true | 0.7 | 0.55 |
-| 温和陪伴 | asahina_mikuru | default_mikuru | false | true | true | 0.7 | 0.55 |
-| 吐槽叙述 | kyon | default_kyon | true | false | true | 0.6 | 0.6 |
+| 场景       | character_id   | persona_mode         | rag   | memory | continuousSession | temperature | styleIntensity |
+| ---------- | -------------- | -------------------- | ----- | ------ | ----------------- | ----------- | -------------- |
+| 首次体验   | haruhi         | entrance_haruhi      | false | false  | false             | 0.8         | 0.75           |
+| 长期聊天   | haruhi         | mid_late_haruhi      | true  | true   | true              | 0.8         | 0.7            |
+| 日常轻互动 | haruhi         | disappearance_haruhi | false | true   | true              | 0.7         | 0.55           |
+| 温和陪伴   | asahina_mikuru | default_mikuru       | false | true   | true              | 0.7         | 0.55           |
+| 吐槽叙述   | kyon           | default_kyon         | true  | false  | true              | 0.6         | 0.6            |
 
 ## 后端错误处理建议
 
