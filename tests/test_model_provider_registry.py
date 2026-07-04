@@ -72,7 +72,7 @@ def registry_json(*, api_key: str | None = None) -> str:
 class ModelProviderRegistryTests(unittest.TestCase):
     def test_alias_routes_to_ollama_provider_model(self) -> None:
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             return_value=FakeHTTPResponseForRegistry(
                 {
                     "choices": [{"message": {"content": "真实模型通路回复"}}],
@@ -112,7 +112,7 @@ class ModelProviderRegistryTests(unittest.TestCase):
         )
 
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             return_value=FakeHTTPResponseForRegistry(
                 {
                     "choices": [{"message": {"content": "默认 alias 回复"}}],
@@ -177,7 +177,7 @@ class ModelProviderRegistryTests(unittest.TestCase):
 
     def test_debug_does_not_expose_api_key(self) -> None:
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             return_value=FakeHTTPResponseForRegistry(
                 {
                     "choices": [{"message": {"content": "安全回复"}}],

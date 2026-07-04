@@ -397,3 +397,31 @@
 ### 下一步
 
 - 继续实现 DeepSeek provider 配置模板，或补 provider registry 的生产环境配置校验。
+
+## 2026-07-03：DeepSeek / Gemini Provider
+
+### 完成
+
+- 在 provider registry 中新增 `deepseek` provider type。
+- 在 provider registry 中新增 `gemini` provider type。
+- 拆分模型 provider 结构：`application/models.py` 保留 `ModelProviderRegistryRouter`，`ports/models.py` 保留模型 port，具体 provider 移入 `adapters/models/`。
+- 新增 `infrastructure/model_registry.py` 解析 `MODEL_PROVIDER_REGISTRY`，新增 `infrastructure/model_provider_factory.py` 注册 provider factory。
+- 保留 `infrastructure/models.py` 作为兼容导出，避免旧 import 立即断裂。
+- DeepSeek 默认使用 OpenAI-compatible `https://api.deepseek.com/chat/completions`。
+- Gemini 默认使用 OpenAI-compatible `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`。
+- 支持从 `DEEPSEEK_API_KEY` 和 `GEMINI_API_KEY` 读取 secret，也支持 registry 中配置 `api_key_env`。
+- 云端 provider 缺少 API key 时启动装配阶段直接返回统一 `MODEL_PROVIDER_ERROR`。
+- provider HTTP error 映射为 `MODEL_PROVIDER_ERROR`，超时映射为 `MODEL_TIMEOUT`。
+- provider debug 只保留 provider 名称和模型 alias，不泄露 secret。
+
+### 验证
+
+- `uv run python -m unittest tests.test_cloud_model_providers` 通过。
+- `uv run python -m unittest tests.test_model_provider_registry tests.test_local_model_provider` 通过。
+- `uv run python -m unittest tests.test_model_provider_registry tests.test_local_model_provider tests.test_fake_model_provider tests.test_chat_api_v1 tests.test_debug_trace_v1 tests.test_cloud_model_providers` 通过。
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+
+### 下一步
+
+- 实现 OpenAI provider preset，或补 model alias catalog 给前端展示可选模型。

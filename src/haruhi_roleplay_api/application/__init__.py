@@ -13,7 +13,6 @@ from haruhi_roleplay_api.application.models import (
     ModelAliasRoute,
     ModelProviderRegistryRouter,
     ModelRouteDecision,
-    ModelRouter,
 )
 from haruhi_roleplay_api.application.personas import ListPublicPersonas
 from haruhi_roleplay_api.application.prompts import PersonaPromptBuilder
@@ -33,7 +32,6 @@ __all__ = [
     "ModelAliasRoute",
     "ModelProviderRegistryRouter",
     "ModelRouteDecision",
-    "ModelRouter",
     "PersonaPromptBuilder",
     "RoleplayOrchestrator",
     "SendChatMessageUseCase",

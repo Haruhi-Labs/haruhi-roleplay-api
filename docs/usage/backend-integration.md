@@ -136,7 +136,7 @@
 2. AuthService 校验调用方。
 3. SendChatMessageUseCase 调用 RoleplayOrchestrator。
 4. Orchestrator 根据 `capabilities` 决定是否调用 SessionStore、MemoryStore、RagService。
-5. ModelRouter 根据环境配置和 `generation.model` 的白名单别名选择模型。
+5. `ChatModelRouter` 的 `ModelProviderRegistryRouter` 实现根据环境配置和 `generation.model` 的白名单别名选择模型。
 6. 具体实现由 Provider Pack 在服务启动时注入。
 
 详细配置和实现方式见 [中转服务后端调度与配置说明](backend-dispatch-and-configuration.md)。

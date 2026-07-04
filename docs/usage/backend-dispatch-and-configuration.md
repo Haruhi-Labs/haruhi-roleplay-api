@@ -175,7 +175,7 @@ Provider Pack 是一组后端实现绑定。
 | 配置                    | 示例                      | 说明                                                         |
 | ----------------------- | ------------------------- | ------------------------------------------------------------ |
 | MODEL_PROVIDER_REGISTRY | JSON 字符串               | 推荐配置；声明 providers、aliases 和 default_alias           |
-| MODEL_PROVIDER          | local                     | 兼容配置；支持 `fake`、`local`、`openai_compatible`、`ollama` |
+| MODEL_PROVIDER          | local                     | 兼容配置；支持 `fake`、`local`、`openai_compatible`、`ollama`、`deepseek`、`gemini` |
 | MODEL_ALIAS             | haruhi-ollama             | 兼容配置；暴露给前端的模型别名，不填时等于 `MODEL_NAME`      |
 | MODEL_BASE_URL          | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址                               |
 | MODEL_NAME              | qwen2.5:7b                | provider 侧真实模型名                                        |
@@ -215,6 +215,60 @@ $env:MODEL_PROVIDER_REGISTRY='{
 
 不能传 `provider=ollama`、`base_url` 或真实 API key。未配置的 alias 会返回统一 `MODEL_PROVIDER_ERROR`。
 
+DeepSeek / Gemini 示例：
+
+```powershell
+$env:DEEPSEEK_API_KEY="..."
+$env:GEMINI_API_KEY="..."
+$env:MODEL_PROVIDER_REGISTRY='{
+  "default_alias": "haruhi-deepseek",
+  "providers": {
+    "deepseek-cloud": {
+      "type": "deepseek",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "timeout_ms": 60000
+    },
+    "gemini-cloud": {
+      "type": "gemini",
+      "api_key_env": "GEMINI_API_KEY",
+      "timeout_ms": 60000
+    }
+  },
+  "aliases": {
+    "haruhi-deepseek": {
+      "provider": "deepseek-cloud",
+      "model": "deepseek-chat"
+    },
+    "haruhi-gemini": {
+      "provider": "gemini-cloud",
+      "model": "gemini-3.5-flash"
+    }
+  }
+}'
+```
+
+`deepseek` 默认使用 `https://api.deepseek.com/chat/completions`。`gemini` 默认使用 `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`。secret 通过环境变量读取，不写入前端请求，也不要写入公开文档。
+
+#### Model Provider 实现落层
+
+模型后端接入拆成四层，避免一个 `models.py` 随着厂商增加而无限膨胀：
+
+| 层 | 文件 | 作用 |
+| --- | --- | --- |
+| application | `application/models.py` | 只保留 `ModelProviderRegistryRouter`，根据服务端 alias 白名单选择 provider 和真实模型名 |
+| ports | `ports/models.py` | 定义 `ChatModelProvider` 和 `ChatModelRouter`，让 Orchestrator 不依赖具体厂商 |
+| adapters | `adapters/models/*.py` | 放具体 provider：`fake`、`openai_compatible`、`ollama`、`deepseek`、`gemini` |
+| infrastructure | `infrastructure/model_registry.py` | 解析 `MODEL_PROVIDER_REGISTRY` 和兼容环境变量 |
+| infrastructure | `infrastructure/model_provider_factory.py` | 注册 provider factory，填充厂商默认配置，并做启动期校验 |
+
+新增模型后端的最小路径：
+
+1. 在 `adapters/models/<provider>.py` 新增薄 adapter。
+2. 如果厂商兼容 OpenAI `/chat/completions`，复用 `OpenAICompatibleModelProvider`。
+3. 在 `model_provider_factory.py` 注册 provider type、默认 base URL、默认 API key env 和是否必须有 secret。
+4. 在 `MODEL_PROVIDER_REGISTRY` 里新增 provider 和 alias。
+5. 增加 provider factory/config 测试，mock HTTP 请求，不在单元测试里调用真实云服务。
+
 ### Cloud
 
 | 配置                  | 说明                           |
@@ -224,6 +278,8 @@ $env:MODEL_PROVIDER_REGISTRY='{
 | QDRANT_URL            | Qdrant 地址                    |
 | QDRANT_API_KEY        | Qdrant API Key                 |
 | OPENAI_API_KEY        | OpenAI-compatible provider key |
+| DEEPSEEK_API_KEY      | DeepSeek provider key          |
+| GEMINI_API_KEY        | Gemini provider key            |
 | OBJECT_STORAGE_BUCKET | 对象存储 bucket                |
 
 不要在日志、debug trace、接口响应中输出这些敏感配置值。
@@ -243,7 +299,7 @@ $env:MODEL_PROVIDER_REGISTRY='{
 9. 如果 `rag=true`，调用 RagService。
 10. PromptBuilder 组装 messages。
 11. SafetyGuard 检查输入。
-12. ModelRouter 根据 generation 和配置选择模型。
+12. `ChatModelRouter` 的 `ModelProviderRegistryRouter` 实现根据 generation 和配置选择模型。
 13. 非流式接口调用 `ChatModelProvider.generate`，流式接口调用 `ChatModelProvider.stream`。
 14. 流式接口把 provider delta 转成统一 `delta` event，并累积完整 assistant reply。
 15. SafetyGuard 检查输出。
@@ -264,7 +320,7 @@ $env:MODEL_PROVIDER_REGISTRY='{
 | debugTrace        | 不返回 debug          | 返回裁剪后的调试摘要             |
 | stream            | 返回完整 reply        | 返回 stream event                |
 
-## ModelRouter 调度
+## 模型路由调度
 
 模型选择不应该由前端直接决定 provider。
 
@@ -280,7 +336,7 @@ $env:MODEL_PROVIDER_REGISTRY='{
 | 高质量角色扮演                | high_quality_model              |
 | provider 失败                 | fallback_model                  |
 
-`generation.model` 应该是服务端定义的模型别名，不是直接暴露真实厂商模型名。
+`generation.model` 应该是服务端定义的模型别名，不是直接暴露真实厂商模型名。当前实现由 `ModelProviderRegistryRouter` 完成 alias 路由，由 `model_provider_factory.py` 在启动装配阶段创建具体 provider。
 
 ## 模型 Provider 产品化顺序
 
@@ -290,9 +346,10 @@ $env:MODEL_PROVIDER_REGISTRY='{
 
 1. `fake`：测试和 CI。
 2. `local_openai_compatible`：本地 Ollama、LM Studio、vLLM 等 OpenAI-compatible endpoint。
-3. `deepseek`：云端 OpenAI-compatible 调用，单独配置 API key 和 base URL。
-4. `openai`：云端 OpenAI-compatible 调用，单独配置 API key、model alias 和超时。
-5. fallback routing：仅在基础 provider 稳定后实现。
+3. `deepseek`：云端 OpenAI-compatible 调用，单独配置 API key、model alias 和超时。
+4. `gemini`：Google Gemini OpenAI compatibility 调用，单独配置 API key、model alias 和超时。
+5. `openai`：云端 OpenAI-compatible 调用，单独配置 API key、model alias 和超时。
+6. fallback routing：仅在基础 provider 稳定后实现。
 
 所有 provider 都必须满足：
 
@@ -359,7 +416,7 @@ Memory 调度需要避免污染：
 4. `ContextExecutor` 按 plan 调用 session、memory、RAG 和 backend context ports。
 5. Executor 输出 `ContextBundle`。
 6. `PromptBuilder` 融合 persona、ContextBundle 和用户消息。
-7. `ModelRouter` 调用模型 provider。
+7. `ChatModelRouter` 调用模型 provider，当前实现是 `ModelProviderRegistryRouter`。
 8. `MemoryCandidateExtractor` 可在回复后生成候选记忆。
 9. `MemoryPolicyEngine` 决定是否写入。
 
@@ -399,7 +456,7 @@ Memory 调度需要避免污染：
 - SessionStore
 - MemoryStore
 - RagService
-- ModelRouter
+- ChatModelRouter
 - ChatModelProvider
 - PromptBuilder
 - SafetyGuard

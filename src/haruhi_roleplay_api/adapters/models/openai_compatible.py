@@ -1,4 +1,4 @@
-"""Fake model provider for tests and local orchestration checks."""
+"""OpenAI-compatible chat completions model provider."""
 
 from __future__ import annotations
 
@@ -17,50 +17,7 @@ from haruhi_roleplay_api.domain import (
 )
 
 
-class FakeModelProvider:
-    provider_name = "fake"
-
-    def generate(self, request: ModelRequest) -> ModelResponse:
-        last_user_message = _last_user_message(request)
-        reply = f"[fake:{request.model}] {last_user_message}"
-        usage = ModelUsage(
-            promptTokens=sum(
-                _fake_token_count(message.content) for message in request.messages
-            ),
-            completionTokens=_fake_token_count(reply),
-        )
-        return ModelResponse(
-            reply=reply,
-            provider=self.provider_name,
-            model=request.model,
-            usage=usage,
-            debug={
-                "modelProvider": self.provider_name,
-                "model": request.model,
-                "messageCount": len(request.messages),
-            },
-        )
-
-    def stream(self, request: ModelRequest) -> tuple[ModelStreamEvent, ...]:
-        response = self.generate(request)
-        return tuple(
-            ModelStreamEvent(event="delta", delta=chunk)
-            for chunk in _text_chunks(response.reply)
-        ) + (ModelStreamEvent(event="done", response=response),)
-
-
-def _last_user_message(request: ModelRequest) -> str:
-    for message in reversed(request.messages):
-        if message.role == "user":
-            return message.content
-    return request.messages[-1].content
-
-
-def _fake_token_count(text: str) -> int:
-    return max(1, (len(text) + 3) // 4)
-
-
-class LocalOpenAICompatibleModelProvider:
+class OpenAICompatibleModelProvider:
     provider_name = "local-openai-compatible"
 
     def __init__(
@@ -70,6 +27,7 @@ class LocalOpenAICompatibleModelProvider:
         timeout_seconds: float,
         api_key: str | None = None,
         provider_name: str | None = None,
+        chat_completions_path: str | None = None,
     ) -> None:
         if not base_url.strip():
             raise AppError(
@@ -81,11 +39,15 @@ class LocalOpenAICompatibleModelProvider:
                 code=ErrorCode.MODEL_PROVIDER_ERROR,
                 message="MODEL_TIMEOUT_MS must be positive.",
             )
-        self._endpoint = _chat_completions_endpoint(base_url)
+        self._endpoint = _chat_completions_endpoint(
+            base_url,
+            chat_completions_path=chat_completions_path,
+        )
         self._timeout_seconds = timeout_seconds
         self._api_key = api_key
         if provider_name is not None and provider_name.strip():
             self.provider_name = provider_name.strip()
+        self._error_label = _error_label_for_provider(provider_name)
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         payload = _request_payload(request)
@@ -104,23 +66,24 @@ class LocalOpenAICompatibleModelProvider:
         except (TimeoutError, socket.timeout) as exc:
             raise AppError(
                 code=ErrorCode.MODEL_TIMEOUT,
-                message="Local model provider timed out.",
+                message=f"{self._error_label} timed out.",
             ) from exc
         except urllib.error.HTTPError as exc:
             raise AppError(
                 code=ErrorCode.MODEL_PROVIDER_ERROR,
-                message=f"Local model provider failed with HTTP {exc.code}.",
+                message=f"{self._error_label} failed with HTTP {exc.code}.",
             ) from exc
         except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
             raise AppError(
                 code=ErrorCode.MODEL_PROVIDER_ERROR,
-                message="Local model provider request failed.",
+                message=f"{self._error_label} request failed.",
             ) from exc
 
         return _response_from_mapping(
             response_data,
             request,
             provider_name=self.provider_name,
+            error_label=self._error_label,
         )
 
     def stream(self, request: ModelRequest) -> tuple[ModelStreamEvent, ...]:
@@ -141,22 +104,23 @@ class LocalOpenAICompatibleModelProvider:
                         response,
                         request,
                         provider_name=self.provider_name,
+                        error_label=self._error_label,
                     )
                 )
         except (TimeoutError, socket.timeout) as exc:
             raise AppError(
                 code=ErrorCode.MODEL_TIMEOUT,
-                message="Local model provider timed out.",
+                message=f"{self._error_label} timed out.",
             ) from exc
         except urllib.error.HTTPError as exc:
             raise AppError(
                 code=ErrorCode.MODEL_PROVIDER_ERROR,
-                message=f"Local model provider failed with HTTP {exc.code}.",
+                message=f"{self._error_label} failed with HTTP {exc.code}.",
             ) from exc
         except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
             raise AppError(
                 code=ErrorCode.MODEL_PROVIDER_ERROR,
-                message="Local model provider request failed.",
+                message=f"{self._error_label} request failed.",
             ) from exc
 
     def _headers(self) -> dict[str, str]:
@@ -166,11 +130,28 @@ class LocalOpenAICompatibleModelProvider:
         return headers
 
 
-def _chat_completions_endpoint(base_url: str) -> str:
+LocalOpenAICompatibleModelProvider = OpenAICompatibleModelProvider
+
+
+def _chat_completions_endpoint(
+    base_url: str,
+    *,
+    chat_completions_path: str | None = None,
+) -> str:
     normalized = base_url.rstrip("/")
+    if normalized.endswith("/chat/completions"):
+        return normalized
+    if chat_completions_path is not None and chat_completions_path.strip():
+        return f"{normalized}/{chat_completions_path.strip('/')}"
     if normalized.endswith("/v1"):
         return f"{normalized}/chat/completions"
     return f"{normalized}/v1/chat/completions"
+
+
+def _error_label_for_provider(provider_name: str | None) -> str:
+    if provider_name is None or not provider_name.strip():
+        return "Local model provider"
+    return f"{provider_name.strip()} model provider"
 
 
 def _request_payload(request: ModelRequest) -> dict[str, Any]:
@@ -197,6 +178,7 @@ def _stream_response_events(
     request: ModelRequest,
     *,
     provider_name: str,
+    error_label: str,
 ) -> tuple[ModelStreamEvent, ...]:
     deltas: list[str] = []
     usage: ModelUsage | None = None
@@ -217,7 +199,7 @@ def _stream_response_events(
     if not reply.strip():
         raise AppError(
             code=ErrorCode.MODEL_PROVIDER_ERROR,
-            message="Local model provider response was invalid.",
+            message=f"{error_label} response was invalid.",
         )
 
     final_usage = usage or ModelUsage(
@@ -272,13 +254,14 @@ def _response_from_mapping(
     request: ModelRequest,
     *,
     provider_name: str,
+    error_label: str,
 ) -> ModelResponse:
     try:
         reply = str(data["choices"][0]["message"]["content"])
     except (KeyError, IndexError, TypeError) as exc:
         raise AppError(
             code=ErrorCode.MODEL_PROVIDER_ERROR,
-            message="Local model provider response was invalid.",
+            message=f"{error_label} response was invalid.",
         ) from exc
 
     usage_data = data.get("usage", {})
@@ -309,5 +292,5 @@ def _usage_from_mapping(
     )
 
 
-def _text_chunks(text: str, *, chunk_size: int = 8) -> tuple[str, ...]:
-    return tuple(text[index : index + chunk_size] for index in range(0, len(text), chunk_size))
+def _fake_token_count(text: str) -> int:
+    return max(1, (len(text) + 3) // 4)

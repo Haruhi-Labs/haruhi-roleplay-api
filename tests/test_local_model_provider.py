@@ -106,7 +106,7 @@ class LocalModelProviderTests(unittest.TestCase):
 
     def test_config_selects_local_openai_compatible_provider(self) -> None:
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             return_value=FakeHTTPResponse(
                 {
                     "choices": [
@@ -156,7 +156,7 @@ class LocalModelProviderTests(unittest.TestCase):
 
     def test_local_openai_compatible_provider_streams_sse_deltas(self) -> None:
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             return_value=FakeStreamingHTTPResponse(
                 (
                     {"choices": [{"delta": {"content": "本地"}}]},
@@ -205,7 +205,7 @@ class LocalModelProviderTests(unittest.TestCase):
 
     def test_chat_api_uses_local_model_provider_full_chain(self) -> None:
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             return_value=FakeHTTPResponse(
                 {
                     "choices": [
@@ -281,7 +281,7 @@ class LocalModelProviderTests(unittest.TestCase):
 
     def test_local_provider_failure_maps_to_app_error(self) -> None:
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             side_effect=urllib.error.URLError("connection refused"),
         ):
             router = build_model_router(
