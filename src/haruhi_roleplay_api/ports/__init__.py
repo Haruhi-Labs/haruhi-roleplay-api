@@ -1,5 +1,6 @@
 """Application ports."""
 
+from haruhi_roleplay_api.ports.embeddings import TextEmbeddingProvider
 from haruhi_roleplay_api.ports.memory import MemoryPolicyEngine, MemoryStore
 from haruhi_roleplay_api.ports.models import ChatModelRouter
 from haruhi_roleplay_api.ports.models import ChatModelProvider
@@ -18,5 +19,6 @@ __all__ = [
     "RagIngestService",
     "RagService",
     "SessionStore",
+    "TextEmbeddingProvider",
 ]
 

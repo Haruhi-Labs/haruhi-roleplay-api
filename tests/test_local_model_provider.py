@@ -42,6 +42,26 @@ class FakeHTTPResponse:
         return json.dumps(self._payload).encode("utf-8")
 
 
+class FakeStreamingHTTPResponse:
+    def __init__(self, lines: tuple[dict | str, ...]) -> None:
+        self._lines = lines
+
+    def __enter__(self) -> "FakeStreamingHTTPResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def __iter__(self):
+        for line in self._lines:
+            if line == "[DONE]":
+                yield b"data: [DONE]\n\n"
+            else:
+                yield f"data: {json.dumps(line, ensure_ascii=False)}\n\n".encode(
+                    "utf-8"
+                )
+
+
 def model_messages() -> tuple[ModelMessage, ...]:
     return (
         ModelMessage(role="system", content="系统提示"),
@@ -65,9 +85,28 @@ class LocalModelProviderTests(unittest.TestCase):
         self.assertEqual(response.provider, "fake")
         self.assertEqual(response.model, "fake-roleplay-model")
 
+    def test_fake_model_provider_streams_deltas_and_done_response(self) -> None:
+        router = build_model_router(
+            ModelProviderSettings.from_mapping(
+                {
+                    "MODEL_PROVIDER": "fake",
+                    "MODEL_NAME": "fake-roleplay-model",
+                }
+            )
+        )
+
+        events = list(router.stream(model_messages(), GenerationConfig()))
+
+        self.assertEqual(events[-1].event, "done")
+        self.assertEqual(events[-1].response.provider, "fake")
+        self.assertEqual(
+            "".join(event.delta for event in events if event.event == "delta"),
+            events[-1].response.reply,
+        )
+
     def test_config_selects_local_openai_compatible_provider(self) -> None:
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             return_value=FakeHTTPResponse(
                 {
                     "choices": [
@@ -115,9 +154,58 @@ class LocalModelProviderTests(unittest.TestCase):
         self.assertEqual(response.usage.promptTokens, 12)
         self.assertEqual(response.usage.completionTokens, 4)
 
+    def test_local_openai_compatible_provider_streams_sse_deltas(self) -> None:
+        with patch(
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
+            return_value=FakeStreamingHTTPResponse(
+                (
+                    {"choices": [{"delta": {"content": "本地"}}]},
+                    {"choices": [{"delta": {"content": "流式"}}]},
+                    {
+                        "choices": [{"delta": {}}],
+                        "usage": {
+                            "prompt_tokens": 9,
+                            "completion_tokens": 2,
+                        },
+                    },
+                    "[DONE]",
+                )
+            ),
+        ) as urlopen:
+            router = build_model_router(
+                ModelProviderSettings.from_mapping(
+                    {
+                        "MODEL_PROVIDER": "local",
+                        "MODEL_BASE_URL": "http://localhost:11434/v1",
+                        "MODEL_NAME": "qwen2.5:7b",
+                        "MODEL_TIMEOUT_MS": "30000",
+                    }
+                )
+            )
+            events = list(
+                router.stream(
+                    model_messages(),
+                    GenerationConfig(model="qwen2.5:7b", maxTokens=64),
+                )
+            )
+
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        done = events[-1].response
+
+        self.assertTrue(payload["stream"])
+        self.assertEqual(payload["model"], "qwen2.5:7b")
+        self.assertEqual(
+            "".join(event.delta for event in events if event.event == "delta"),
+            "本地流式",
+        )
+        self.assertEqual(done.reply, "本地流式")
+        self.assertEqual(done.usage.promptTokens, 9)
+        self.assertEqual(done.usage.completionTokens, 2)
+
     def test_chat_api_uses_local_model_provider_full_chain(self) -> None:
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             return_value=FakeHTTPResponse(
                 {
                     "choices": [
@@ -193,7 +281,7 @@ class LocalModelProviderTests(unittest.TestCase):
 
     def test_local_provider_failure_maps_to_app_error(self) -> None:
         with patch(
-            "haruhi_roleplay_api.adapters.models.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
             side_effect=urllib.error.URLError("connection refused"),
         ):
             router = build_model_router(

@@ -94,6 +94,23 @@ class ModelResponse:
             raise DTOValidationError("usage must be ModelUsage")
 
 
+@dataclass(frozen=True, kw_only=True)
+class ModelStreamEvent:
+    event: str
+    delta: str = ""
+    response: ModelResponse | None = None
+
+    def __post_init__(self) -> None:
+        if self.event not in {"delta", "done"}:
+            raise DTOValidationError(f"model stream event is not supported: {self.event}")
+        if self.event == "delta":
+            _require_non_empty(self.delta, "model stream delta")
+            if self.response is not None:
+                raise DTOValidationError("delta event must not include response")
+        if self.event == "done" and not isinstance(self.response, ModelResponse):
+            raise DTOValidationError("done event must include ModelResponse")
+
+
 def model_messages_from_prompt(
     messages: Iterable[PromptMessage],
 ) -> tuple[ModelMessage, ...]:

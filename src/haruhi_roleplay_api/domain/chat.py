@@ -173,3 +173,21 @@ class ChatOutput:
         _require_non_empty(str(self.personaMode), "personaMode")
         _require_non_empty(self.reply, "reply")
 
+
+@dataclass(frozen=True, kw_only=True)
+class ChatStreamEvent:
+    event: str
+    data: Metadata = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.event not in {"start", "delta", "source", "usage", "done", "error"}:
+            raise DTOValidationError(f"chat stream event is not supported: {self.event}")
+        if not isinstance(self.data, Mapping):
+            raise DTOValidationError("chat stream event data must be an object")
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "event": self.event,
+            "data": dict(self.data),
+        }
+

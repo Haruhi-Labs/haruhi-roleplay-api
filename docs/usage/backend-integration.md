@@ -42,6 +42,22 @@
 - App 内长期对话。
 - 游戏 NPC 连续交互。
 
+### 流式对话
+
+1. 调用方收到用户输入。
+2. 调用 `POST /v1/chat/stream`。
+3. 业务后端把 `data.events` 中的事件逐条转成 SSE 或等价流式响应。
+4. 前端收到 `delta` 时追加文本。
+5. 收到 `done` 后结束 loading，并使用 `usage`、`rag`、`memory`、`debug` 做界面和联调处理。
+
+当前框架无关 handler 用数组表达 stream event，真实 HTTP 层负责逐条发送。流式接口复用同一 Orchestrator，正常结束后仍会写入完整 assistant message；provider 中途失败时返回 `error` event。
+
+适合：
+
+- Web 打字机效果。
+- 长回复。
+- 需要降低等待感的角色对话。
+
 ### 启用 RAG
 
 1. 先通过 `POST /v1/rag/documents` 导入资料。
@@ -49,7 +65,7 @@
 3. Chat 请求中设置 `capabilities.rag=true`。
 4. 从响应 `data.rag.sources` 获取引用来源。
 
-当前 `POST /v1/rag/documents` 在注入 `LocalRagService` 后会写入本地 chunks；未注入时只校验 metadata。`POST /v1/chat` 可以通过 `FakeRagService` 或 `LocalRagService` 验证 RAG 编排、filter、prompt 融合和 source 返回。当前本地检索使用简单文本匹配，不调用 embedding 或向量库。
+当前 `POST /v1/rag/documents` 在注入 RAG provider 后会写入本地或云端 chunks；未注入时只校验 metadata。`POST /v1/chat` 可以通过 `FakeRagService`、`LocalRagService`、`LocalVectorRagService` 或 `QdrantRagService` 验证 RAG 编排、filter、prompt 融合和 source 返回。`POST /v1/rag/search` 可用于直接调试检索结果。
 
 适合：
 
@@ -83,13 +99,13 @@
 
 ## 推荐默认参数
 
-| 场景 | character_id | persona_mode | rag | memory | continuousSession | temperature | styleIntensity |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 首次体验 | haruhi | entrance_haruhi | false | false | false | 0.8 | 0.75 |
-| 长期聊天 | haruhi | mid_late_haruhi | true | true | true | 0.8 | 0.7 |
-| 日常轻互动 | haruhi | disappearance_haruhi | false | true | true | 0.7 | 0.55 |
-| 温和陪伴 | asahina_mikuru | default_mikuru | false | true | true | 0.7 | 0.55 |
-| 吐槽叙述 | kyon | default_kyon | true | false | true | 0.6 | 0.6 |
+| 场景       | character_id   | persona_mode         | rag   | memory | continuousSession | temperature | styleIntensity |
+| ---------- | -------------- | -------------------- | ----- | ------ | ----------------- | ----------- | -------------- |
+| 首次体验   | haruhi         | entrance_haruhi      | false | false  | false             | 0.8         | 0.75           |
+| 长期聊天   | haruhi         | mid_late_haruhi      | true  | true   | true              | 0.8         | 0.7            |
+| 日常轻互动 | haruhi         | disappearance_haruhi | false | true   | true              | 0.7         | 0.55           |
+| 温和陪伴   | asahina_mikuru | default_mikuru       | false | true   | true              | 0.7         | 0.55           |
+| 吐槽叙述   | kyon           | default_kyon         | true  | false  | true              | 0.6         | 0.6            |
 
 ## 后端错误处理建议
 
@@ -120,7 +136,7 @@
 2. AuthService 校验调用方。
 3. SendChatMessageUseCase 调用 RoleplayOrchestrator。
 4. Orchestrator 根据 `capabilities` 决定是否调用 SessionStore、MemoryStore、RagService。
-5. ModelRouter 根据环境配置和 `generation.model` 的白名单别名选择模型。
+5. `ChatModelRouter` 的 `ModelProviderRegistryRouter` 实现根据环境配置和 `generation.model` 的白名单别名选择模型。
 6. 具体实现由 Provider Pack 在服务启动时注入。
 
 详细配置和实现方式见 [中转服务后端调度与配置说明](backend-dispatch-and-configuration.md)。

@@ -87,7 +87,7 @@ Provider Pack 是一组后端实现绑定。
 | MemoryStore       | InMemory 或 SQLite                           |
 | RagService        | LocalRagService                              |
 | VectorIndex       | LocalVectorIndex                             |
-| EmbeddingProvider | LocalEmbeddingProvider                       |
+| EmbeddingProvider | HashEmbeddingProvider、OllamaEmbeddingProvider 或本地 OpenAI-compatible endpoint |
 | ModelProvider     | Ollama 或本地 OpenAI-compatible              |
 | Logger            | ConsoleLogger                                |
 
@@ -102,7 +102,7 @@ Provider Pack 是一组后端实现绑定。
 | MemoryStore       | InMemoryMemoryStore                              |
 | RagService        | FakeRagService                                   |
 | VectorIndex       | FakeVectorIndex                                  |
-| EmbeddingProvider | FakeEmbeddingProvider                            |
+| EmbeddingProvider | HashEmbeddingProvider                            |
 | ModelProvider     | FakeModelProvider                                |
 | Logger            | NoopLogger 或 TestLogger                         |
 
@@ -110,16 +110,16 @@ Provider Pack 是一组后端实现绑定。
 
 用于生产环境。
 
-| 能力              | 实现                                                                |
-| ----------------- | ------------------------------------------------------------------- |
-| PersonaRepository | PostgresPersonaRepository，存储角色和 preset catalog                |
-| SessionStore      | PostgresSessionStore                                                |
-| MemoryStore       | PostgresMemoryStore                                                 |
-| CacheStore        | RedisCacheStore                                                     |
-| RagService        | QdrantRagService、PgVectorRagService 或 OpenAIVectorStoreRagService |
-| EmbeddingProvider | OpenAI-compatible EmbeddingProvider                                 |
-| ModelProvider     | OpenAI-compatible ChatModelProvider                                 |
-| Logger            | StructuredLogger 或 OpenTelemetryLogger                             |
+| 能力              | 实现                                                                          |
+| ----------------- | ----------------------------------------------------------------------------- |
+| PersonaRepository | PostgresPersonaRepository，存储角色和 preset catalog                          |
+| SessionStore      | PostgresSessionStore                                                          |
+| MemoryStore       | PostgresMemoryStore                                                           |
+| CacheStore        | RedisCacheStore                                                               |
+| RagService        | 当前实现 `QdrantRagService`；pgvector / OpenAI Vector Store 留作后续 provider |
+| EmbeddingProvider | OpenAIEmbeddingProvider 或 OpenAI-compatible EmbeddingProvider                |
+| ModelProvider     | OpenAI-compatible ChatModelProvider                                           |
+| Logger            | StructuredLogger 或 OpenTelemetryLogger                                       |
 
 ## 配置项
 
@@ -134,6 +134,78 @@ Provider Pack 是一组后端实现绑定。
 | ENABLE_SAFETY_FILTER | true  | 是否默认启用安全过滤 |
 
 `ENABLE_DEBUG_TRACE=false` 时，后端装配 API handler 应传入 `debug_trace_enabled=false`。该配置优先级高于请求中的 `capabilities.debug_trace=true`，用于生产环境统一关闭 debug 返回。
+
+### `.env` 配置文件
+
+本地 HTTP server 启动时会读取项目根目录 `.env`，也可以用 `ROLEPLAY_CONFIG_FILE` 指向其它 `.env` 文件。
+
+仓库提供 `.env.example` 作为本地模板。复制后再填写本地密钥：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+最小示例：
+
+```env
+ROLEPLAY_API_KEY=dev-secret
+MODEL_PROVIDER=fake
+MODEL_NAME=fake-roleplay-model
+MODEL_ALIAS=fake-roleplay-model
+RAG_PROVIDER=local
+ENABLE_DEBUG_TRACE=true
+```
+
+启动：
+
+```powershell
+uv run python -m haruhi_roleplay_api.infrastructure.http_server
+```
+
+读取顺序：
+
+1. 进程环境变量。
+2. `.env` 文件中的值覆盖同名进程环境变量。
+3. `PATCH /v1/runtime-config` 写回 `.env`，并在当前进程内热重建 provider。
+
+`.env` 可以保存服务端密钥，例如 `ROLEPLAY_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。这些值不会通过 runtime config 查询接口返回，也不能通过前端热更新接口写入。
+
+### Runtime Config 热切换
+
+受信任的管理前端或后台面板可以调用：
+
+```text
+GET /v1/runtime-config
+PATCH /v1/runtime-config
+```
+
+这两个接口要求服务端设置 `ROLEPLAY_API_KEY`，并且请求携带 `Authorization: Bearer <key>` 或 `X-API-Key`。
+
+示例：
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
+  -H "Authorization: Bearer dev-secret" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "values": {
+      "MODEL_PROVIDER": "fake",
+      "MODEL_NAME": "fake-roleplay-model",
+      "MODEL_ALIAS": "fake-roleplay-model",
+      "RAG_PROVIDER": "local"
+    }
+  }'
+```
+
+热切换会做三件事：
+
+1. 校验 key 是否在白名单中，拒绝 `API_KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`DATABASE_URL`、`REDIS_URL` 等敏感配置。
+2. 用候选配置先构建新的 model router 和 RAG service。
+3. 构建成功后写回 `.env`，并替换当前进程内 provider。
+
+如果候选配置失败，例如切到 `RAG_PROVIDER=qdrant` 但没有 `QDRANT_URL`，服务会返回错误，不会写回 `.env`，也不会影响当前可用配置。
+
+当前热切换会保留进程内 session store 和 memory store；model router、RAG service、debug trace 开关会按新配置更新。切换 RAG provider 后，非持久化本地向量数据不会自动迁移。
 
 ### Persona
 
@@ -152,31 +224,183 @@ Provider Pack 是一组后端实现绑定。
 
 ### Memory
 
-| 配置                 | 示例   | 说明             |
-| -------------------- | ------ | ---------------- |
-| MEMORY_PROVIDER      | sqlite | memory provider  |
-| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量 |
+| 配置                 | 示例   | 说明                 |
+| -------------------- | ------ | -------------------- |
+| MEMORY_PROVIDER      | sqlite | memory provider      |
+| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量     |
 | MEMORY_WRITE_ENABLED | true   | 是否允许显式候选写入 |
 
 ### RAG
 
-| 配置               | 示例  | 说明                  |
-| ------------------ | ----- | --------------------- |
-| RAG_PROVIDER       | local | RAG provider          |
-| VECTOR_PROVIDER    | local | vector index provider |
-| EMBEDDING_PROVIDER | local | embedding provider    |
-| RAG_TOP_K_DEFAULT  | 5     | 默认检索数量          |
-| RAG_TOP_K_MAX      | 10    | 最大检索数量          |
+| 配置                     | 示例        | 说明                                                                            |
+| ------------------------ | ----------- | ------------------------------------------------------------------------------- |
+| RAG_PROVIDER             | local       | RAG provider；支持 `fake`、`local`、`local_vector`、`chroma`、`faiss`、`qdrant` |
+| RAG_CHUNK_SIZE           | 320         | 文档切分 chunk 大小                                                             |
+| RAG_EMBEDDING_DIMENSIONS | 384         | 兼容配置；未设置 `EMBEDDING_DIMENSIONS` 时作为 embedding 维度回退                 |
+| RAG_VECTOR_BACKEND       | memory      | `local_vector` 的本地 backend，可选 `memory`、`chroma`、`faiss`                 |
+| CHROMA_COLLECTION        | haruhi_rag  | Chroma collection 名称                                                          |
+| CHROMA_PERSIST_PATH      | .chroma     | Chroma 本地持久化目录，可选                                                     |
+| QDRANT_URL               | https://... | Qdrant 服务地址                                                                 |
+| QDRANT_COLLECTION        | haruhi_rag  | Qdrant collection 名称                                                          |
+| QDRANT_API_KEY           | 可选        | Qdrant API key                                                                  |
+| QDRANT_TIMEOUT_MS        | 10000       | Qdrant 请求超时                                                                 |
+| QDRANT_ENSURE_COLLECTION | false       | 是否由服务尝试创建 collection                                                   |
+| RAG_TOP_K_DEFAULT        | 5           | 默认检索数量                                                                    |
+| RAG_TOP_K_MAX            | 10          | 最大检索数量                                                                    |
+
+### Embedding
+
+Embedding provider 只由服务端配置决定，前端和业务后端不能传 provider、URL 或 API key。
+
+| 配置 | 示例 | 说明 |
+| --- | --- | --- |
+| EMBEDDING_PROVIDER | hash | 支持 `hash`、`local_openai_compatible`、`ollama`、`openai` |
+| EMBEDDING_MODEL | text-embedding-3-small | provider 侧真实 embedding 模型名 |
+| EMBEDDING_BASE_URL | http://localhost:11434/v1 | 本地或 OpenAI-compatible embedding endpoint |
+| EMBEDDING_DIMENSIONS | 1536 | 向量维度；必须和向量库 collection 维度一致 |
+| EMBEDDING_TIMEOUT_MS | 30000 | embedding 请求超时 |
+| EMBEDDING_API_KEY | 可选 | embedding provider API key；不写入前端请求 |
+| EMBEDDING_API_KEY_ENV | OPENAI_API_KEY | 从指定环境变量读取 key |
+| EMBEDDING_PATH | embeddings | 自定义 OpenAI-compatible embeddings path |
+
+本地 Ollama 示例：
+
+```powershell
+$env:RAG_PROVIDER="local_vector"
+$env:EMBEDDING_PROVIDER="ollama"
+$env:EMBEDDING_MODEL="nomic-embed-text"
+$env:EMBEDDING_DIMENSIONS="768"
+```
+
+本地 OpenAI-compatible 示例：
+
+```powershell
+$env:RAG_PROVIDER="local_vector"
+$env:EMBEDDING_PROVIDER="local_openai_compatible"
+$env:EMBEDDING_BASE_URL="http://localhost:9999/v1"
+$env:EMBEDDING_MODEL="local-embed"
+$env:EMBEDDING_DIMENSIONS="768"
+```
+
+云端 OpenAI 示例：
+
+```powershell
+$env:RAG_PROVIDER="qdrant"
+$env:EMBEDDING_PROVIDER="openai"
+$env:EMBEDDING_MODEL="text-embedding-3-small"
+$env:EMBEDDING_DIMENSIONS="1536"
+$env:OPENAI_API_KEY="..."
+```
 
 ### Model
 
-| 配置             | 示例                      | 说明                                                         |
-| ---------------- | ------------------------- | ------------------------------------------------------------ |
-| MODEL_PROVIDER   | local                     | 模型 provider，当前支持 `fake`、`local`、`openai_compatible` |
-| MODEL_BASE_URL   | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址                               |
-| MODEL_NAME       | qwen3:8b                  | 默认模型                                                     |
-| MODEL_TIMEOUT_MS | 60000                     | 模型超时                                                     |
-| MODEL_API_KEY    | 可选                      | OpenAI-compatible API Key，本地无鉴权服务可不设置            |
+推荐使用 `MODEL_PROVIDER_REGISTRY` 统一声明 provider 和模型别名。旧的 `MODEL_PROVIDER`、`MODEL_BASE_URL`、`MODEL_NAME` 仍然兼容，但只适合单 provider 本地验证。
+
+| 配置                    | 示例                      | 说明                                                                                          |
+| ----------------------- | ------------------------- | --------------------------------------------------------------------------------------------- |
+| MODEL_PROVIDER_REGISTRY | JSON 字符串               | 推荐配置；声明 providers、aliases 和 default_alias                                            |
+| MODEL_PROVIDER          | local                     | 兼容配置；支持 `fake`、`local`、`openai_compatible`、`ollama`、`deepseek`、`gemini`、`openai` |
+| MODEL_ALIAS             | haruhi-ollama             | 兼容配置；暴露给前端的模型别名，不填时等于 `MODEL_NAME`                                       |
+| MODEL_BASE_URL          | http://localhost:11434/v1 | OpenAI-compatible 模型服务地址                                                                |
+| MODEL_NAME              | qwen2.5:7b                | provider 侧真实模型名                                                                         |
+| MODEL_TIMEOUT_MS        | 60000                     | 模型超时                                                                                      |
+| MODEL_API_KEY           | 可选                      | OpenAI-compatible API Key，本地无鉴权服务可不设置                                             |
+
+Ollama local 示例：
+
+```powershell
+$env:MODEL_PROVIDER_REGISTRY='{
+  "default_alias": "haruhi-ollama",
+  "providers": {
+    "ollama-local": {
+      "type": "ollama",
+      "base_url": "http://localhost:11434/v1",
+      "timeout_ms": 60000
+    }
+  },
+  "aliases": {
+    "haruhi-ollama": {
+      "provider": "ollama-local",
+      "model": "qwen2.5:7b"
+    }
+  }
+}'
+```
+
+前端或业务后端只能传：
+
+```json
+{
+  "generation": {
+    "model": "haruhi-ollama"
+  }
+}
+```
+
+不能传 `provider=ollama`、`base_url` 或真实 API key。未配置的 alias 会返回统一 `MODEL_PROVIDER_ERROR`。
+
+DeepSeek / Gemini / OpenAI 示例：
+
+```powershell
+$env:DEEPSEEK_API_KEY="..."
+$env:GEMINI_API_KEY="..."
+$env:OPENAI_API_KEY="..."
+$env:MODEL_PROVIDER_REGISTRY='{
+  "default_alias": "haruhi-deepseek",
+  "providers": {
+    "deepseek-cloud": {
+      "type": "deepseek",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "timeout_ms": 60000
+    },
+    "gemini-cloud": {
+      "type": "gemini",
+      "api_key_env": "GEMINI_API_KEY",
+      "timeout_ms": 60000
+    },
+    "openai-cloud": {
+      "type": "openai",
+      "timeout_ms": 60000
+    }
+  },
+  "aliases": {
+    "haruhi-deepseek": {
+      "provider": "deepseek-cloud",
+      "model": "deepseek-chat"
+    },
+    "haruhi-gemini": {
+      "provider": "gemini-cloud",
+      "model": "gemini-3.5-flash"
+    },
+    "haruhi-openai": {
+      "provider": "openai-cloud",
+      "model": "gpt-4.1-mini"
+    }
+  }
+}'
+```
+
+`deepseek` 默认使用 `https://api.deepseek.com/chat/completions`。`gemini` 默认使用 `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`。`openai` 默认使用 `https://api.openai.com/v1/chat/completions`，默认从 `OPENAI_API_KEY` 读取 secret。secret 通过环境变量读取，不写入前端请求，也不要写入公开文档。
+
+#### Model Provider 实现落层
+
+模型后端接入拆成四层，避免一个 `models.py` 随着厂商增加而无限膨胀：
+
+| 层             | 文件                                       | 作用                                                                                    |
+| -------------- | ------------------------------------------ | --------------------------------------------------------------------------------------- |
+| application    | `application/models.py`                    | 只保留 `ModelProviderRegistryRouter`，根据服务端 alias 白名单选择 provider 和真实模型名 |
+| ports          | `ports/models.py`                          | 定义 `ChatModelProvider` 和 `ChatModelRouter`，让 Orchestrator 不依赖具体厂商           |
+| adapters       | `adapters/models/*.py`                     | 放具体 provider：`fake`、`openai_compatible`、`ollama`、`deepseek`、`gemini`、`openai`  |
+| infrastructure | `infrastructure/model_registry.py`         | 解析 `MODEL_PROVIDER_REGISTRY` 和兼容环境变量                                           |
+| infrastructure | `infrastructure/model_provider_factory.py` | 注册 provider factory，填充厂商默认配置，并做启动期校验                                 |
+
+新增模型后端的最小路径：
+
+1. 在 `adapters/models/<provider>.py` 新增薄 adapter。
+2. 如果厂商兼容 OpenAI `/chat/completions`，复用 `OpenAICompatibleModelProvider`。
+3. 在 `model_provider_factory.py` 注册 provider type、默认 base URL、默认 API key env 和是否必须有 secret。
+4. 在 `MODEL_PROVIDER_REGISTRY` 里新增 provider 和 alias。
+5. 增加 provider factory/config 测试，mock HTTP 请求，不在单元测试里调用真实云服务。
 
 ### Cloud
 
@@ -187,13 +411,15 @@ Provider Pack 是一组后端实现绑定。
 | QDRANT_URL            | Qdrant 地址                    |
 | QDRANT_API_KEY        | Qdrant API Key                 |
 | OPENAI_API_KEY        | OpenAI-compatible provider key |
+| DEEPSEEK_API_KEY      | DeepSeek provider key          |
+| GEMINI_API_KEY        | Gemini provider key            |
 | OBJECT_STORAGE_BUCKET | 对象存储 bucket                |
 
 不要在日志、debug trace、接口响应中输出这些敏感配置值。
 
 ## Chat 请求内部调度
 
-收到 `POST /v1/chat` 后的推荐调度：
+收到 `POST /v1/chat` 或 `POST /v1/chat/stream` 后的推荐调度：
 
 1. API 层校验请求字段。
 2. 把 `persona_mode` 转成内部 `personaMode`。
@@ -206,26 +432,28 @@ Provider Pack 是一组后端实现绑定。
 9. 如果 `rag=true`，调用 RagService。
 10. PromptBuilder 组装 messages。
 11. SafetyGuard 检查输入。
-12. ModelRouter 根据 generation 和配置选择模型。
-13. ChatModelProvider 生成回复。
-14. SafetyGuard 检查输出。
-15. SessionStore 写入完整消息。
-16. 如果存在 `metadata.memory_write`，MemoryPolicyEngine 判断是否写入。
-17. Logger 写入请求摘要。
-18. API 层把内部 `camelCase` 转成外部 `snake_case` 响应。
+12. `ChatModelRouter` 的 `ModelProviderRegistryRouter` 实现根据 generation 和配置选择模型。
+13. 非流式接口调用 `ChatModelProvider.generate`，流式接口调用 `ChatModelProvider.stream`。
+14. 流式接口把 provider delta 转成统一 `delta` event，并累积完整 assistant reply。
+15. SafetyGuard 检查输出。
+16. SessionStore 写入完整消息。
+17. 如果存在 `metadata.memory_write`，MemoryPolicyEngine 判断是否写入。
+18. Logger 写入请求摘要。
+19. 非流式接口返回完整响应，流式接口返回或发送 `start/source/delta/usage/done/error` events。
+20. API 层把内部 `camelCase` 转成外部 `snake_case` 响应。
 
 ## 能力开关如何影响调度
 
-| capability        | false 时              | true 时                              |
-| ----------------- | --------------------- | ------------------------------------ |
-| continuousSession | 不读写 session 上下文 | 读最近消息，回复后写入消息           |
-| rag               | 不执行 RAG            | 根据 persona filter 检索 chunks      |
+| capability        | false 时              | true 时                          |
+| ----------------- | --------------------- | -------------------------------- |
+| continuousSession | 不读写 session 上下文 | 读最近消息，回复后写入消息       |
+| rag               | 不执行 RAG            | 根据 persona filter 检索 chunks  |
 | memory            | 不读写长期记忆        | 读取相关记忆，并审核显式写入候选 |
-| safetyFilter      | 只做基础校验          | 执行输入和输出安全检查               |
-| debugTrace        | 不返回 debug          | 返回裁剪后的调试摘要                 |
-| stream            | 返回完整 reply        | 返回 stream event                    |
+| safetyFilter      | 只做基础校验          | 执行输入和输出安全检查           |
+| debugTrace        | 不返回 debug          | 返回裁剪后的调试摘要             |
+| stream            | 返回完整 reply        | 返回 stream event                |
 
-## ModelRouter 调度
+## 模型路由调度
 
 模型选择不应该由前端直接决定 provider。
 
@@ -241,7 +469,28 @@ Provider Pack 是一组后端实现绑定。
 | 高质量角色扮演                | high_quality_model              |
 | provider 失败                 | fallback_model                  |
 
-`generation.model` 应该是服务端定义的模型别名，不是直接暴露真实厂商模型名。
+`generation.model` 应该是服务端定义的模型别名，不是直接暴露真实厂商模型名。当前实现由 `ModelProviderRegistryRouter` 完成 alias 路由，由 `model_provider_factory.py` 在启动装配阶段创建具体 provider。
+
+## 模型 Provider 产品化顺序
+
+模型 provider 需要逐个接入，不在一个卡片里同时接多个厂商。
+
+推荐顺序：
+
+1. `fake`：测试和 CI。
+2. `local_openai_compatible`：本地 Ollama、LM Studio、vLLM 等 OpenAI-compatible endpoint。
+3. `deepseek`：云端 OpenAI-compatible 调用，单独配置 API key、model alias 和超时。
+4. `gemini`：Google Gemini OpenAI compatibility 调用，单独配置 API key、model alias 和超时。
+5. `openai`：云端 OpenAI-compatible 调用，单独配置 API key、model alias 和超时。
+6. fallback routing：仅在基础 provider 稳定后实现。
+
+所有 provider 都必须满足：
+
+- 实现同一个 `ChatModelProvider` port。
+- 支持非流式 `generate`。
+- 支持流式 `stream`，或明确在配置校验时报错。
+- provider 错误转换为统一 `AppError`。
+- debug trace 只返回 provider 名称、model alias 和安全摘要。
 
 ## RAG 调度
 
@@ -263,6 +512,84 @@ RAG filter 必须至少包含：
 - `spoilerLevelMax`
 - `language`
 
+## RAG Provider 产品化顺序
+
+RAG provider 也需要分阶段：
+
+1. `fake`：固定 chunks，验证 Orchestrator 和 PromptBuilder 融合。
+2. `local`：本地文档、chunk、简单文本检索。
+3. `local_vector`：可使用 hash、Ollama、本地 OpenAI-compatible 或云端 embedding provider。
+4. `chroma`：可选 Chroma backend；需要本地环境安装 `chromadb`。
+5. `faiss`：可选 Faiss backend；需要本地环境安装 `faiss-cpu`。
+6. `qdrant`：Qdrant REST 云端 provider。
+7. rerank/query rewrite：仅在基础 retrieve 稳定后增加。
+
+无论本地还是云端，RAG 输出都必须是统一 `RagRetrieveOutput`，并且 source 摘要必须可追溯。
+
+推荐本地向量配置：
+
+```powershell
+$env:RAG_PROVIDER="local_vector"
+$env:EMBEDDING_PROVIDER="hash"
+$env:EMBEDDING_DIMENSIONS="384"
+```
+
+推荐 Qdrant 配置：
+
+```powershell
+$env:RAG_PROVIDER="qdrant"
+$env:QDRANT_URL="https://your-qdrant.example"
+$env:QDRANT_COLLECTION="haruhi_rag"
+$env:QDRANT_API_KEY="..."
+$env:QDRANT_ENSURE_COLLECTION="false"
+$env:EMBEDDING_PROVIDER="openai"
+$env:EMBEDDING_MODEL="text-embedding-3-small"
+$env:EMBEDDING_DIMENSIONS="1536"
+$env:OPENAI_API_KEY="..."
+```
+
+Chroma/Faiss 是可选本地库支持，不进入默认依赖。需要使用时先在本地环境安装对应包，再设置 `RAG_PROVIDER=chroma` 或 `RAG_PROVIDER=faiss`。
+
+### Ollama + Chroma 手动体验入口
+
+当前仓库提供一个最小手动 smoke 脚本，用于验证本机 `Ollama chat model + Ollama embedding + Chroma vector store + HTTP runtime` 的完整链路。该脚本不进入默认 CI，也不要求把 `chromadb` 写入默认依赖。
+
+前置条件：
+
+```powershell
+ollama serve
+ollama pull qwen2.5:7b
+ollama pull nomic-embed-text
+```
+
+运行：
+
+```powershell
+uv run --with chromadb python scripts/local_ollama_chroma_smoke.py
+```
+
+脚本会按顺序执行：
+
+1. 检查 `chromadb` 是否可用。
+2. 检查 Ollama 是否可访问，以及 chat / embedding 模型是否存在。
+3. 通过 `RoleplayHttpRuntime` 调用 `GET /health`。
+4. 调用 `GET /v1/personas` 读取角色 catalog。
+5. 调用 `POST /v1/rag/documents` 写入一段本地资料。
+6. 使用 Ollama embedding 写入 Chroma。
+7. 调用 `POST /v1/rag/search` 从 Chroma 检索 source。
+8. 调用 `POST /v1/chat`，启用 RAG，最终由 Ollama 生成角色回复。
+
+可选覆盖项：
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| SMOKE_OLLAMA_BASE_URL | http://localhost:11434 | Ollama 原生 API 地址，用于 `/api/tags` 预检 |
+| SMOKE_OLLAMA_OPENAI_BASE_URL | http://localhost:11434/v1 | Ollama OpenAI-compatible 地址 |
+| SMOKE_CHAT_MODEL | qwen2.5:7b | chat 模型 |
+| SMOKE_EMBEDDING_MODEL | nomic-embed-text:latest | embedding 模型 |
+| SMOKE_EMBEDDING_DIMENSIONS | 768 | embedding 维度 |
+| SMOKE_CHROMA_COLLECTION | haruhi_manual_smoke | Chroma collection 名称 |
+
 ## Memory 调度
 
 Memory 调度需要避免污染：
@@ -276,6 +603,48 @@ Memory 调度需要避免污染：
 7. 写入候选必须记录 type、reason、confidence。
 8. 默认策略拒绝临时闲聊、敏感信息、低置信度和不被 persona 允许的类型。
 
+## Agent 编排调度
+
+当前 Orchestrator 已经有确定性编排顺序。完整 Agent 编排应在这个基础上增加“上下文计划”层，而不是让模型直接调用工具。
+
+推荐链路：
+
+1. API 层生成 `ChatInput`。
+2. `AgentContextPlanner` 读取 `ChatInput`、persona policy、capabilities 和 app 权限。
+3. Planner 输出结构化 `ContextPlan`。
+4. `ContextExecutor` 按 plan 调用 session、memory、RAG 和 backend context ports。
+5. Executor 输出 `ContextBundle`。
+6. `PromptBuilder` 融合 persona、ContextBundle 和用户消息。
+7. `ChatModelRouter` 调用模型 provider，当前实现是 `ModelProviderRegistryRouter`。
+8. `MemoryCandidateExtractor` 可在回复后生成候选记忆。
+9. `MemoryPolicyEngine` 决定是否写入。
+
+`ContextPlan` 示例：
+
+```json
+{
+  "read_session": true,
+  "read_memory": {
+    "enabled": true,
+    "types": ["user_preference", "relationship"],
+    "limit": 5
+  },
+  "retrieve_rag": {
+    "enabled": true,
+    "query": "改写后的检索查询",
+    "top_k": 5
+  },
+  "backend_fetches": [
+    {
+      "source": "user_profile",
+      "required": false
+    }
+  ]
+}
+```
+
+第一版 planner 应该用确定性规则实现。模型辅助 planner 放到后续阶段，避免一开始就引入不可控工具调用。
+
 ## 后端实现步骤
 
 ### 第一步：先实现 ports
@@ -286,7 +655,7 @@ Memory 调度需要避免污染：
 - SessionStore
 - MemoryStore
 - RagService
-- ModelRouter
+- ChatModelRouter
 - ChatModelProvider
 - PromptBuilder
 - SafetyGuard
@@ -311,7 +680,91 @@ Memory 调度需要避免污染：
 - 内置角色和自定义角色 preset 可切换。
 - RAG 和 memory 可独立启用。
 
-### 第四步：实现 cloud provider
+### 第四步：实现 HTTP runtime adapter
+
+在 framework-agnostic API handler 稳定后，再接真实 HTTP 服务。
+
+验收重点：
+
+- `GET /v1/personas` 可通过浏览器或 curl 调用。
+- `POST /v1/chat` 返回统一 envelope。
+- `POST /v1/chat/stream` 可编码为 SSE。
+- HTTP 层不直接创建 provider。
+
+当前本地 HTTP runtime adapter 已实现，默认使用标准库 `http.server`，不新增 Web 框架依赖。
+
+启动命令：
+
+```powershell
+$env:PYTHONPATH="src"
+$env:MODEL_PROVIDER="fake"
+$env:MODEL_NAME="fake-roleplay-model"
+$env:ROLEPLAY_PORT="8000"
+uv run python -m haruhi_roleplay_api.infrastructure.http_server
+```
+
+本地验证命令：
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/v1/personas
+```
+
+最小 chat 请求：
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "web",
+    "user_id": "user-1",
+    "character_id": "haruhi",
+    "persona_mode": "mid_late_haruhi",
+    "message": "今天有什么计划？",
+    "language": "zh-CN",
+    "capabilities": {
+      "rag": false,
+      "memory": false,
+      "continuous_session": false,
+      "safety_filter": true,
+      "debug_trace": true,
+      "stream": false
+    },
+    "generation": {
+      "model": "fake-roleplay-model"
+    }
+  }'
+```
+
+SSE stream 请求：
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "web",
+    "user_id": "user-1",
+    "character_id": "haruhi",
+    "persona_mode": "mid_late_haruhi",
+    "message": "社团活动怎么安排？",
+    "language": "zh-CN",
+    "capabilities": {
+      "rag": false,
+      "memory": false,
+      "continuous_session": false,
+      "safety_filter": true,
+      "debug_trace": true,
+      "stream": true
+    },
+    "generation": {
+      "model": "fake-roleplay-model"
+    }
+  }'
+```
+
+前端 demo 或业务后端接入时，只需要请求这些 HTTP 接口。模型、RAG、Memory、Session 的具体实现由本项目启动时的环境变量和 composition root 装配，不应该由前端传 `provider` 字段决定。
+
+### 第五步：实现 cloud provider
 
 最后接 PostgreSQL、Redis、Qdrant 或其它云服务。
 
@@ -320,6 +773,17 @@ Memory 调度需要避免污染：
 - 只改配置，不改 application。
 - provider 错误会转换成统一 AppError。
 - debug trace 不泄露敏感配置。
+
+### 第六步：实现 Agent planner 和 backend context
+
+在已有 session、memory、RAG 能力稳定后，再让本项目分析请求并决定拉取哪些上下文。
+
+验收重点：
+
+- planner 输出结构化 plan。
+- executor 只调用白名单 ports。
+- debug trace 能看到 plan 摘要。
+- 模型 provider 不直接访问 backend context。
 
 ## 配置校验
 
@@ -334,21 +798,21 @@ Memory 调度需要避免污染：
 
 ## 推荐本地配置
 
-| 配置                 | 值                        |
-| -------------------- | ------------------------- |
-| APP_ENV              | local                     |
-| PROVIDER_PACK        | local                     |
-| PERSONA_PROVIDER     | file                      |
-| SESSION_PROVIDER     | sqlite                    |
-| MEMORY_PROVIDER      | sqlite                    |
-| RAG_PROVIDER         | local                     |
-| VECTOR_PROVIDER      | local                     |
-| EMBEDDING_PROVIDER   | local                     |
-| MODEL_PROVIDER       | local                     |
-| MODEL_BASE_URL       | http://localhost:11434/v1 |
-| MODEL_NAME           | qwen3:8b                  |
-| ENABLE_DEBUG_TRACE   | true                      |
-| ENABLE_SAFETY_FILTER | true                      |
+| 配置                    | 值                   |
+| ----------------------- | -------------------- |
+| APP_ENV                 | local                |
+| PROVIDER_PACK           | local                |
+| PERSONA_PROVIDER        | file                 |
+| SESSION_PROVIDER        | sqlite               |
+| MEMORY_PROVIDER         | sqlite               |
+| RAG_PROVIDER            | local_vector         |
+| RAG_VECTOR_BACKEND      | memory               |
+| EMBEDDING_PROVIDER      | ollama               |
+| EMBEDDING_MODEL         | nomic-embed-text     |
+| EMBEDDING_DIMENSIONS    | 768                  |
+| MODEL_PROVIDER_REGISTRY | 见 Ollama local 示例 |
+| ENABLE_DEBUG_TRACE      | true                 |
+| ENABLE_SAFETY_FILTER    | true                 |
 
 ## 推荐测试配置
 
@@ -364,20 +828,23 @@ Memory 调度需要避免污染：
 
 ## 推荐生产配置
 
-| 配置                 | 值                |
-| -------------------- | ----------------- |
-| APP_ENV              | production        |
-| PROVIDER_PACK        | cloud             |
-| PERSONA_PROVIDER     | postgres          |
-| SESSION_PROVIDER     | postgres          |
-| MEMORY_PROVIDER      | postgres          |
-| CACHE_PROVIDER       | redis             |
-| RAG_PROVIDER         | qdrant            |
-| VECTOR_PROVIDER      | qdrant            |
-| EMBEDDING_PROVIDER   | openai_compatible |
-| MODEL_PROVIDER       | openai_compatible |
-| ENABLE_DEBUG_TRACE   | false             |
-| ENABLE_SAFETY_FILTER | true              |
+| 配置                    | 值                                 |
+| ----------------------- | ---------------------------------- |
+| APP_ENV                 | production                         |
+| PROVIDER_PACK           | cloud                              |
+| PERSONA_PROVIDER        | postgres                           |
+| SESSION_PROVIDER        | postgres                           |
+| MEMORY_PROVIDER         | postgres                           |
+| CACHE_PROVIDER          | redis                              |
+| RAG_PROVIDER            | qdrant                             |
+| QDRANT_URL              | 生产 Qdrant 地址                   |
+| QDRANT_COLLECTION       | haruhi_rag                         |
+| EMBEDDING_PROVIDER      | openai                             |
+| EMBEDDING_MODEL         | text-embedding-3-small             |
+| EMBEDDING_DIMENSIONS    | 1536                               |
+| MODEL_PROVIDER_REGISTRY | 见 DeepSeek / Gemini / OpenAI 示例 |
+| ENABLE_DEBUG_TRACE      | false                              |
+| ENABLE_SAFETY_FILTER    | true                               |
 
 ## 前端调用时的关键约束
 

@@ -12,7 +12,11 @@ from haruhi_roleplay_api.adapters import (  # noqa: E402
     LocalPersonaRepository,
 )
 from haruhi_roleplay_api.api.chat import post_chat  # noqa: E402
-from haruhi_roleplay_api.application import ModelRouter, PersonaPromptBuilder  # noqa: E402
+from haruhi_roleplay_api.application import (  # noqa: E402
+    ModelAliasRoute,
+    ModelProviderRegistryRouter,
+    PersonaPromptBuilder,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,12 +46,26 @@ def minimal_chat_body() -> dict:
     }
 
 
+def fake_model_router() -> ModelProviderRegistryRouter:
+    return ModelProviderRegistryRouter(
+        providers={"fake": FakeModelProvider()},
+        aliases={
+            "fake-roleplay-model": ModelAliasRoute(
+                alias="fake-roleplay-model",
+                provider_id="fake",
+                provider_model="fake-roleplay-model",
+            )
+        },
+        default_alias="fake-roleplay-model",
+    )
+
+
 def call_chat(body: dict, request_id: str = "req-chat") -> dict:
     return post_chat(
         body,
         persona_repository=LocalPersonaRepository(ROOT / "personas"),
         prompt_builder=PersonaPromptBuilder(),
-        model_router=ModelRouter(provider=FakeModelProvider()),
+        model_router=fake_model_router(),
         request_id=request_id,
     )
 

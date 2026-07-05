@@ -11,7 +11,11 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from haruhi_roleplay_api.adapters import FakeModelProvider  # noqa: E402
-from haruhi_roleplay_api.application import ModelRouter, PersonaPromptBuilder  # noqa: E402
+from haruhi_roleplay_api.application import (  # noqa: E402
+    ModelAliasRoute,
+    ModelProviderRegistryRouter,
+    PersonaPromptBuilder,
+)
 from haruhi_roleplay_api.domain import (  # noqa: E402
     CharacterProfile,
     GenerationConfig,
@@ -45,6 +49,20 @@ def prompt_messages() -> tuple[ModelMessage, ...]:
     return model_messages_from_prompt(prompt_output.messages)
 
 
+def fake_model_router() -> ModelProviderRegistryRouter:
+    return ModelProviderRegistryRouter(
+        providers={"fake": FakeModelProvider()},
+        aliases={
+            "fake-roleplay-model": ModelAliasRoute(
+                alias="fake-roleplay-model",
+                provider_id="fake",
+                provider_model="fake-roleplay-model",
+            )
+        },
+        default_alias="fake-roleplay-model",
+    )
+
+
 class FakeModelProviderTests(unittest.TestCase):
     def test_fake_model_generate_returns_stable_reply_and_usage(self) -> None:
         response = FakeModelProvider().generate(
@@ -68,7 +86,7 @@ class FakeModelProviderTests(unittest.TestCase):
         )
 
     def test_model_router_selects_fake_provider(self) -> None:
-        router = ModelRouter(provider=FakeModelProvider())
+        router = fake_model_router()
 
         response = router.generate(
             prompt_messages(),
@@ -78,9 +96,10 @@ class FakeModelProviderTests(unittest.TestCase):
         self.assertEqual(response.provider, "fake")
         self.assertEqual(response.model, "fake-roleplay-model")
         self.assertEqual(response.debug["modelProvider"], "fake")
+        self.assertEqual(response.debug["modelAlias"], "fake-roleplay-model")
 
     def test_fake_model_accepts_prompt_builder_messages(self) -> None:
-        response = ModelRouter(provider=FakeModelProvider()).generate(
+        response = fake_model_router().generate(
             prompt_messages(),
             GenerationConfig(),
         )
@@ -90,7 +109,7 @@ class FakeModelProviderTests(unittest.TestCase):
 
     def test_fake_model_does_not_require_network_or_secret_env(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            response = ModelRouter(provider=FakeModelProvider()).generate(
+            response = fake_model_router().generate(
                 prompt_messages(),
                 GenerationConfig(),
             )
@@ -101,4 +120,3 @@ class FakeModelProviderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

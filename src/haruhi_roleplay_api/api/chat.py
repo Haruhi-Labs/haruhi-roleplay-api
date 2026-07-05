@@ -18,6 +18,7 @@ from haruhi_roleplay_api.application.errors import app_error_from_exception
 from haruhi_roleplay_api.domain import (
     ChatInput,
     ChatOutput,
+    ChatStreamEvent,
     DTOValidationError,
     RequestId,
 )
@@ -78,6 +79,58 @@ def post_chat(
     return success_response(_chat_output_to_data(chat_output), effective_request_id)
 
 
+def post_chat_stream(
+    body: Mapping[str, Any],
+    *,
+    persona_repository: PersonaRepository,
+    prompt_builder: PromptBuilder,
+    model_router: ChatModelRouter,
+    request_id: RequestId | str,
+    session_store: SessionStore | None = None,
+    memory_store: MemoryStore | None = None,
+    memory_policy_engine: MemoryPolicyEngine | None = None,
+    rag_service: RagService | None = None,
+    memory_read_limit: int = 5,
+    debug_trace_enabled: bool = True,
+    include_error_details: bool = False,
+) -> ApiResponse:
+    effective_request_id = _effective_request_id(body, request_id)
+    try:
+        chat_input = ChatInput.from_mapping(
+            _chat_body_to_internal(
+                body,
+                effective_request_id,
+                force_stream=True,
+            )
+        )
+        stream_events = tuple(
+            SendChatMessageUseCase(
+                RoleplayOrchestrator(
+                    persona_repository=persona_repository,
+                    prompt_builder=prompt_builder,
+                    model_router=model_router,
+                    session_store=session_store,
+                    memory_store=memory_store,
+                    memory_policy_engine=memory_policy_engine,
+                    rag_service=rag_service,
+                    memory_read_limit=memory_read_limit,
+                    debug_trace_enabled=debug_trace_enabled,
+                )
+            ).stream(chat_input)
+        )
+    except Exception as exc:
+        _log_chat_error(effective_request_id, exc)
+        return error_response(
+            exc,
+            effective_request_id,
+            include_details=include_error_details,
+        )
+    return success_response(
+        {"events": [_chat_stream_event_to_data(event) for event in stream_events]},
+        effective_request_id,
+    )
+
+
 def _effective_request_id(
     body: Mapping[str, Any],
     request_id: RequestId | str,
@@ -99,6 +152,8 @@ def _log_chat_error(request_id: RequestId | str, exc: Exception) -> None:
 def _chat_body_to_internal(
     body: Mapping[str, Any],
     request_id: RequestId | str,
+    *,
+    force_stream: bool = False,
 ) -> dict[str, Any]:
     if not isinstance(body, Mapping):
         raise DTOValidationError("request body must be an object")
@@ -112,13 +167,20 @@ def _chat_body_to_internal(
         "personaMode": body.get("persona_mode"),
         "message": body.get("message"),
         "language": body.get("language"),
-        "capabilities": _capabilities_to_internal(body.get("capabilities")),
+        "capabilities": _capabilities_to_internal(
+            body.get("capabilities"),
+            force_stream=force_stream,
+        ),
         "generation": _generation_to_internal(body.get("generation")),
         "metadata": body.get("metadata", {}),
     }
 
 
-def _capabilities_to_internal(value: Any) -> dict[str, Any] | None:
+def _capabilities_to_internal(
+    value: Any,
+    *,
+    force_stream: bool = False,
+) -> dict[str, Any] | None:
     if value is None:
         return None
     if not isinstance(value, Mapping):
@@ -129,7 +191,7 @@ def _capabilities_to_internal(value: Any) -> dict[str, Any] | None:
         "continuousSession": value.get("continuous_session", False),
         "safetyFilter": value.get("safety_filter", True),
         "debugTrace": value.get("debug_trace", False),
-        "stream": value.get("stream", False),
+        "stream": True if force_stream else value.get("stream", False),
     }
 
 
@@ -163,3 +225,7 @@ def _chat_output_to_data(output: ChatOutput) -> dict[str, Any]:
         "safety": dict(output.safety or {}),
         "debug": dict(output.debug or {}) if output.debug is not None else None,
     }
+
+
+def _chat_stream_event_to_data(event: ChatStreamEvent) -> dict[str, Any]:
+    return event.to_mapping()

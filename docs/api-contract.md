@@ -28,17 +28,17 @@
 
 请求字段：
 
-| 字段         | 必填 | 说明          |
-| ------------ | ---- | ------------- |
-| app_id       | 是   | 调用方应用 ID |
-| user_id      | 是   | 调用方用户 ID |
-| session_id   | 否   | 连续会话 ID   |
-| character_id | 是   | 角色 ID       |
-| persona_mode | 是   | 角色 preset   |
-| message      | 是   | 用户输入      |
-| language     | 是   | 输出语言      |
-| capabilities | 是   | 能力开关      |
-| generation   | 否   | 生成参数      |
+| 字段         | 必填 | 说明           |
+| ------------ | ---- | -------------- |
+| app_id       | 是   | 调用方应用 ID  |
+| user_id      | 是   | 调用方用户 ID  |
+| session_id   | 否   | 连续会话 ID    |
+| character_id | 是   | 角色 ID        |
+| persona_mode | 是   | 角色 preset    |
+| message      | 是   | 用户输入       |
+| language     | 是   | 输出语言       |
+| capabilities | 是   | 能力开关       |
+| generation   | 否   | 生成参数       |
 | metadata     | 否   | 调用方透传对象 |
 
 当 `capabilities.continuous_session=true` 时，`session_id` 必须来自 `POST /v1/sessions` 创建的 active session，并且与当前 `app_id`、`user_id`、`character_id`、`persona_mode` 匹配。
@@ -78,10 +78,10 @@
 
 `memory` 字段：
 
-| 字段       | 说明                  |
-| ---------- | --------------------- |
-| enabled    | 是否执行长期记忆读取  |
-| read_count | 本次读入 Prompt 的数量 |
+| 字段        | 说明                   |
+| ----------- | ---------------------- |
+| enabled     | 是否执行长期记忆读取   |
+| read_count  | 本次读入 Prompt 的数量 |
 | write_count | 本次写入长期记忆的数量 |
 
 当 `capabilities.debug_trace=true` 且服务端允许返回 debug 时，`debug` 只返回安全摘要：
@@ -104,11 +104,31 @@
 | modelProvider       | 模型 provider              |
 | modelRoute          | 实际模型路由结果           |
 | safetyEnabled       | 是否启用安全检查           |
+| streamEnabled       | 是否启用流式输出           |
 | safetyAction        | 安全处理动作               |
 | latencyMs           | 请求总耗时毫秒             |
 | events              | 请求阶段名称列表           |
 
 `debug` 不返回完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
+
+### POST /v1/chat/stream
+
+发送一次流式角色扮演请求。请求字段与 `/v1/chat` 一致，服务端会把 `capabilities.stream` 视为 true。流式接口复用同一个 Orchestrator 和 PromptBuilder，不改变 session、RAG、memory 或 safety 语义。
+
+当前框架无关 API handler 返回 `data.events` 数组；真实 HTTP adapter 应把数组中的每个对象编码为 SSE 或等价流式事件。
+
+事件格式：
+
+| event  | data 说明                                                  |
+| ------ | ---------------------------------------------------------- |
+| start  | `request_id`、`session_id`、`character_id`、`persona_mode` |
+| source | 单条 RAG source 摘要                                       |
+| delta  | `text` 增量文本                                            |
+| usage  | token 使用、provider 和 model                              |
+| done   | 完整 chat 结果摘要，包含最终 `reply`                       |
+| error  | `error.code` 和 `error.message`                            |
+
+正常事件顺序为 `start -> source* -> delta+ -> usage -> done`。模型开始前失败时返回普通错误响应；模型开始后失败时返回 `error` event。正常结束后服务端会累积完整 assistant reply，并按连续会话规则保存完整消息。
 
 ## Persona
 
@@ -155,7 +175,7 @@ character 字段：
 
 ### POST /v1/rag/documents
 
-校验 RAG 文档 metadata。当前最小实现不切 chunk、不写 vector index、不调用 embedding。
+校验 RAG 文档 metadata，并在注入 RAG ingest provider 时写入本地或云端索引。
 
 请求字段：
 
@@ -182,11 +202,44 @@ character 字段：
 | chunk_count | 写入的 chunk 数量          |
 | metadata    | 通过校验后的 metadata 摘要 |
 
-未注入本地 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 `LocalRagService` 时返回 `imported`，服务会按文本切分 chunk 并保留 metadata。当前本地检索使用简单文本匹配，不做 embedding、向量库或 rerank。
+未注入 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 RAG provider 时返回 `imported`，服务会按文本切分 chunk 并保留 metadata。当前支持 `local` 文本检索、`local_vector` 标准库向量检索、可选 Chroma/Faiss 本地向量后端，以及 Qdrant REST 云端 provider。
 
 ### POST /v1/rag/search
 
 调试 RAG 检索。
+
+请求字段：
+
+| 字段         | 必填 | 说明             |
+| ------------ | ---- | ---------------- |
+| app_id       | 是   | 调用方应用       |
+| user_id      | 是   | 用户 ID          |
+| character_id | 是   | 角色 ID          |
+| persona_mode | 是   | 角色 preset      |
+| query        | 是   | 检索 query       |
+| top_k        | 是   | 返回数量         |
+| filters      | 否   | metadata filter  |
+| debug        | 否   | 是否返回调试信息 |
+
+`filters` 字段：
+
+| 字段              | 说明                    |
+| ----------------- | ----------------------- |
+| source_types      | 允许的 source type 列表 |
+| timelines         | 允许的 timeline 列表    |
+| spoiler_level_max | 最大剧透等级            |
+| language          | 文档语言                |
+
+响应字段：
+
+| 字段               | 说明                                          |
+| ------------------ | --------------------------------------------- |
+| provider           | RAG provider 名称                             |
+| hit_count          | 返回 chunk 数量                               |
+| raw_hit_count      | provider 原始命中数量                         |
+| filtered_hit_count | metadata filter 后数量                        |
+| rerank_applied     | 是否执行 rerank                               |
+| chunks             | 命中的 chunk 列表，包含 source 摘要和 content |
 
 ## Memory
 
@@ -196,40 +249,40 @@ character 字段：
 
 查询参数：
 
-| 字段         | 必填 | 说明                           |
-| ------------ | ---- | ------------------------------ |
-| app_id       | 是   | 调用方应用 ID                  |
-| character_id | 是   | 角色 ID                        |
-| persona_mode | 否   | 角色 preset；不传只查通用记忆  |
+| 字段         | 必填 | 说明                             |
+| ------------ | ---- | -------------------------------- |
+| app_id       | 是   | 调用方应用 ID                    |
+| character_id | 是   | 角色 ID                          |
+| persona_mode | 否   | 角色 preset；不传只查通用记忆    |
 | type         | 否   | 记忆类型，例如 `user_preference` |
-| limit        | 否   | 返回数量上限，默认 50，最大 100 |
+| limit        | 否   | 返回数量上限，默认 50，最大 100  |
 
 响应字段：
 
-| 字段           | 说明              |
-| -------------- | ----------------- |
-| app_id         | 调用方应用 ID     |
-| user_id        | 用户 ID           |
-| character_id   | 角色 ID           |
-| persona_mode   | 角色 preset       |
-| count          | 返回的记忆数量    |
-| items          | 记忆列表          |
+| 字段         | 说明           |
+| ------------ | -------------- |
+| app_id       | 调用方应用 ID  |
+| user_id      | 用户 ID        |
+| character_id | 角色 ID        |
+| persona_mode | 角色 preset    |
+| count        | 返回的记忆数量 |
+| items        | 记忆列表       |
 
 memory item 字段：
 
-| 字段          | 说明         |
-| ------------- | ------------ |
-| memory_id     | 记忆 ID      |
-| app_id        | 调用方应用   |
-| user_id       | 用户 ID      |
-| character_id  | 角色 ID      |
-| persona_mode  | 角色 preset  |
-| type          | 记忆类型     |
-| content       | 记忆内容     |
-| confidence    | 置信度       |
-| reason        | 写入原因     |
-| created_at    | 创建时间     |
-| updated_at    | 更新时间     |
+| 字段         | 说明        |
+| ------------ | ----------- |
+| memory_id    | 记忆 ID     |
+| app_id       | 调用方应用  |
+| user_id      | 用户 ID     |
+| character_id | 角色 ID     |
+| persona_mode | 角色 preset |
+| type         | 记忆类型    |
+| content      | 记忆内容    |
+| confidence   | 置信度      |
+| reason       | 写入原因    |
+| created_at   | 创建时间    |
+| updated_at   | 更新时间    |
 
 该接口用于管理和展示记忆。`/v1/chat` 在 `capabilities.memory=true` 时会通过服务端注入的 `MemoryStore` 读取和写入记忆，但不会通过该查询接口反向调用。
 
@@ -239,11 +292,11 @@ memory item 字段：
 
 查询参数：
 
-| 字段         | 必填 | 说明                          |
-| ------------ | ---- | ----------------------------- |
-| app_id       | 是   | 调用方应用 ID                 |
-| character_id | 是   | 角色 ID                       |
-| persona_mode | 否   | 角色 preset；必须与记忆匹配   |
+| 字段         | 必填 | 说明                        |
+| ------------ | ---- | --------------------------- |
+| app_id       | 是   | 调用方应用 ID               |
+| character_id | 是   | 角色 ID                     |
+| persona_mode | 否   | 角色 preset；必须与记忆匹配 |
 
 删除只会影响同一个 `app_id`、`user_id`、`character_id`、`persona_mode` 下的记忆。上下文不匹配或记忆不存在时统一返回 `MEMORY_NOT_FOUND`，避免暴露其它用户或角色的记忆是否存在。
 

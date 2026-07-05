@@ -64,12 +64,14 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 1. 用户输入消息。
 2. 前端请求业务后端的 stream endpoint。
-3. 业务后端转发 Roleplay API 的 stream event。
+3. 业务后端调用 `POST /v1/chat/stream`，并把 Roleplay API 的 stream event 转发给前端。
 4. 前端收到 `start` 后创建 assistant 消息占位。
 5. 前端收到 `delta` 后追加文本。
 6. 前端收到 `source` 后缓存引用来源。
 7. 前端收到 `done` 后结束 loading。
 8. 前端收到 `error` 后展示失败状态。
+
+当前项目的框架无关 handler 以 `data.events` 数组表达 stream event；业务后端接入真实 HTTP 框架后，应逐条转成 SSE 或等价流式协议。
 
 适合：
 
@@ -138,3 +140,34 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 - RAG 文档物理存储位置
 
 这些调度由本项目根据配置完成，详见 [中转服务后端调度与配置说明](backend-dispatch-and-configuration.md)。
+
+## 管理前端：运行时配置
+
+普通聊天前端不应该直接修改 provider 配置。若需要做本地管理面板或开发调试面板，可以调用：
+
+- `GET /v1/runtime-config`
+- `PATCH /v1/runtime-config`
+
+这两个接口必须带 `Authorization: Bearer <ROLEPLAY_API_KEY>` 或 `X-API-Key`。管理前端只能修改服务端白名单允许的非敏感配置，例如 `MODEL_PROVIDER`、`MODEL_NAME`、`MODEL_ALIAS`、`RAG_PROVIDER`、`EMBEDDING_PROVIDER`、`CHROMA_COLLECTION` 等。
+
+示例：
+
+```ts
+await fetch(`${baseUrl}/v1/runtime-config`, {
+  method: "PATCH",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${adminApiKey}`,
+  },
+  body: JSON.stringify({
+    values: {
+      MODEL_PROVIDER: "fake",
+      MODEL_NAME: "fake-roleplay-model",
+      MODEL_ALIAS: "fake-roleplay-model",
+      RAG_PROVIDER: "local",
+    },
+  }),
+});
+```
+
+密钥类配置不要从前端提交，例如 `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。云端 provider 应通过服务端 `.env` 中的 secret 和 `*_API_KEY_ENV` 间接引用。

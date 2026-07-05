@@ -49,15 +49,15 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | continuous_session | boolean | 是否启用连续会话 |
 | safety_filter | boolean | 是否启用安全检查 |
 | debug_trace | boolean | 是否返回调试信息 |
-| stream | boolean | 非流式接口通常为 false |
+| stream | boolean | `/v1/chat` 必须为 false；`/v1/chat/stream` 会强制视为 true |
 
-当前最小 `/v1/chat` 实现支持非流式请求、连续会话、RAG retrieve、memory read policy 和保守 memory write policy。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag=true` 时服务端必须注入 `RagService`。`memory=true` 时服务端必须注入 `MemoryStore`，并按 persona 的 `memoryPolicy.allowedTypes` 和服务端读取上限筛选记忆。`stream` 当前仍必须为 false。
+当前最小 `/v1/chat` 实现支持非流式请求、连续会话、RAG retrieve、memory read policy 和保守 memory write policy。`continuous_session=true` 时必须传入 `session_id`，且 session 必须匹配同一个 `app_id`、`user_id`、`character_id` 和 `persona_mode`。`rag=true` 时服务端必须注入 `RagService`。`memory=true` 时服务端必须注入 `MemoryStore`，并按 persona 的 `memoryPolicy.allowedTypes` 和服务端读取上限筛选记忆。非流式 `/v1/chat` 不接受 `stream=true`，需要流式输出时使用 `/v1/chat/stream`。
 
 ### generation
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| model | string | 模型别名 |
+| model | string | 服务端白名单模型别名，例如 `haruhi-ollama`；不能传 provider 名、base URL 或真实密钥 |
 | temperature | number | 随机性 |
 | max_tokens | number | 最大输出 token |
 | top_p | number | nucleus sampling 参数 |
@@ -96,24 +96,40 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 
 `metadata.memory_write` 可以是单个对象或对象列表。默认策略会拒绝临时闲聊、敏感信息、低置信度和不被当前 persona 允许的类型。写入结果通过 `memory.write_count` 返回。
 
-`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`latencyMs` 和 `events`。
+`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`streamEnabled`、`latencyMs` 和 `events`。`modelRoute` 返回服务端模型别名，不返回 provider 侧真实模型配置。
 
 前端只能把 `debug` 用于开发者面板或联调日志，不要展示给普通用户。`debug` 不包含完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
 
 ## Chat Stream: POST /v1/chat/stream
 
-用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，但 `capabilities.stream` 应为 true。
+用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，服务端会把 `capabilities.stream` 强制视为 true。模型开始前失败时返回普通错误响应；模型开始后失败时返回 `error` event。
+
+当前框架无关 handler 返回 `data.events` 数组；真实 HTTP adapter 应逐条编码为 SSE 或等价流式协议。
 
 ### Stream Event
 
 | event | data |
 | --- | --- |
-| start | request_id、session_id |
-| source | RAG source 摘要 |
-| delta | 增量文本 |
-| usage | token 使用 |
-| done | 完成标记 |
-| error | 错误码和错误信息 |
+| start | `request_id`、`session_id`、`character_id`、`persona_mode` |
+| source | `source`，单条 RAG source 摘要 |
+| delta | `text`，模型增量文本 |
+| usage | `prompt_tokens`、`completion_tokens`、`total_tokens`、`provider`、`model` |
+| done | `request_id`、`session_id`、`character_id`、`persona_mode`、`reply`、`rag`、`memory`、`safety`、`debug` |
+| error | `request_id` 和 `error.code`、`error.message` |
+
+正常事件顺序：
+
+```text
+start -> source* -> delta+ -> usage -> done
+```
+
+中途 provider 失败时：
+
+```text
+start -> source* -> delta* -> error
+```
+
+流式请求仍复用同一个 Orchestrator、PromptBuilder、RAG、memory 和 session 语义。正常结束后服务端会累积完整 assistant reply，并按连续会话规则写入完整消息。
 
 ## Session: POST /v1/sessions
 
@@ -209,7 +225,7 @@ mode 字段：
 
 ## RAG: POST /v1/rag/documents
 
-用途：校验 RAG 文档 metadata。当前最小实现不切 chunk、不写 vector index、不调用 embedding。
+用途：校验 RAG 文档 metadata，并在服务端注入 RAG provider 时写入本地或云端索引。
 
 ### 请求参数
 
@@ -235,7 +251,7 @@ mode 字段：
 | status | `validated` 或 `imported` |
 | metadata | 通过校验后的 metadata 摘要 |
 
-未注入本地 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 `LocalRagService` 时返回 `imported`，并把文本切成本地 chunks，供 `/v1/chat` 的 RAG 分支检索。
+未注入 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 RAG provider 时返回 `imported`，并把文本切成本地或云端 chunks，供 `/v1/chat` 的 RAG 分支检索。
 
 当前校验规则：
 
@@ -260,6 +276,26 @@ mode 字段：
 | top_k | 是 | 返回数量 |
 | filters | 否 | metadata filter |
 | debug | 否 | 是否返回调试信息 |
+
+### filters 字段
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| source_types | 否 | 来源类型列表，例如 `["timeline"]` |
+| timelines | 否 | 时间线列表，例如 `["mid_late"]` |
+| spoiler_level_max | 否 | 最大剧透等级 |
+| language | 否 | `zh-CN`、`ja-JP`、`en-US` |
+
+### 响应 data
+
+| 字段 | 说明 |
+| --- | --- |
+| provider | RAG provider 名称，例如 `local-vector-rag` 或 `qdrant-rag` |
+| hit_count | 返回 chunk 数量 |
+| raw_hit_count | provider 原始命中数量 |
+| filtered_hit_count | metadata filter 后数量 |
+| rerank_applied | 是否执行 rerank |
+| chunks | 命中的 chunk，包含 source 摘要和 `content` |
 
 ## Memory: GET /v1/memory/{user_id}
 
@@ -318,12 +354,53 @@ item 字段：
 
 上下文不匹配或记忆不存在时返回 `MEMORY_NOT_FOUND`。当前删除是手动管理能力；chat 只会在 `capabilities.memory=true` 时读取有限记忆，并只写入通过 policy 的显式候选。
 
+## Runtime Config: GET /v1/runtime-config
+
+用途：读取当前运行时后端配置摘要，供受信任的管理前端或后台面板展示。
+
+该接口要求服务端配置 `ROLEPLAY_API_KEY`，并且请求携带 `Authorization: Bearer <key>` 或 `X-API-Key`。普通用户前端不应该调用该接口。
+
+### 响应 data
+
+| 字段 | 说明 |
+| --- | --- |
+| source | 配置来源，默认是项目根目录 `.env`，测试中可为 `memory` |
+| persists_updates | 是否会把 PATCH 写回配置文件 |
+| configurable_keys | 允许热更新的 key 列表 |
+| values | 当前非敏感配置摘要 |
+
+`MODEL_PROVIDER_REGISTRY` 不会原样返回，只返回 provider type、alias 和默认 alias 摘要，避免把连接信息或误写入的敏感内容暴露给前端。
+
+## Runtime Config: PATCH /v1/runtime-config
+
+用途：热更新允许的后端配置，并在不重启服务的情况下重建 model router 和 RAG service。
+
+该接口同样要求 `ROLEPLAY_API_KEY`。只允许更新非敏感配置；`API_KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`DATABASE_URL`、`REDIS_URL` 等敏感 key 会被拒绝。云端密钥应放在服务端环境变量或 `.env` 中，并通过 `*_API_KEY_ENV` 间接引用。
+
+### 请求参数
+
+```json
+{
+  "values": {
+    "MODEL_PROVIDER": "fake",
+    "MODEL_NAME": "fake-roleplay-model",
+    "MODEL_ALIAS": "fake-roleplay-model",
+    "RAG_PROVIDER": "local"
+  }
+}
+```
+
+字段值传 `null` 表示从 `.env` 托管配置中移除该 key。移除只影响 `.env` 中的覆盖值，不能删除进程启动时已经存在的系统环境变量。
+
+服务端会先用候选配置构建 model router 和 RAG service；如果构建失败，不会写回 `.env`，当前运行配置也不会改变。
+
 ## 错误响应
 
 | error.code | 说明 |
 | --- | --- |
 | VALIDATION_ERROR | 参数错误 |
 | AUTH_INVALID_API_KEY | API Key 无效 |
+| AUTH_PERMISSION_DENIED | 权限不足 |
 | PERSONA_MODE_NOT_FOUND | persona mode 不存在 |
 | SESSION_NOT_FOUND | session 不存在 |
 | RAG_PROVIDER_ERROR | RAG provider 失败 |

@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from time import perf_counter
 
-from haruhi_roleplay_api.application.errors import AppError, ErrorCode
+from haruhi_roleplay_api.application.errors import (
+    AppError,
+    ErrorCode,
+    app_error_from_exception,
+)
 from haruhi_roleplay_api.application.memory import DefaultMemoryPolicyEngine
 from haruhi_roleplay_api.domain import (
     ChatInput,
     ChatOutput,
+    ChatStreamEvent,
     DebugTrace,
     DTOValidationError,
     MemoryItem,
@@ -19,7 +25,9 @@ from haruhi_roleplay_api.domain import (
     MemoryWriteCandidate,
     MemoryWriteCommand,
     MemoryWritePolicyInput,
+    ModelMessage,
     ModelResponse,
+    ModelStreamEvent,
     PersonaPreset,
     PromptBuildInput,
     RagRetrieveFilters,
@@ -47,6 +55,21 @@ class SendChatMessageUseCase:
 
     def execute(self, chat_input: ChatInput) -> ChatOutput:
         return self._orchestrator.run(chat_input)
+
+    def stream(self, chat_input: ChatInput) -> Iterable[ChatStreamEvent]:
+        return self._orchestrator.stream(chat_input)
+
+
+@dataclass(kw_only=True)
+class _PreparedChat:
+    started_at: float
+    events: list[str]
+    persona: PersonaPreset
+    session: Session | None
+    recent_messages: tuple[object, ...]
+    memory_items: tuple[MemoryItem, ...]
+    rag_output: RagRetrieveOutput | None
+    model_messages: tuple[ModelMessage, ...]
 
 
 class RoleplayOrchestrator:
@@ -78,10 +101,68 @@ class RoleplayOrchestrator:
         self._debug_trace_enabled = debug_trace_enabled
 
     def run(self, chat_input: ChatInput) -> ChatOutput:
+        prepared = self._prepare_chat(chat_input, allow_stream=False)
+        _record_event(prepared.events, "generate_model")
+        model_response = self._model_router.generate(
+            prepared.model_messages,
+            chat_input.generation,
+        )
+        return self._complete_chat(chat_input, prepared, model_response)
+
+    def stream(self, chat_input: ChatInput) -> Iterable[ChatStreamEvent]:
+        prepared = self._prepare_chat(chat_input, allow_stream=True)
+        yield _start_stream_event(chat_input, prepared.session)
+        yield from _source_stream_events(prepared.rag_output)
+
+        model_response: ModelResponse | None = None
+        try:
+            _record_event(prepared.events, "stream_model")
+            for model_event in self._model_router.stream(
+                prepared.model_messages,
+                chat_input.generation,
+            ):
+                if model_event.event == "delta":
+                    yield ChatStreamEvent(
+                        event="delta",
+                        data={"text": model_event.delta},
+                    )
+                elif model_event.event == "done":
+                    model_response = _model_response_from_stream_event(model_event)
+        except Exception as exc:
+            _record_event(prepared.events, "stream_error")
+            yield _error_stream_event(chat_input, exc)
+            return
+
+        if model_response is None:
+            yield _error_stream_event(
+                chat_input,
+                AppError(
+                    code=ErrorCode.MODEL_PROVIDER_ERROR,
+                    message="Model provider stream ended without final response.",
+                ),
+            )
+            return
+
+        chat_output = self._complete_chat(chat_input, prepared, model_response)
+        yield ChatStreamEvent(
+            event="usage",
+            data=dict(chat_output.usage or {}),
+        )
+        yield ChatStreamEvent(
+            event="done",
+            data=_chat_output_to_stream_done_data(chat_output),
+        )
+
+    def _prepare_chat(
+        self,
+        chat_input: ChatInput,
+        *,
+        allow_stream: bool,
+    ) -> _PreparedChat:
         started_at = perf_counter()
         events: list[str] = []
         _record_event(events, "validate_capabilities")
-        _ensure_v1_capabilities(chat_input)
+        _ensure_v1_capabilities(chat_input, allow_stream=allow_stream)
         if chat_input.requestId is None:
             raise DTOValidationError("requestId is required")
 
@@ -113,33 +194,45 @@ class RoleplayOrchestrator:
                 ragChunks=rag_output.chunks if rag_output is not None else (),
             )
         )
-        _record_event(events, "generate_model")
-        model_response = self._model_router.generate(
-            model_messages_from_prompt(prompt_output.messages),
-            chat_input.generation,
+        return _PreparedChat(
+            started_at=started_at,
+            events=events,
+            persona=persona,
+            session=session,
+            recent_messages=recent_messages,
+            memory_items=memory_items,
+            rag_output=rag_output,
+            model_messages=model_messages_from_prompt(prompt_output.messages),
         )
-        if session is not None:
-            _record_event(events, "write_session_messages")
+
+    def _complete_chat(
+        self,
+        chat_input: ChatInput,
+        prepared: _PreparedChat,
+        model_response: ModelResponse,
+    ) -> ChatOutput:
+        if prepared.session is not None:
+            _record_event(prepared.events, "write_session_messages")
             self._write_session_messages(chat_input, model_response.reply)
-        _record_event(events, "write_memory")
-        written_memories = self._write_memory_for_chat(chat_input, persona)
-        _record_event(events, "build_response")
+        _record_event(prepared.events, "write_memory")
+        written_memories = self._write_memory_for_chat(chat_input, prepared.persona)
+        _record_event(prepared.events, "build_response")
 
         return ChatOutput(
             requestId=RequestId(str(chat_input.requestId)),
             characterId=chat_input.characterId,
             personaMode=chat_input.personaMode,
             reply=model_response.reply,
-            sessionId=chat_input.sessionId if session is not None else None,
+            sessionId=chat_input.sessionId if prepared.session is not None else None,
             usage={
                 **model_response.usage.to_mapping(),
                 "provider": model_response.provider,
                 "model": model_response.model,
             },
-            rag=_rag_output_to_chat_metadata(rag_output),
+            rag=_rag_output_to_chat_metadata(prepared.rag_output),
             memory=_memory_output_to_chat_metadata(
                 chat_input,
-                memory_items,
+                prepared.memory_items,
                 written_memories,
             ),
             safety={
@@ -150,12 +243,12 @@ class RoleplayOrchestrator:
                 chat_input=chat_input,
                 model_response=model_response,
                 persona_source=_persona_source(self._persona_repository),
-                session_read_count=len(recent_messages),
-                memory_read_count=len(memory_items),
+                session_read_count=len(prepared.recent_messages),
+                memory_read_count=len(prepared.memory_items),
                 memory_write_count=len(written_memories),
-                rag_output=rag_output,
-                started_at=started_at,
-                events=tuple(events),
+                rag_output=prepared.rag_output,
+                started_at=prepared.started_at,
+                events=tuple(prepared.events),
                 enabled=self._debug_trace_enabled,
             ),
         )
@@ -292,8 +385,8 @@ class RoleplayOrchestrator:
         )
 
 
-def _ensure_v1_capabilities(chat_input: ChatInput) -> None:
-    if chat_input.capabilities.stream:
+def _ensure_v1_capabilities(chat_input: ChatInput, *, allow_stream: bool) -> None:
+    if chat_input.capabilities.stream and not allow_stream:
         raise DTOValidationError("capabilities.stream is not supported by /v1/chat")
 
 
@@ -468,4 +561,64 @@ def _memory_output_to_chat_metadata(
         "enabled": True,
         "read_count": len(memory_items),
         "write_count": len(written_memories),
+    }
+
+
+def _start_stream_event(
+    chat_input: ChatInput,
+    session: Session | None,
+) -> ChatStreamEvent:
+    return ChatStreamEvent(
+        event="start",
+        data={
+            "request_id": str(chat_input.requestId),
+            "session_id": str(chat_input.sessionId) if session is not None else None,
+            "character_id": str(chat_input.characterId),
+            "persona_mode": str(chat_input.personaMode),
+        },
+    )
+
+
+def _source_stream_events(
+    rag_output: RagRetrieveOutput | None,
+) -> tuple[ChatStreamEvent, ...]:
+    if rag_output is None:
+        return ()
+    return tuple(
+        ChatStreamEvent(event="source", data={"source": chunk.to_source_mapping()})
+        for chunk in rag_output.chunks
+    )
+
+
+def _error_stream_event(chat_input: ChatInput, exc: Exception) -> ChatStreamEvent:
+    app_error = app_error_from_exception(exc)
+    return ChatStreamEvent(
+        event="error",
+        data={
+            "request_id": str(chat_input.requestId),
+            "error": {
+                "code": app_error.code.value,
+                "message": app_error.public_message,
+            },
+        },
+    )
+
+
+def _model_response_from_stream_event(event: ModelStreamEvent) -> ModelResponse:
+    if event.response is None:
+        raise DTOValidationError("model stream done event must include response")
+    return event.response
+
+
+def _chat_output_to_stream_done_data(output: ChatOutput) -> dict[str, object]:
+    return {
+        "request_id": str(output.requestId),
+        "session_id": str(output.sessionId) if output.sessionId is not None else None,
+        "character_id": str(output.characterId),
+        "persona_mode": str(output.personaMode),
+        "reply": output.reply,
+        "rag": dict(output.rag or {}),
+        "memory": dict(output.memory or {}),
+        "safety": dict(output.safety or {}),
+        "debug": dict(output.debug or {}) if output.debug is not None else None,
     }

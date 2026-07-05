@@ -79,14 +79,37 @@ application 层可以表达业务流程，但只能通过 ports 接触外部能�
 
 - `ports/personas.py`：`PersonaRepository` 接口。
 - `ports/prompts.py`：`PromptBuilder` 接口。
+- `ports/models.py`：`ChatModelProvider` 和 `ChatModelRouter` 接口。
+- `ports/embeddings.py`：`TextEmbeddingProvider` 接口。
 
 ports 是可替换能力的边界。以后从本地 JSON 换成 PostgreSQL，application 仍然只认识 `PersonaRepository`。
 
 ### adapters
 
 - `adapters/personas.py`：`LocalPersonaRepository`，从本地 `personas/` 目录读 JSON。
+- `adapters/models/fake.py`：测试和 CI 使用的 fake 模型 provider。
+- `adapters/models/openai_compatible.py`：OpenAI-compatible HTTP/SSE 基础实现。
+- `adapters/models/ollama.py`、`deepseek.py`、`gemini.py`、`openai.py`：具体模型后端的薄适配。
+- `adapters/embeddings/hash.py`：默认离线 hash embedding。
+- `adapters/embeddings/openai_compatible.py`：OpenAI-compatible `/embeddings` 基础实现。
+- `adapters/embeddings/ollama.py`、`openai.py`：本地 Ollama 和云端 OpenAI embedding preset。
 
 adapter 可以知道文件路径、SDK、数据库连接，但要把结果转换成 domain 对象再交给 application。
+
+### model provider wiring
+
+- `application/models.py` 只保留 `ModelProviderRegistryRouter` 这种业务路由：它知道 alias 白名单、provider id 和 provider model 的映射，但不知道 URL、API key 或厂商 SDK。
+- `infrastructure/model_registry.py` 负责解析 `MODEL_PROVIDER_REGISTRY` 和旧环境变量，输出结构化配置。
+- `infrastructure/model_provider_factory.py` 负责注册 provider factory，并在启动装配时校验 base URL、timeout、API key env 等运行配置。
+- 新增模型后端时，优先新增 `adapters/models/<provider>.py`，再在 `model_provider_factory.py` 注册 factory；不要改 Orchestrator，也不要把厂商配置写进 API 请求字段。
+
+### embedding provider wiring
+
+- `ports/embeddings.py` 定义 `TextEmbeddingProvider`，RAG 只依赖这个 port。
+- `adapters/embeddings/` 放 hash、本地 OpenAI-compatible、Ollama 和 OpenAI 的具体实现。
+- `infrastructure/embedding_provider_factory.py` 负责读取 `EMBEDDING_PROVIDER`、`EMBEDDING_MODEL`、`EMBEDDING_BASE_URL`、`EMBEDDING_DIMENSIONS` 和 secret。
+- `infrastructure/rag_provider_factory.py` 把 embedding provider 注入到 `LocalVectorRagService` 或 `QdrantRagService`。
+- 前端和业务后端不能传 embedding provider、base URL、真实模型名或 API key。
 
 ### api
 
@@ -156,4 +179,3 @@ api 层负责把外部调用映射到 application use case。当前还没有接 
 4. PromptBuilder 不查数据，只组织上下文。
 5. ModelProvider 不理解 persona、RAG、memory 的业务规则。
 6. 新增能力时先保证 `unittest` 可以本地跑通。
-
