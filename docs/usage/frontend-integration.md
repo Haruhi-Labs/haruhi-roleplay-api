@@ -115,6 +115,8 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 - 不要在浏览器保存 API Key。
 - 不要在前端硬编码系统 prompt。
 - 不要把 debug trace 暴露给普通用户。
+- 不要让普通聊天 UI 选择 agent planner；planner 是服务端运行时配置。
+- 不要让普通聊天 UI 选择 backend context source；source 是服务端运行时配置。
 - 不要允许用户直接修改 `app_id`。
 - 不要把 RAG source 当作模型回复的一部分混排到角色台词里。
 
@@ -138,6 +140,7 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 - embedding provider
 - 真实模型厂商和密钥
 - RAG 文档物理存储位置
+- backend context source
 
 这些调度由本项目根据配置完成，详见 [中转服务后端调度与配置说明](backend-dispatch-and-configuration.md)。
 
@@ -148,7 +151,7 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 - `GET /v1/runtime-config`
 - `PATCH /v1/runtime-config`
 
-这两个接口必须带 `Authorization: Bearer <ROLEPLAY_API_KEY>` 或 `X-API-Key`。管理前端只能修改服务端白名单允许的非敏感配置，例如 `MODEL_PROVIDER`、`MODEL_NAME`、`MODEL_ALIAS`、`RAG_PROVIDER`、`EMBEDDING_PROVIDER`、`CHROMA_COLLECTION` 等。
+这两个接口必须带 `Authorization: Bearer <ROLEPLAY_API_KEY>` 或 `X-API-Key`。管理前端只能修改服务端白名单允许的非敏感配置，例如 `MODEL_PROVIDER`、`MODEL_NAME`、`MODEL_ALIAS`、`RAG_PROVIDER`、`EMBEDDING_PROVIDER`、`CHROMA_COLLECTION`、`AGENT_CONTEXT_PLANNER`、`BACKEND_CONTEXT_PROVIDER`、`BACKEND_CONTEXT_SOURCES` 等。
 
 示例：
 
@@ -165,9 +168,16 @@ await fetch(`${baseUrl}/v1/runtime-config`, {
       MODEL_NAME: "fake-roleplay-model",
       MODEL_ALIAS: "fake-roleplay-model",
       RAG_PROVIDER: "local",
+      AGENT_CONTEXT_PLANNER: "deterministic",
+      BACKEND_CONTEXT_PROVIDER: "fake",
+      BACKEND_CONTEXT_SOURCES: "user_profile,game_state",
     },
   }),
 });
 ```
 
 密钥类配置不要从前端提交，例如 `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。云端 provider 应通过服务端 `.env` 中的 secret 和 `*_API_KEY_ENV` 间接引用。
+
+`AGENT_CONTEXT_PLANNER=model` 当前只是后续模型辅助规划的预留入口。管理前端可以展示这个状态，但不应把它作为可用选项开放给普通用户。
+
+`BACKEND_CONTEXT_PROVIDER=fake` 当前只用于本地调试。真实业务后端 adapter 接入前，管理前端可以展示 backend context 是否启用、读取了哪些 source，但不要把 source 选择暴露给普通聊天用户。

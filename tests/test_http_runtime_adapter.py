@@ -325,6 +325,31 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         )
         self.assertEqual(after_body["data"]["reply"], "[fake:fake-two] 社团 活动 怎么安排？")
 
+    def test_runtime_config_patch_can_select_model_backed_agent_planner_placeholder(
+        self,
+    ) -> None:
+        app = runtime({"ROLEPLAY_API_KEY": "secret"})
+        patch = app.handle(
+            method="PATCH",
+            target="/v1/runtime-config",
+            headers=auth_headers(),
+            body=json_body({"values": {"AGENT_CONTEXT_PLANNER": "model"}}),
+        )
+        chat = app.handle(
+            method="POST",
+            target="/v1/chat",
+            headers=auth_headers(),
+            body=json_body(chat_body()),
+        )
+        patch_body = json_response(patch.body)
+        chat_body_data = json_response(chat.body)
+
+        self.assertEqual(patch.status, 200)
+        self.assertEqual(patch_body["data"]["applied_keys"], ["AGENT_CONTEXT_PLANNER"])
+        self.assertEqual(chat.status, 502)
+        self.assertEqual(chat_body_data["error"]["code"], "MODEL_PROVIDER_ERROR")
+        self.assertIn("not implemented", chat_body_data["error"]["message"])
+
     def test_runtime_config_patch_rejects_sensitive_key(self) -> None:
         app = runtime({"ROLEPLAY_API_KEY": "secret"})
         response = app.handle(

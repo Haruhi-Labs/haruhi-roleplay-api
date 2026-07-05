@@ -528,3 +528,48 @@
 ### 下一步
 
 - 继续实现 `08.01.agent-context-plan.md`。
+
+## 2026-07-05：Agent Context Plan
+
+### 完成
+
+- 新增 `ContextPlan` domain 对象，用于描述本次 chat 是否读取 session、memory 和 RAG。
+- 新增 `AgentContextPlanner` port。
+- 新增 `DeterministicAgentContextPlanner`，默认通过 capability 和 persona policy 生成确定性 plan。
+- 新增 `ModelBackedAgentContextPlanner` 占位实现，保留基于后端大模型的 planner 接口。
+- 新增 `AGENT_CONTEXT_PLANNER` 配置入口，支持 `deterministic` 和预留的 `model`。
+- Orchestrator 改为先生成 `ContextPlan`，再按 plan 读取 session、memory 和 RAG。
+- Debug trace 增加 `contextPlan` 安全摘要，不返回用户原文、prompt、query、URL、SQL 或 secret。
+- 更新架构、接口、前端接入和后端调度文档，写明 model-backed planner 未实现。
+
+### 验证
+
+- `uv run python -m unittest tests.test_agent_context_plan` 通过。
+- `uv run python -m unittest tests.test_http_runtime_adapter` 通过。
+
+### 下一步
+
+- 继续实现 `08.02.backend-context-provider.md`，把业务后端上下文纳入受控 plan。
+
+## 2026-07-05：Backend Context Provider
+
+### 完成
+
+- 新增 `BackendContextRequest` 和 `BackendContextFact` domain 对象。
+- 新增 `BackendContextProvider` port。
+- 新增 `FakeBackendContextProvider`，支持 `user_profile` 和 `game_state` 两类示例 source。
+- `DeterministicAgentContextPlanner` 支持通过服务端配置生成 `backendFetches`。
+- Orchestrator 按 `ContextPlan.backendFetches` 调用 backend context provider。
+- PromptBuilder 增加“业务后端上下文摘要”段，把 backend facts 纳入模型输入。
+- Debug trace 增加 `backendContextFactCount` 和 `backendContextSources`，不返回 fact 内容。
+- HTTP runtime 支持通过 `BACKEND_CONTEXT_PROVIDER` 和 `BACKEND_CONTEXT_SOURCES` 装配 fake backend context。
+- 更新架构、接口、前端接入、设计规范和后端调度文档。
+
+### 验证
+
+- `uv run python -m unittest tests.test_backend_context_provider` 通过。
+- `uv run python -m unittest tests.test_agent_context_plan tests.test_http_runtime_adapter tests.test_debug_trace_v1 tests.test_prompt_builder_v1` 通过。
+
+### 下一步
+
+- 继续实现真实业务后端 adapter 或进入 `08.03.frontend-demo.md`。

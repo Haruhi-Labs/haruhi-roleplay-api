@@ -37,6 +37,8 @@ class DebugTrace:
     ragProvider: str | None = None
     ragRawHitCount: int = 0
     ragFilteredHitCount: int = 0
+    backendContextFactCount: int = 0
+    backendContextSources: tuple[str, ...] = ()
     modelProvider: str | None = None
     modelRoute: str | None = None
     safetyAction: str = "allow"
@@ -44,6 +46,7 @@ class DebugTrace:
     capabilities: Mapping[str, bool] = field(default_factory=dict)
     events: tuple[str, ...] = ()
     modelDebug: Mapping[str, Any] = field(default_factory=dict)
+    contextPlan: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _require_non_empty(str(self.requestId), "debug.requestId")
@@ -57,6 +60,7 @@ class DebugTrace:
             ("debug.memoryWriteCount", self.memoryWriteCount),
             ("debug.ragRawHitCount", self.ragRawHitCount),
             ("debug.ragFilteredHitCount", self.ragFilteredHitCount),
+            ("debug.backendContextFactCount", self.backendContextFactCount),
             ("debug.latencyMs", self.latencyMs),
         ):
             if value < 0:
@@ -79,6 +83,8 @@ class DebugTrace:
             "ragProvider": self.ragProvider,
             "ragRawHitCount": self.ragRawHitCount,
             "ragFilteredHitCount": self.ragFilteredHitCount,
+            "backendContextFactCount": self.backendContextFactCount,
+            "backendContextSources": list(self.backendContextSources),
             "modelProvider": self.modelProvider,
             "modelRoute": self.modelRoute,
             "model": self.modelRoute,
@@ -88,6 +94,8 @@ class DebugTrace:
             "latencyMs": self.latencyMs,
             "events": list(self.events),
         }
+        if self.contextPlan:
+            data["contextPlan"] = _safe_context_plan(self.contextPlan)
         data.update(_safe_model_debug(self.modelDebug))
         return data
 
@@ -99,3 +107,16 @@ def _safe_model_debug(debug: Mapping[str, Any]) -> dict[str, Any]:
         if key in debug:
             safe[key] = debug[key]
     return safe
+
+
+def _safe_context_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+    allowed_keys = (
+        "planner",
+        "status",
+        "readSession",
+        "readMemory",
+        "retrieveRag",
+        "backendFetches",
+        "notes",
+    )
+    return {key: plan[key] for key in allowed_keys if key in plan}

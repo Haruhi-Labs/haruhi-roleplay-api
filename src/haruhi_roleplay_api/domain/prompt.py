@@ -9,6 +9,7 @@ from haruhi_roleplay_api.domain.chat import (
     DTOValidationError,
     GenerationConfig,
 )
+from haruhi_roleplay_api.domain.backend_context import BackendContextFact
 from haruhi_roleplay_api.domain.memory import MemoryItem
 from haruhi_roleplay_api.domain.persona import CharacterProfile, PersonaPreset
 from haruhi_roleplay_api.domain.rag import RagChunk
@@ -52,6 +53,7 @@ class PromptBuildInput:
     recentMessages: tuple[SessionMessage, ...] = ()
     memoryItems: tuple[MemoryItem, ...] = ()
     ragChunks: tuple[RagChunk, ...] = ()
+    backendContextFacts: tuple[BackendContextFact, ...] = ()
 
     def __post_init__(self) -> None:
         if self.character.characterId != self.persona.characterId:
@@ -72,6 +74,11 @@ class PromptBuildInput:
         for chunk in self.ragChunks:
             if not isinstance(chunk, RagChunk):
                 raise DTOValidationError("ragChunks must contain RagChunk")
+        for fact in self.backendContextFacts:
+            if not isinstance(fact, BackendContextFact):
+                raise DTOValidationError(
+                    "backendContextFacts must contain BackendContextFact"
+                )
 
 
 @dataclass(frozen=True, kw_only=True)

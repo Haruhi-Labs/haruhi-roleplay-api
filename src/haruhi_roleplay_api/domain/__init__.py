@@ -14,6 +14,11 @@ from haruhi_roleplay_api.domain.chat import (
     SessionId,
     UserId,
 )
+from haruhi_roleplay_api.domain.agent import ContextPlan
+from haruhi_roleplay_api.domain.backend_context import (
+    BackendContextFact,
+    BackendContextRequest,
+)
 from haruhi_roleplay_api.domain.debug import DebugTrace
 from haruhi_roleplay_api.domain.memory import (
     MemoryDeleteCommand,
@@ -68,12 +73,15 @@ from haruhi_roleplay_api.domain.model import (
 
 __all__ = [
     "AppId",
+    "BackendContextFact",
+    "BackendContextRequest",
     "CapabilityConfig",
     "CharacterProfile",
     "CharacterId",
     "ChatInput",
     "ChatOutput",
     "ChatStreamEvent",
+    "ContextPlan",
     "DebugTrace",
     "DTOValidationError",
     "GenerationConfig",

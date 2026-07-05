@@ -1,5 +1,15 @@
 """Infrastructure factories and configuration."""
 
+from haruhi_roleplay_api.infrastructure.agent_planner_factory import (
+    AgentPlannerSettings,
+    build_agent_context_planner,
+    build_agent_context_planner_from_env,
+)
+from haruhi_roleplay_api.infrastructure.backend_context_provider_factory import (
+    BackendContextProviderSettings,
+    build_backend_context_provider,
+    build_backend_context_provider_from_env,
+)
 from haruhi_roleplay_api.infrastructure.embedding_provider_factory import (
     EmbeddingProviderSettings,
     build_embedding_provider,
@@ -26,6 +36,8 @@ from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
 
 __all__ = [
     "EmbeddingProviderSettings",
+    "AgentPlannerSettings",
+    "BackendContextProviderSettings",
     "HttpRuntimeResponse",
     "HttpRuntimeSettings",
     "ModelAliasConfig",
@@ -34,6 +46,10 @@ __all__ = [
     "RagProviderSettings",
     "RoleplayHttpRuntime",
     "RuntimeConfigStore",
+    "build_agent_context_planner",
+    "build_agent_context_planner_from_env",
+    "build_backend_context_provider",
+    "build_backend_context_provider_from_env",
     "build_embedding_provider",
     "build_embedding_provider_from_env",
     "build_model_router",

@@ -23,6 +23,12 @@ from haruhi_roleplay_api.api.sessions import post_session
 from haruhi_roleplay_api.application import PersonaPromptBuilder
 from haruhi_roleplay_api.application.errors import AppError, ERROR_STATUS, ErrorCode
 from haruhi_roleplay_api.domain import DTOValidationError
+from haruhi_roleplay_api.infrastructure.agent_planner_factory import (
+    build_agent_context_planner_from_env,
+)
+from haruhi_roleplay_api.infrastructure.backend_context_provider_factory import (
+    build_backend_context_provider_from_env,
+)
 from haruhi_roleplay_api.infrastructure.models import (
     ModelProviderSettings,
     build_model_router,
@@ -31,6 +37,7 @@ from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     build_rag_service_from_env,
 )
 from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
+from haruhi_roleplay_api.ports import AgentContextPlanner
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -69,6 +76,8 @@ class RoleplayHttpRuntime:
         session_store: InMemorySessionStore,
         memory_store: InMemoryMemoryStore,
         rag_service: object,
+        backend_context_provider: object | None,
+        agent_context_planner: AgentContextPlanner,
         runtime_config_store: RuntimeConfigStore,
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
@@ -79,6 +88,8 @@ class RoleplayHttpRuntime:
         self._session_store = session_store
         self._memory_store = memory_store
         self._rag_service = rag_service
+        self._backend_context_provider = backend_context_provider
+        self._agent_context_planner = agent_context_planner
         self._runtime_config_store = runtime_config_store
         self._api_key = api_key
         self._debug_trace_enabled = debug_trace_enabled
@@ -103,6 +114,10 @@ class RoleplayHttpRuntime:
             session_store=InMemorySessionStore(),
             memory_store=InMemoryMemoryStore(),
             rag_service=build_rag_service_from_env(runtime_env),
+            backend_context_provider=build_backend_context_provider_from_env(
+                runtime_env
+            ),
+            agent_context_planner=build_agent_context_planner_from_env(runtime_env),
             runtime_config_store=config_store,
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
@@ -183,6 +198,8 @@ class RoleplayHttpRuntime:
                     session_store=self._session_store,
                     memory_store=self._memory_store,
                     rag_service=self._rag_service,
+                    backend_context_provider=self._backend_context_provider,
+                    agent_context_planner=self._agent_context_planner,
                     request_id=request_id,
                     debug_trace_enabled=self._debug_trace_enabled,
                 )
@@ -254,6 +271,8 @@ class RoleplayHttpRuntime:
             session_store=self._session_store,
             memory_store=self._memory_store,
             rag_service=self._rag_service,
+            backend_context_provider=self._backend_context_provider,
+            agent_context_planner=self._agent_context_planner,
             request_id=request_id,
             debug_trace_enabled=self._debug_trace_enabled,
         )
@@ -306,10 +325,18 @@ class RoleplayHttpRuntime:
                     ModelProviderSettings.from_mapping(candidate_env)
                 )
                 rag_service = build_rag_service_from_env(candidate_env)
+                backend_context_provider = build_backend_context_provider_from_env(
+                    candidate_env
+                )
+                agent_context_planner = build_agent_context_planner_from_env(
+                    candidate_env
+                )
                 settings = HttpRuntimeSettings.from_env(candidate_env)
                 applied_keys = self._runtime_config_store.commit(update)
                 self._model_router = model_router
                 self._rag_service = rag_service
+                self._backend_context_provider = backend_context_provider
+                self._agent_context_planner = agent_context_planner
                 self._api_key = settings.api_key
                 self._debug_trace_enabled = settings.debug_trace_enabled
             except Exception as exc:

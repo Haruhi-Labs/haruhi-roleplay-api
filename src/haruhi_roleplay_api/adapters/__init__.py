@@ -1,5 +1,6 @@
 """External system adapters."""
 
+from haruhi_roleplay_api.adapters.backend_context import FakeBackendContextProvider
 from haruhi_roleplay_api.adapters.embeddings import (
     HashEmbeddingProvider,
     LocalOpenAICompatibleEmbeddingProvider,
@@ -26,6 +27,7 @@ from haruhi_roleplay_api.adapters.sessions import InMemorySessionStore
 __all__ = [
     "DeepSeekModelProvider",
     "FakeModelProvider",
+    "FakeBackendContextProvider",
     "FakeRagService",
     "GeminiModelProvider",
     "HashEmbeddingProvider",

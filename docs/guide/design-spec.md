@@ -108,9 +108,12 @@
 
 - Agent planner 的输出必须是结构化 `ContextPlan`，不能是自由文本指令。
 - `ContextPlan` 只能包含白名单 source，例如 `session`、`memory`、`rag`、`backend_context`。
-- ContextExecutor 负责执行 plan，模型 provider 不直接访问工具。
-- planner v1 优先使用确定性规则，不先依赖大模型自我规划。
-- 模型辅助 planner 只能作为后续增强，并且必须保留可观测 debug trace。
+- Orchestrator/ContextExecutor 负责执行 plan，模型 provider 不直接访问工具。
+- Backend context source 必须由服务端配置或业务后端策略决定，不能由普通前端用户直接选择。
+- Backend context 进入 prompt 前必须转换成 `BackendContextFact`，不能把原始业务 JSON 全量注入 prompt。
+- planner v1 使用确定性规则，不依赖大模型自我规划。
+- `AGENT_CONTEXT_PLANNER=model` 只是后续增强入口，当前未实现，不能作为可用功能对普通用户开放。
+- 模型辅助 planner 后续实现时必须保留结构化输出校验、失败回退和可观测 debug trace。
 - agent debug 只能返回计划摘要、source 数量和阶段，不返回完整 prompt、secret 或原始业务数据。
 
 ## API 设计规范
@@ -152,4 +155,3 @@
 - 可以展示开发者 debug 面板，但默认折叠。
 - 不在前端保存 API key。
 - 优先使用项目内约定的 Haruhi UI 风格；如果引入外部框架，只能作为 demo 工程依赖，不能反向污染 API 核心层。
-

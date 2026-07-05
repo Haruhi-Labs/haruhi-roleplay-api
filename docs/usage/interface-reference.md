@@ -96,7 +96,11 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 
 `metadata.memory_write` 可以是单个对象或对象列表。默认策略会拒绝临时闲聊、敏感信息、低置信度和不被当前 persona 允许的类型。写入结果通过 `memory.write_count` 返回。
 
-`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`modelProvider`、`modelRoute`、`safetyAction`、`streamEnabled`、`latencyMs` 和 `events`。`modelRoute` 返回服务端模型别名，不返回 provider 侧真实模型配置。
+`debug_trace=false` 或服务端禁用 debug 时，`debug` 为 null。`debug_trace=true` 时，当前只返回安全摘要字段，包括 `requestId`、`personaSource`、`sessionReadCount`、`memoryReadCount`、`memoryWriteCount`、`ragProvider`、`ragRawHitCount`、`ragFilteredHitCount`、`backendContextFactCount`、`backendContextSources`、`modelProvider`、`modelRoute`、`contextPlan`、`safetyAction`、`streamEnabled`、`latencyMs` 和 `events`。`modelRoute` 返回服务端模型别名，不返回 provider 侧真实模型配置。
+
+`debug.contextPlan` 当前由确定性 planner 生成，字段包括 `planner`、`status`、`readSession`、`readMemory`、`retrieveRag`、`backendFetches` 和 `notes`。它只描述本次是否读取 session、memory、RAG 和 backend context，不包含用户原文、完整 prompt、检索 query、URL、SQL 或 secret。
+
+`backendContextFactCount` 和 `backendContextSources` 只用于调试后端上下文是否被读取，不返回 fact 内容或原始业务 JSON。
 
 前端只能把 `debug` 用于开发者面板或联调日志，不要展示给普通用户。`debug` 不包含完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
 
@@ -373,7 +377,7 @@ item 字段：
 
 ## Runtime Config: PATCH /v1/runtime-config
 
-用途：热更新允许的后端配置，并在不重启服务的情况下重建 model router 和 RAG service。
+用途：热更新允许的后端配置，并在不重启服务的情况下重建 model router、RAG service、agent context planner 和 backend context provider。
 
 该接口同样要求 `ROLEPLAY_API_KEY`。只允许更新非敏感配置；`API_KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`DATABASE_URL`、`REDIS_URL` 等敏感 key 会被拒绝。云端密钥应放在服务端环境变量或 `.env` 中，并通过 `*_API_KEY_ENV` 间接引用。
 
@@ -385,14 +389,19 @@ item 字段：
     "MODEL_PROVIDER": "fake",
     "MODEL_NAME": "fake-roleplay-model",
     "MODEL_ALIAS": "fake-roleplay-model",
-    "RAG_PROVIDER": "local"
+    "RAG_PROVIDER": "local",
+    "AGENT_CONTEXT_PLANNER": "deterministic",
+    "BACKEND_CONTEXT_PROVIDER": "fake",
+    "BACKEND_CONTEXT_SOURCES": "user_profile,game_state"
   }
 }
 ```
 
 字段值传 `null` 表示从 `.env` 托管配置中移除该 key。移除只影响 `.env` 中的覆盖值，不能删除进程启动时已经存在的系统环境变量。
 
-服务端会先用候选配置构建 model router 和 RAG service；如果构建失败，不会写回 `.env`，当前运行配置也不会改变。
+服务端会先用候选配置构建 model router、RAG service、agent context planner 和 backend context provider；如果构建失败，不会写回 `.env`，当前运行配置也不会改变。
+
+`AGENT_CONTEXT_PLANNER=model` 当前只是预留入口。它可以通过 runtime config 设置，但真实模型辅助 planner 未实现；设置后 chat 会返回 `MODEL_PROVIDER_ERROR`，直到后续补齐 planner prompt、结构化输出解析和安全校验。
 
 ## 错误响应
 

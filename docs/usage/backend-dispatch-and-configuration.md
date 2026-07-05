@@ -132,6 +132,10 @@ Provider Pack 是一组后端实现绑定。
 | PORT                 | 3000  | HTTP 服务端口        |
 | ENABLE_DEBUG_TRACE   | true  | 是否允许 debug trace |
 | ENABLE_SAFETY_FILTER | true  | 是否默认启用安全过滤 |
+| AGENT_CONTEXT_PLANNER | deterministic | Agent 上下文计划器；当前支持 `deterministic`，`model` 仅预留 |
+| BACKEND_CONTEXT_PROVIDER | none | backend context provider；当前支持 `none`、`fake` |
+| BACKEND_CONTEXT_SOURCES | user_profile,game_state | 本服务允许本次计划读取的业务上下文 source |
+| BACKEND_CONTEXT_ALLOWED_SOURCES | user_profile,game_state | fake provider 白名单 source |
 
 `ENABLE_DEBUG_TRACE=false` 时，后端装配 API handler 应传入 `debug_trace_enabled=false`。该配置优先级高于请求中的 `capabilities.debug_trace=true`，用于生产环境统一关闭 debug 返回。
 
@@ -206,6 +210,52 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 如果候选配置失败，例如切到 `RAG_PROVIDER=qdrant` 但没有 `QDRANT_URL`，服务会返回错误，不会写回 `.env`，也不会影响当前可用配置。
 
 当前热切换会保留进程内 session store 和 memory store；model router、RAG service、debug trace 开关会按新配置更新。切换 RAG provider 后，非持久化本地向量数据不会自动迁移。
+
+### Agent Context Planner
+
+`AGENT_CONTEXT_PLANNER` 控制 Orchestrator 使用哪一种上下文规划方式：
+
+| 值 | 状态 | 说明 |
+| --- | --- | --- |
+| deterministic | 已实现，默认值 | 不调用大模型，只按 capability 和 persona policy 生成 `ContextPlan` |
+| model | 接口预留，未实现 | 可以配置和装配，但 chat 执行时会返回 `MODEL_PROVIDER_ERROR` |
+
+当前确定性 planner 会生成两类安全信息：
+
+- 调度布尔值：`readSession`、`readMemory`、`retrieveRag`。
+- 安全 notes：只包含稳定标签，例如 `capability-gated`，不包含用户输入、prompt、query、URL、SQL 或 secret。
+
+模型辅助 planner 后续会通过同一个 `AgentContextPlanner` port 接入，但必须先补齐结构化输出 schema、schema validation、权限控制、失败回退和评测集。当前不要在生产或演示配置中使用 `AGENT_CONTEXT_PLANNER=model`。
+
+### Backend Context
+
+Backend context 用于从业务后端或其它数据库读取受控 facts，例如用户资料、游戏状态、活动进度。当前实现的是最小 fake provider：
+
+| 配置 | 示例 | 说明 |
+| --- | --- | --- |
+| BACKEND_CONTEXT_PROVIDER | fake | 支持 `none`、`fake`；默认 `none` |
+| BACKEND_CONTEXT_SOURCES | user_profile,game_state | Orchestrator 本次计划读取的 source，由服务端配置 |
+| BACKEND_CONTEXT_ALLOWED_SOURCES | user_profile,game_state | fake provider 允许的 source 白名单 |
+
+示例：
+
+```env
+BACKEND_CONTEXT_PROVIDER=fake
+BACKEND_CONTEXT_SOURCES=user_profile,game_state
+BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
+```
+
+当前 fake provider 会返回：
+
+- `user_profile`：用户资料摘要 fact。
+- `game_state`：当前活动或游戏状态 fact。
+
+边界：
+
+- 前端或普通用户请求不传真实 source。
+- provider 只返回 `BackendContextFact`，不把业务系统原始 JSON 全量塞进 prompt。
+- debug 只返回 fact 数量和 source 名称，不返回 fact 内容。
+- 真实业务后端 adapter 后续应放在 `adapters/` 或独立 provider 包中，并通过同一个 `BackendContextProvider` port 注入。
 
 ### Persona
 
@@ -605,45 +655,47 @@ Memory 调度需要避免污染：
 
 ## Agent 编排调度
 
-当前 Orchestrator 已经有确定性编排顺序。完整 Agent 编排应在这个基础上增加“上下文计划”层，而不是让模型直接调用工具。
+当前 Orchestrator 已经接入“上下文计划”层。第一版使用确定性 planner，不让模型直接调用工具。
 
 推荐链路：
 
 1. API 层生成 `ChatInput`。
-2. `AgentContextPlanner` 读取 `ChatInput`、persona policy、capabilities 和 app 权限。
+2. `AgentContextPlanner` 读取 `ChatInput`、persona policy 和 capabilities。
 3. Planner 输出结构化 `ContextPlan`。
-4. `ContextExecutor` 按 plan 调用 session、memory、RAG 和 backend context ports。
-5. Executor 输出 `ContextBundle`。
-6. `PromptBuilder` 融合 persona、ContextBundle 和用户消息。
+4. Orchestrator 按 plan 调用 session、memory、RAG 和 backend context ports。
+5. `BackendContextProvider` 返回受控 `BackendContextFact`，不返回原始业务 JSON。
+6. `PromptBuilder` 融合 persona、session、memory、RAG、backend facts 和用户消息。
 7. `ChatModelRouter` 调用模型 provider，当前实现是 `ModelProviderRegistryRouter`。
 8. `MemoryCandidateExtractor` 可在回复后生成候选记忆。
 9. `MemoryPolicyEngine` 决定是否写入。
 
-`ContextPlan` 示例：
+当前确定性 `ContextPlan` 示例：
 
 ```json
 {
-  "read_session": true,
-  "read_memory": {
-    "enabled": true,
-    "types": ["user_preference", "relationship"],
-    "limit": 5
-  },
-  "retrieve_rag": {
-    "enabled": true,
-    "query": "改写后的检索查询",
-    "top_k": 5
-  },
-  "backend_fetches": [
-    {
-      "source": "user_profile",
-      "required": false
-    }
-  ]
+  "planner": "deterministic",
+  "status": "ready",
+  "readSession": true,
+  "readMemory": true,
+  "retrieveRag": true,
+  "backendFetches": ["user_profile", "game_state"],
+  "notes": ["capability-gated", "persona-rag-policy", "persona-memory-policy"]
 }
 ```
 
-第一版 planner 应该用确定性规则实现。模型辅助 planner 放到后续阶段，避免一开始就引入不可控工具调用。
+基于后端大模型的 plan 当前只预留接口：
+
+```env
+AGENT_CONTEXT_PLANNER=model
+```
+
+当前状态：
+
+- 已有 `ModelBackedAgentContextPlanner` 占位类。
+- 已有 `AgentContextPlanner` port 和 factory。
+- 已有 runtime config 配置入口。
+- 未实现 planner prompt、模型调用、结构化输出解析、schema validation 和失败回退。
+- 配置为 `model` 后发起 chat 会返回 `MODEL_PROVIDER_ERROR`，这是预期状态。
 
 ## 后端实现步骤
 
@@ -784,6 +836,14 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 - executor 只调用白名单 ports。
 - debug trace 能看到 plan 摘要。
 - 模型 provider 不直接访问 backend context。
+
+当前状态：
+
+- `AgentContextPlanner` 确定性版本已实现。
+- `BackendContextProvider` port 已实现。
+- `FakeBackendContextProvider` 已实现。
+- `PromptBuilder` 已能插入 backend facts。
+- 真实业务系统 adapter 尚未实现。
 
 ## 配置校验
 

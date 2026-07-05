@@ -23,6 +23,8 @@ from haruhi_roleplay_api.domain import (
     RequestId,
 )
 from haruhi_roleplay_api.ports import (
+    AgentContextPlanner,
+    BackendContextProvider,
     ChatModelRouter,
     MemoryPolicyEngine,
     MemoryStore,
@@ -47,6 +49,8 @@ def post_chat(
     memory_store: MemoryStore | None = None,
     memory_policy_engine: MemoryPolicyEngine | None = None,
     rag_service: RagService | None = None,
+    backend_context_provider: BackendContextProvider | None = None,
+    agent_context_planner: AgentContextPlanner | None = None,
     memory_read_limit: int = 5,
     debug_trace_enabled: bool = True,
     include_error_details: bool = False,
@@ -65,6 +69,8 @@ def post_chat(
                 memory_store=memory_store,
                 memory_policy_engine=memory_policy_engine,
                 rag_service=rag_service,
+                backend_context_provider=backend_context_provider,
+                agent_context_planner=agent_context_planner,
                 memory_read_limit=memory_read_limit,
                 debug_trace_enabled=debug_trace_enabled,
             )
@@ -90,6 +96,8 @@ def post_chat_stream(
     memory_store: MemoryStore | None = None,
     memory_policy_engine: MemoryPolicyEngine | None = None,
     rag_service: RagService | None = None,
+    backend_context_provider: BackendContextProvider | None = None,
+    agent_context_planner: AgentContextPlanner | None = None,
     memory_read_limit: int = 5,
     debug_trace_enabled: bool = True,
     include_error_details: bool = False,
@@ -113,6 +121,8 @@ def post_chat_stream(
                     memory_store=memory_store,
                     memory_policy_engine=memory_policy_engine,
                     rag_service=rag_service,
+                    backend_context_provider=backend_context_provider,
+                    agent_context_planner=agent_context_planner,
                     memory_read_limit=memory_read_limit,
                     debug_trace_enabled=debug_trace_enabled,
                 )

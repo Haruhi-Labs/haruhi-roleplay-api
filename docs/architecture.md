@@ -83,6 +83,30 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 
 这样可以保留 Agent 的分析能力，同时避免 provider、密钥、数据库和业务系统暴露给模型或前端。
 
+### 当前实现状态
+
+当前已实现 `AgentContextPlanner` 的确定性版本：
+
+- 默认配置：`AGENT_CONTEXT_PLANNER=deterministic`。
+- 输出：`ContextPlan`，包含是否读取 session、memory、RAG、backend context 以及安全 notes。
+- 调度：`RoleplayOrchestrator` 根据 `ContextPlan` 决定是否读取 session、memory、RAG 和 backend context。
+- Debug：`debug.contextPlan` 返回安全摘要，不包含用户原文、prompt、query、URL、SQL 或 secret。
+
+当前也已实现最小 `BackendContextProvider`：
+
+- 默认配置：`BACKEND_CONTEXT_PROVIDER=none`，不读取业务后端上下文。
+- 本地实现：`BACKEND_CONTEXT_PROVIDER=fake`，可返回 `user_profile` 和 `game_state` 两类示例 fact。
+- Source 配置：`BACKEND_CONTEXT_SOURCES=user_profile,game_state`，由服务端配置决定，普通前端不传真实 source。
+- Prompt 融合：`PromptBuilder` 将 `BackendContextFact` 插入“业务后端上下文摘要”段。
+- Debug：只返回 `backendContextFactCount` 和 `backendContextSources`，不返回 fact 内容或原始业务 JSON。
+
+同时预留了基于后端大模型的 planner：
+
+- 配置入口：`AGENT_CONTEXT_PLANNER=model`。
+- 当前状态：只保留 port、factory 和占位 planner，未实现真实模型规划。
+- 当前行为：如果配置为 `model` 并发起 chat，会返回 `MODEL_PROVIDER_ERROR`，提示 model-backed planner 未实现。
+- 后续实现前提：需要先定义 planner prompt、结构化输出 schema、权限边界、失败回退和评测集。
+
 ## Provider 替换原则
 
 - application 层只依赖 ports。
@@ -112,6 +136,6 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 - LocalModelProvider。
 - CloudProviderPack。
 - HTTP runtime adapter。
-- AgentContextPlanner。
-- BackendContextProvider。
+- AgentContextPlanner 的 model-backed 实现。
+- BackendContextProvider 的真实业务后端 adapter。
 - Frontend demo。
