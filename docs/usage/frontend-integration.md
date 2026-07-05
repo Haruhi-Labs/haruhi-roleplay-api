@@ -177,10 +177,29 @@ await fetch(`${baseUrl}/v1/runtime-config`, {
 });
 ```
 
-密钥类配置不要从前端提交，例如 `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。云端 provider 应通过服务端 `.env` 中的 secret 和 `*_API_KEY_ENV` 间接引用。
+普通聊天前端和 `PATCH /v1/runtime-config` 不提交密钥类配置，例如 `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。如果需要可视化维护这些值，只能使用受信任 `.env` 编辑器的 write-only secret 输入；保存后 UI 只能显示 set/empty/missing 状态，不能回显原文。
 
 管理前端可以展示 `GET /v1/runtime-config` 返回的 `restart_required_keys`，但不要把这些 key 做成“立即生效”的开关。比如 `SESSION_PROVIDER`、`SESSION_SQLITE_PATH` 需要服务重启后重新装配 session store，不能在普通聊天过程中热切换。
 
 `AGENT_CONTEXT_PLANNER=model` 当前只是后续模型辅助规划的预留入口。管理前端可以展示这个状态，但不应把它作为可用选项开放给普通用户。
 
 `BACKEND_CONTEXT_PROVIDER=fake` 当前只用于本地调试。真实业务后端 adapter 接入前，管理前端可以展示 backend context 是否启用、读取了哪些 source，但不要把 source 选择暴露给普通聊天用户。
+
+更完整的 `.env` 编辑器设计见 [全量 .env 编辑器使用与设计说明](config-panel.md)。
+
+`.env` 编辑器建议拆成独立受信任页面，而不是放进普通聊天界面。它可以做：
+
+- 读取当前 `.env` 的 redacted 摘要。
+- 按 HTTP、Model、RAG、Embedding、Agent、Backend Context、Session、Secrets 分组展示字段。
+- 创建配置草稿、字段 check 和 diff preview。
+- 修改普通字段、restart-required 字段和 secret 字段。
+- 保存 `.env` 后提示哪些字段已热更新、哪些字段需要重启。
+
+`.env` 编辑器不应该做：
+
+- 让普通用户访问。
+- 回显真实 API key、token、secret 或 `DATABASE_URL`。
+- 把 `.env` 原文完整返回给浏览器。
+- 让浏览器直接读写 `.env` 文件。
+- 承诺所有字段保存后都立即生效。
+- 绕过 Env Config Editor API 直接写 `.env`。

@@ -643,3 +643,21 @@
 ### 下一步
 
 - 继续验证完整测试集，并在后续卡片中考虑真实 PostgreSQL smoke 或连接池能力。
+
+## 2026-07-05：全量 `.env` 编辑器规划
+
+### 完成
+
+- 新增 `09.02.env-config-editor.md` 实现卡片。
+- 更新 `docs/usage/config-panel.md`，把配置面板重新定位为全量 `.env` 编辑器。
+- 明确需要独立 Env Config Editor API，不能复用 runtime config PATCH 写全量 `.env`。
+- 补充字段 check、整体验证、secret redaction、restart-required 提示和草稿 diff 规则。
+- 更新 roadmap、前端接入、接口参考、后端调度和设计规范。
+
+### 验证
+
+- 使用 `rg` 检查 `env-config`、`.env 编辑器`、`字段 check`、`09.02` 文档位置。
+
+### 下一步
+
+- 后续实现时先完成普通聊天 demo，再按 `09.02` 单独实现全量 `.env` 编辑器。

@@ -115,6 +115,15 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 - 只展示不热切换：`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS`、`SESSION_POSTGRES_SCHEMA` 等有状态配置会出现在 runtime config 的 `restart_required_keys`，但不能通过 `PATCH /v1/runtime-config` 热切换。
 - 敏感边界：`DATABASE_URL` 只从服务端环境或 `.env` 读取，不进入 runtime config public snapshot、debug trace 或普通前端请求。
 
+当前配置管理边界：
+
+- 普通聊天前端不访问 runtime config。
+- `GET /v1/runtime-config` 和 `PATCH /v1/runtime-config` 只负责非敏感热更新配置。
+- 受信任 `.env` 编辑器需要独立 Env Config Editor API，用于查看 redacted `.env` 摘要、字段 check、草稿 diff 和写回 `.env`。
+- `.env` 编辑器可以设置 secret 和 restart-required 字段，但响应只能返回 secret 状态，不能回显原文。
+- `.env` 编辑器中的“创建”表示创建 `.env` 配置草稿，不表示创建 provider、数据库或云端资源。
+- restart-required 字段保存后只写入 `.env`，需要重启服务才能完整生效。
+
 同时预留了基于后端大模型的 planner：
 
 - 配置入口：`AGENT_CONTEXT_PLANNER=model`。

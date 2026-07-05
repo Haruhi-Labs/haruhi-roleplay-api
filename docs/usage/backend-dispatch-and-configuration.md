@@ -174,7 +174,7 @@ uv run python -m haruhi_roleplay_api.infrastructure.http_server
 2. `.env` 文件中的值覆盖同名进程环境变量。
 3. `PATCH /v1/runtime-config` 写回 `.env`，并在当前进程内热重建 provider。
 
-`.env` 可以保存服务端密钥，例如 `ROLEPLAY_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。这些值不会通过 runtime config 查询接口返回，也不能通过前端热更新接口写入。
+`.env` 可以保存服务端密钥，例如 `ROLEPLAY_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。这些值不会通过 runtime config 查询接口返回，也不能通过 `PATCH /v1/runtime-config` 写入。后续全量 `.env` 编辑器可以提供 write-only secret 写入能力，但响应仍只能返回 set/empty/missing 状态。
 
 ### Runtime Config 热切换
 
@@ -219,6 +219,39 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 - `restart_required_keys`：可以展示给管理前端，但需要重启服务才能生效的有状态配置，例如 `SESSION_PROVIDER`、`SESSION_SQLITE_PATH`。
 
 `SESSION_PROVIDER` 不允许热切换。原因是 session store 是有状态资源，运行中从内存切到 SQLite/PostgreSQL 会让已有 session 的读写位置突然改变，容易造成会话丢失或跨库不一致。
+
+### 全量 `.env` 编辑器
+
+受信任 `.env` 编辑器不是 `PATCH /v1/runtime-config` 的可视化外壳。runtime config 只适合非敏感热更新；全量 `.env` 编辑器需要独立 Env Config Editor API 来处理 schema、redaction、字段 check、草稿 diff 和写回。
+
+推荐行为：
+
+1. 读取 `.env` 字段 schema。
+2. 读取当前 `.env` redacted snapshot。
+3. 按 HTTP、Model、RAG、Embedding、Agent、Backend Context、Session、Secrets 分组组织表单。
+4. 用户修改后先生成配置草稿和 diff preview。
+5. 用户可以对单字段执行 check。
+6. 保存前对整份候选配置执行 check。
+7. 后端写回 `.env`，返回 redacted snapshot、hot reload 结果和 restart-required 提示。
+
+编辑器中的“创建配置”表示创建一份待提交的 `.env` 配置草稿。当前不提供服务端命名 profile CRUD；如果未来要保存多套配置方案，应新增独立 profile API 和权限模型。
+
+边界：
+
+- 不让普通聊天用户打开 `.env` 编辑器。
+- 可以通过编辑器设置 `DATABASE_URL`、`REDIS_URL`、`*_API_KEY`、`TOKEN`、`SECRET` 或 `PASSWORD`，但响应和 UI 不能回显原文。
+- restart-required 字段可以写入 `.env`，但不能承诺运行中立即生效。
+- 不让面板绕过 Env Config Editor API 直接修改 `.env` 文件。
+- check 阶段默认不请求真实云服务，避免保存配置时产生额外费用或外部副作用。
+
+建议第一版 Env Config Editor API：
+
+| 接口                        | 作用                                                  |
+| --------------------------- | ----------------------------------------------------- |
+| `GET /v1/env-config/schema` | 返回字段 schema、类型、分组、secret、热更新和重启信息 |
+| `GET /v1/env-config`        | 返回当前 `.env` redacted snapshot                     |
+| `POST /v1/env-config/check` | 校验单字段或整份候选配置                              |
+| `PATCH /v1/env-config`      | 保存 `.env` 修改，并返回新摘要                        |
 
 ### Agent Context Planner
 
@@ -275,18 +308,18 @@ BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
 
 ### Session
 
-| 配置                 | 示例   | 说明                                                                        |
-| -------------------- | ------ | --------------------------------------------------------------------------- |
-| SESSION_PROVIDER     | memory | session provider；当前已实现 `memory` / `sqlite` / `postgres` |
-| SESSION_RECENT_LIMIT | 12     | 每次 chat 开启连续会话时，最多读取多少条最近 session message 进入 prompt    |
-| SESSION_TTL_SECONDS  | 604800 | session 过期时间                                                            |
-| SESSION_AUTO_CREATE_SCHEMA | true | SQLite / PostgreSQL 是否自动建表                                      |
-| SESSION_SQLITE_PATH | .data/sessions.sqlite3 | SQLite 文件路径，建议放在已忽略的 `.data/` 下                    |
-| SESSION_SQLITE_BUSY_TIMEOUT_MS | 5000 | SQLite busy timeout                                                   |
-| DATABASE_URL | postgresql://... | PostgreSQL 连接串，敏感配置，只能从服务端环境或 `.env` 读取 |
-| SESSION_POSTGRES_SCHEMA | public | PostgreSQL schema 名称 |
-| SESSION_POSTGRES_TABLE_PREFIX | roleplay_ | PostgreSQL session 表名前缀 |
-| SESSION_POSTGRES_POOL_SIZE | 5 | 预留连接池配置；当前 adapter 每次操作创建短连接 |
+| 配置                           | 示例                   | 说明                                                                     |
+| ------------------------------ | ---------------------- | ------------------------------------------------------------------------ |
+| SESSION_PROVIDER               | memory                 | session provider；当前已实现 `memory` / `sqlite` / `postgres`            |
+| SESSION_RECENT_LIMIT           | 12                     | 每次 chat 开启连续会话时，最多读取多少条最近 session message 进入 prompt |
+| SESSION_TTL_SECONDS            | 604800                 | session 过期时间                                                         |
+| SESSION_AUTO_CREATE_SCHEMA     | true                   | SQLite / PostgreSQL 是否自动建表                                         |
+| SESSION_SQLITE_PATH            | .data/sessions.sqlite3 | SQLite 文件路径，建议放在已忽略的 `.data/` 下                            |
+| SESSION_SQLITE_BUSY_TIMEOUT_MS | 5000                   | SQLite busy timeout                                                      |
+| DATABASE_URL                   | postgresql://...       | PostgreSQL 连接串，敏感配置，只能从服务端环境或 `.env` 读取              |
+| SESSION_POSTGRES_SCHEMA        | public                 | PostgreSQL schema 名称                                                   |
+| SESSION_POSTGRES_TABLE_PREFIX  | roleplay_              | PostgreSQL session 表名前缀                                              |
+| SESSION_POSTGRES_POOL_SIZE     | 5                      | 预留连接池配置；当前 adapter 每次操作创建短连接                          |
 
 当前实现状态：
 
@@ -324,11 +357,11 @@ BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
 
 ### Memory
 
-| 配置                 | 示例   | 说明                 |
-| -------------------- | ------ | -------------------- |
+| 配置                 | 示例   | 说明                                                            |
+| -------------------- | ------ | --------------------------------------------------------------- |
 | MEMORY_PROVIDER      | memory | memory provider；当前已实现 `memory`，持久化 adapter 为后续能力 |
-| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量     |
-| MEMORY_WRITE_ENABLED | true   | 是否允许显式候选写入 |
+| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量                                                |
+| MEMORY_WRITE_ENABLED | true   | 是否允许显式候选写入                                            |
 
 ### RAG
 

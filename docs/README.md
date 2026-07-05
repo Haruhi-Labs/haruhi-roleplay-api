@@ -24,10 +24,13 @@
 6. `usage/frontend-integration.md`
    前端接入从这里开始。
 
-7. `usage/interface-reference.md`
+7. `usage/config-panel.md`
+   查看受信任全量 `.env` 编辑器的使用边界和设计规则。
+
+8. `usage/interface-reference.md`
    查看更完整的接口字段说明。
 
-8. `devlog.md`
+9. `devlog.md`
    查看开发记录。
 
 ## 目录说明

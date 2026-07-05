@@ -383,14 +383,16 @@ session 相关配置当前分两类：
 
 `DATABASE_URL` 是敏感连接串，不会出现在 `values`、`configurable_keys` 或 `restart_required_keys` 中，也不能通过 PATCH 写入。需要 PostgreSQL session store 时，应由服务端 `.env` 或部署平台 secret 注入。
 
+受信任 `.env` 编辑器不应复用 `PATCH /v1/runtime-config` 来写全量 `.env`。runtime config 仍只负责非敏感热更新；全量 `.env` 编辑、secret 写入、restart-required 字段保存和字段 check 应走独立 Env Config Editor API。完整设计见 `docs/usage/config-panel.md`。
+
 `SESSION_RECENT_LIMIT` 只控制连续会话请求读取多少条最近 session message 进入 prompt，不控制 session 总保存数量，也不是长期 memory 读取数量。当前实现没有 session summary 或 `memory.md` 式滚动会话笔记；长对话摘要属于后续优化，应作为独立 session summary 能力接入，而不是复用 `MemoryStore`。
 
 当前 `SESSION_PROVIDER` 支持：
 
-| 值 | 状态 | 说明 |
-| --- | --- | --- |
-| memory | 已实现 | 进程内 session，适合测试和临时本地运行 |
-| sqlite | 已实现 | 本地 SQLite session 持久化，使用 `SESSION_SQLITE_PATH` |
+| 值       | 状态   | 说明                                                                         |
+| -------- | ------ | ---------------------------------------------------------------------------- |
+| memory   | 已实现 | 进程内 session，适合测试和临时本地运行                                       |
+| sqlite   | 已实现 | 本地 SQLite session 持久化，使用 `SESSION_SQLITE_PATH`                       |
 | postgres | 已实现 | 云端 PostgreSQL session 持久化，要求 `DATABASE_URL` 和可选运行依赖 `psycopg` |
 
 ## Runtime Config: PATCH /v1/runtime-config
@@ -424,18 +426,44 @@ session 相关配置当前分两类：
 
 `AGENT_CONTEXT_PLANNER=model` 当前只是预留入口。它可以通过 runtime config 设置，但真实模型辅助 planner 未实现；设置后 chat 会返回 `MODEL_PROVIDER_ERROR`，直到后续补齐 planner prompt、结构化输出解析和安全校验。
 
+## Env Config Editor: Planned
+
+用途：提供受信任 `.env` 编辑器所需的 schema、redacted snapshot、字段 check 和保存能力。当前为规划接口，尚未实现。
+
+| Endpoint                    | 用途                                                |
+| --------------------------- | --------------------------------------------------- |
+| `GET /v1/env-config/schema` | 返回 `.env` 字段 schema                             |
+| `GET /v1/env-config`        | 返回当前 `.env` redacted 摘要                       |
+| `POST /v1/env-config/check` | 校验单字段或整份候选配置                            |
+| `PATCH /v1/env-config`      | 保存 `.env` 修改，返回 redacted snapshot 和生效提示 |
+
+### schema 字段
+
+| 字段             | 说明                                                                   |
+| ---------------- | ---------------------------------------------------------------------- |
+| key              | 配置 key                                                               |
+| group            | UI 分组                                                                |
+| type             | `string`、`int`、`float`、`bool`、`enum`、`json`、`url`、`path`、`csv` |
+| secret           | 是否为敏感字段                                                         |
+| hot_reload       | 是否可在当前进程热更新                                                 |
+| restart_required | 是否需要重启服务完整生效                                               |
+| allowed_values   | enum 可选值                                                            |
+| dependencies     | 依赖字段说明                                                           |
+
+secret 字段在 `GET /v1/env-config` 响应中只返回 `set`、`empty` 或 `missing` 状态，不返回原文。
+
 ## 错误响应
 
-| error.code             | 说明                |
-| ---------------------- | ------------------- |
-| VALIDATION_ERROR       | 参数错误            |
-| AUTH_INVALID_API_KEY   | API Key 无效        |
-| AUTH_PERMISSION_DENIED | 权限不足            |
-| PERSONA_MODE_NOT_FOUND | persona mode 不存在 |
-| SESSION_NOT_FOUND      | session 不存在      |
+| error.code             | 说明                  |
+| ---------------------- | --------------------- |
+| VALIDATION_ERROR       | 参数错误              |
+| AUTH_INVALID_API_KEY   | API Key 无效          |
+| AUTH_PERMISSION_DENIED | 权限不足              |
+| PERSONA_MODE_NOT_FOUND | persona mode 不存在   |
+| SESSION_NOT_FOUND      | session 不存在        |
 | SESSION_PROVIDER_ERROR | session provider 失败 |
-| RAG_PROVIDER_ERROR     | RAG provider 失败   |
-| MODEL_PROVIDER_ERROR   | 模型 provider 失败  |
-| MEMORY_NOT_FOUND       | 记忆不存在          |
-| SAFETY_BLOCKED         | 安全策略阻断        |
-| PERSONA_NOT_FOUND      | 角色不存在          |
+| RAG_PROVIDER_ERROR     | RAG provider 失败     |
+| MODEL_PROVIDER_ERROR   | 模型 provider 失败    |
+| MEMORY_NOT_FOUND       | 记忆不存在            |
+| SAFETY_BLOCKED         | 安全策略阻断          |
+| PERSONA_NOT_FOUND      | 角色不存在            |

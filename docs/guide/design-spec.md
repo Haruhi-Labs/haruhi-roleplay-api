@@ -17,6 +17,7 @@
 9. HTTP 运行层只负责协议和响应格式，不写业务编排。
 10. Agent 只能通过白名单 port 调度上下文，不能直接拼 URL、SQL 或 provider 参数。
 11. 前端 demo 只验证接入体验，不承担业务后端、安全策略或 provider 配置职责。
+12. 全量 `.env` 编辑器是受信任管理 UI，必须与普通聊天 UI 分离。
 
 ## 推荐分层
 
@@ -158,3 +159,17 @@
 - 可以展示开发者 debug 面板，但默认折叠。
 - 不在前端保存 API key。
 - 优先使用项目内约定的 Haruhi UI 风格；如果引入外部框架，只能作为 demo 工程依赖，不能反向污染 API 核心层。
+
+## `.env` 编辑器规范
+
+- `.env` 编辑器只能出现在本地 demo 或受信任后台入口。
+- `.env` 编辑器必须调用 Env Config Editor API，不能让前端直接读写本地文件。
+- 编辑器应覆盖 `.env.example`、runtime config、provider factory 和 store factory 中的已知配置字段。
+- 所有字段必须有 schema：type、group、default、required、secret、hotReload、restartRequired、dependencies。
+- `DATABASE_URL`、`REDIS_URL`、`*_API_KEY`、`TOKEN`、`SECRET`、`PASSWORD` 可以设置新值，但保存后不能回显原文。
+- restart-required 字段可以写入 `.env`，但必须明确提示需要重启服务。
+- 创建配置时先生成草稿、字段 check 和 diff preview，再提交保存。
+- check 必须覆盖字段类型、枚举、JSON、URL、路径、依赖关系和当前未实现能力风险。
+- provider、RAG、embedding、agent、backend context、session 参数必须分组展示。
+- `AGENT_CONTEXT_PLANNER=model` 只能显示为预留状态，不能作为可用推荐项。
+- 普通聊天用户不能看到 provider、数据库、向量库或密钥相关配置。
