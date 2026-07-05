@@ -30,6 +30,7 @@ from haruhi_roleplay_api.infrastructure.models import (
 from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     build_rag_service_from_env,
 )
+from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -68,6 +69,7 @@ class RoleplayHttpRuntime:
         session_store: InMemorySessionStore,
         memory_store: InMemoryMemoryStore,
         rag_service: object,
+        runtime_config_store: RuntimeConfigStore,
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
     ) -> None:
@@ -77,21 +79,49 @@ class RoleplayHttpRuntime:
         self._session_store = session_store
         self._memory_store = memory_store
         self._rag_service = rag_service
+        self._runtime_config_store = runtime_config_store
         self._api_key = api_key
         self._debug_trace_enabled = debug_trace_enabled
 
     @classmethod
-    def local(cls, *, project_root: Path, env: Mapping[str, str]) -> "RoleplayHttpRuntime":
-        settings = HttpRuntimeSettings.from_env(env)
+    def local(
+        cls,
+        *,
+        project_root: Path,
+        env: Mapping[str, str],
+        runtime_config_store: RuntimeConfigStore | None = None,
+    ) -> "RoleplayHttpRuntime":
+        config_store = runtime_config_store or RuntimeConfigStore.in_memory(env)
+        runtime_env = config_store.env()
+        settings = HttpRuntimeSettings.from_env(runtime_env)
         return cls(
             persona_repository=LocalPersonaRepository(project_root / "personas"),
             prompt_builder=PersonaPromptBuilder(),
-            model_router=build_model_router(ModelProviderSettings.from_mapping(env)),
+            model_router=build_model_router(
+                ModelProviderSettings.from_mapping(runtime_env)
+            ),
             session_store=InMemorySessionStore(),
             memory_store=InMemoryMemoryStore(),
-            rag_service=build_rag_service_from_env(env),
+            rag_service=build_rag_service_from_env(runtime_env),
+            runtime_config_store=config_store,
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
+        )
+
+    @classmethod
+    def from_env_file(
+        cls,
+        *,
+        project_root: Path,
+        env: Mapping[str, str],
+    ) -> "RoleplayHttpRuntime":
+        return cls.local(
+            project_root=project_root,
+            env=env,
+            runtime_config_store=RuntimeConfigStore.env_file(
+                project_root=project_root,
+                env=env,
+            ),
         )
 
     def handle(
@@ -133,6 +163,8 @@ class RoleplayHttpRuntime:
             return _json_response(
                 get_personas(self._persona_repository, request_id),
             )
+        if path_parts == ["v1", "runtime-config"]:
+            return self._runtime_config(method, json_body, headers, request_id)
         if method == "POST" and path_parts == ["v1", "sessions"]:
             return _json_response(
                 post_session(
@@ -239,6 +271,71 @@ class RoleplayHttpRuntime:
             body=_sse_body(events),
         )
 
+    def _runtime_config(
+        self,
+        method: str,
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        request_id: str,
+    ) -> HttpRuntimeResponse:
+        if not self._is_config_authorized(headers):
+            return _json_response(
+                error_response(
+                    AppError(
+                        code=ErrorCode.AUTH_PERMISSION_DENIED,
+                        message=(
+                            "Runtime config API requires ROLEPLAY_API_KEY."
+                        ),
+                    ),
+                    request_id,
+                )
+            )
+        if method == "GET":
+            return _json_response(
+                {
+                    "ok": True,
+                    "data": self._runtime_config_store.public_snapshot(),
+                    "request_id": request_id,
+                }
+            )
+        if method == "PATCH":
+            try:
+                update = self._runtime_config_store.parse_update(body)
+                candidate_env = self._runtime_config_store.candidate_env(update)
+                model_router = build_model_router(
+                    ModelProviderSettings.from_mapping(candidate_env)
+                )
+                rag_service = build_rag_service_from_env(candidate_env)
+                settings = HttpRuntimeSettings.from_env(candidate_env)
+                applied_keys = self._runtime_config_store.commit(update)
+                self._model_router = model_router
+                self._rag_service = rag_service
+                self._api_key = settings.api_key
+                self._debug_trace_enabled = settings.debug_trace_enabled
+            except Exception as exc:
+                return _json_response(error_response(exc, request_id))
+            return _json_response(
+                {
+                    "ok": True,
+                    "data": {
+                        "applied_keys": list(applied_keys),
+                        "config": self._runtime_config_store.public_snapshot(),
+                    },
+                    "request_id": request_id,
+                }
+            )
+        return _json_response(
+            {
+                "ok": False,
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Route was not found.",
+                },
+                "request_id": request_id,
+            },
+            status=404,
+        )
+
     def _is_authorized(self, headers: Mapping[str, str]) -> bool:
         if not self._api_key:
             return True
@@ -246,9 +343,14 @@ class RoleplayHttpRuntime:
         api_key = headers.get("x-api-key", "")
         return authorization == f"Bearer {self._api_key}" or api_key == self._api_key
 
+    def _is_config_authorized(self, headers: Mapping[str, str]) -> bool:
+        if not self._api_key:
+            return False
+        return self._is_authorized(headers)
+
 
 def create_local_runtime(env: Mapping[str, str]) -> RoleplayHttpRuntime:
-    return RoleplayHttpRuntime.local(project_root=_project_root(), env=env)
+    return RoleplayHttpRuntime.from_env_file(project_root=_project_root(), env=env)
 
 
 def _project_root() -> Path:
@@ -319,7 +421,7 @@ def _base_headers() -> dict[str, str]:
     return {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Authorization, Content-Type, X-API-Key, X-Request-Id",
-        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
     }
 
 

@@ -491,3 +491,40 @@
 ### 下一步
 
 - 继续实现 `08.01.agent-context-plan.md`。
+
+## 2026-07-05：Ollama + Chroma 手动 Smoke 入口
+
+### 完成
+
+- 新增 `scripts/local_ollama_chroma_smoke.py`，用于手动验证本机 Ollama + Chroma 完整链路。
+- smoke 入口会检查 `chromadb`、Ollama tags、chat 模型和 embedding 模型。
+- smoke 入口通过 `RoleplayHttpRuntime` 顺序调用 health、personas、RAG ingest、RAG search 和 chat。
+- 文档补充 `uv run --with chromadb python scripts/local_ollama_chroma_smoke.py` 运行方式。
+
+### 验证
+
+- `uv run --with chromadb python scripts/local_ollama_chroma_smoke.py` 通过，确认 Ollama chat、Ollama embedding、Chroma 检索和 RAG chat 回复完整跑通。
+
+### 下一步
+
+- 继续实现 `08.01.agent-context-plan.md`。
+
+## 2026-07-05：`.env` Runtime Config 热切换
+
+### 完成
+
+- 新增 `.env` runtime config store，HTTP server 默认读取项目根目录 `.env`，也支持 `ROLEPLAY_CONFIG_FILE` 指定路径。
+- 新增 `.env.example` 本地模板，保留 fake model + local RAG 的安全默认配置，并给出 Ollama / Chroma 注释示例。
+- 新增 `GET /v1/runtime-config`，返回当前非敏感配置摘要。
+- 新增 `PATCH /v1/runtime-config`，允许受信任管理前端热更新白名单内后端配置。
+- 热更新会先用候选配置重建 model router 和 RAG service，成功后才写回 `.env`。
+- 配置接口要求 `ROLEPLAY_API_KEY`，并拒绝 `API_KEY`、`TOKEN`、`SECRET` 等敏感 key。
+- 更新接口文档、前端接入说明和后端调度配置说明。
+
+### 验证
+
+- `uv run python -m unittest tests.test_http_runtime_adapter` 通过。
+
+### 下一步
+
+- 继续实现 `08.01.agent-context-plan.md`。

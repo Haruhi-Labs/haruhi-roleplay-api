@@ -354,12 +354,53 @@ item 字段：
 
 上下文不匹配或记忆不存在时返回 `MEMORY_NOT_FOUND`。当前删除是手动管理能力；chat 只会在 `capabilities.memory=true` 时读取有限记忆，并只写入通过 policy 的显式候选。
 
+## Runtime Config: GET /v1/runtime-config
+
+用途：读取当前运行时后端配置摘要，供受信任的管理前端或后台面板展示。
+
+该接口要求服务端配置 `ROLEPLAY_API_KEY`，并且请求携带 `Authorization: Bearer <key>` 或 `X-API-Key`。普通用户前端不应该调用该接口。
+
+### 响应 data
+
+| 字段 | 说明 |
+| --- | --- |
+| source | 配置来源，默认是项目根目录 `.env`，测试中可为 `memory` |
+| persists_updates | 是否会把 PATCH 写回配置文件 |
+| configurable_keys | 允许热更新的 key 列表 |
+| values | 当前非敏感配置摘要 |
+
+`MODEL_PROVIDER_REGISTRY` 不会原样返回，只返回 provider type、alias 和默认 alias 摘要，避免把连接信息或误写入的敏感内容暴露给前端。
+
+## Runtime Config: PATCH /v1/runtime-config
+
+用途：热更新允许的后端配置，并在不重启服务的情况下重建 model router 和 RAG service。
+
+该接口同样要求 `ROLEPLAY_API_KEY`。只允许更新非敏感配置；`API_KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`DATABASE_URL`、`REDIS_URL` 等敏感 key 会被拒绝。云端密钥应放在服务端环境变量或 `.env` 中，并通过 `*_API_KEY_ENV` 间接引用。
+
+### 请求参数
+
+```json
+{
+  "values": {
+    "MODEL_PROVIDER": "fake",
+    "MODEL_NAME": "fake-roleplay-model",
+    "MODEL_ALIAS": "fake-roleplay-model",
+    "RAG_PROVIDER": "local"
+  }
+}
+```
+
+字段值传 `null` 表示从 `.env` 托管配置中移除该 key。移除只影响 `.env` 中的覆盖值，不能删除进程启动时已经存在的系统环境变量。
+
+服务端会先用候选配置构建 model router 和 RAG service；如果构建失败，不会写回 `.env`，当前运行配置也不会改变。
+
 ## 错误响应
 
 | error.code | 说明 |
 | --- | --- |
 | VALIDATION_ERROR | 参数错误 |
 | AUTH_INVALID_API_KEY | API Key 无效 |
+| AUTH_PERMISSION_DENIED | 权限不足 |
 | PERSONA_MODE_NOT_FOUND | persona mode 不存在 |
 | SESSION_NOT_FOUND | session 不存在 |
 | RAG_PROVIDER_ERROR | RAG provider 失败 |

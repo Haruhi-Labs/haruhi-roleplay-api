@@ -22,6 +22,7 @@ from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     build_rag_service,
     build_rag_service_from_env,
 )
+from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
 
 __all__ = [
     "EmbeddingProviderSettings",
@@ -32,6 +33,7 @@ __all__ = [
     "ModelProviderSettings",
     "RagProviderSettings",
     "RoleplayHttpRuntime",
+    "RuntimeConfigStore",
     "build_embedding_provider",
     "build_embedding_provider_from_env",
     "build_model_router",

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import ClassVar
 
 from haruhi_roleplay_api.infrastructure.http_runtime import (
     HttpRuntimeResponse,
     HttpRuntimeSettings,
-    create_local_runtime,
+    RoleplayHttpRuntime,
 )
+from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
 
 
 class RoleplayRequestHandler(BaseHTTPRequestHandler):
@@ -24,6 +26,9 @@ class RoleplayRequestHandler(BaseHTTPRequestHandler):
         self._handle_request()
 
     def do_POST(self) -> None:
+        self._handle_request()
+
+    def do_PATCH(self) -> None:
         self._handle_request()
 
     def do_DELETE(self) -> None:
@@ -55,9 +60,18 @@ class RoleplayRequestHandler(BaseHTTPRequestHandler):
 
 
 def run_server(settings: HttpRuntimeSettings | None = None) -> None:
-    runtime_settings = settings or HttpRuntimeSettings.from_env(os.environ)
-    runtime_env = _runtime_env(runtime_settings)
-    RoleplayRequestHandler.runtime = create_local_runtime(runtime_env)
+    project_root = _project_root()
+    env = dict(os.environ)
+    if settings is not None:
+        env.update(_settings_env(settings))
+    config_store = RuntimeConfigStore.env_file(project_root=project_root, env=env)
+    runtime_env = config_store.env()
+    runtime_settings = settings or HttpRuntimeSettings.from_env(runtime_env)
+    RoleplayRequestHandler.runtime = RoleplayHttpRuntime.local(
+        project_root=project_root,
+        env=env,
+        runtime_config_store=config_store,
+    )
     server = ThreadingHTTPServer(
         (runtime_settings.host, runtime_settings.port),
         RoleplayRequestHandler,
@@ -78,8 +92,12 @@ def _headers(handler: BaseHTTPRequestHandler) -> dict[str, str]:
     return {key.lower(): value for key, value in handler.headers.items()}
 
 
-def _runtime_env(settings: HttpRuntimeSettings) -> dict[str, str]:
-    env = dict(os.environ)
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _settings_env(settings: HttpRuntimeSettings) -> dict[str, str]:
+    env: dict[str, str] = {}
     env["ROLEPLAY_HOST"] = settings.host
     env["ROLEPLAY_PORT"] = str(settings.port)
     env["ENABLE_DEBUG_TRACE"] = "true" if settings.debug_trace_enabled else "false"

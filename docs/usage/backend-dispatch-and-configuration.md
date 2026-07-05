@@ -135,6 +135,78 @@ Provider Pack 是一组后端实现绑定。
 
 `ENABLE_DEBUG_TRACE=false` 时，后端装配 API handler 应传入 `debug_trace_enabled=false`。该配置优先级高于请求中的 `capabilities.debug_trace=true`，用于生产环境统一关闭 debug 返回。
 
+### `.env` 配置文件
+
+本地 HTTP server 启动时会读取项目根目录 `.env`，也可以用 `ROLEPLAY_CONFIG_FILE` 指向其它 `.env` 文件。
+
+仓库提供 `.env.example` 作为本地模板。复制后再填写本地密钥：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+最小示例：
+
+```env
+ROLEPLAY_API_KEY=dev-secret
+MODEL_PROVIDER=fake
+MODEL_NAME=fake-roleplay-model
+MODEL_ALIAS=fake-roleplay-model
+RAG_PROVIDER=local
+ENABLE_DEBUG_TRACE=true
+```
+
+启动：
+
+```powershell
+uv run python -m haruhi_roleplay_api.infrastructure.http_server
+```
+
+读取顺序：
+
+1. 进程环境变量。
+2. `.env` 文件中的值覆盖同名进程环境变量。
+3. `PATCH /v1/runtime-config` 写回 `.env`，并在当前进程内热重建 provider。
+
+`.env` 可以保存服务端密钥，例如 `ROLEPLAY_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。这些值不会通过 runtime config 查询接口返回，也不能通过前端热更新接口写入。
+
+### Runtime Config 热切换
+
+受信任的管理前端或后台面板可以调用：
+
+```text
+GET /v1/runtime-config
+PATCH /v1/runtime-config
+```
+
+这两个接口要求服务端设置 `ROLEPLAY_API_KEY`，并且请求携带 `Authorization: Bearer <key>` 或 `X-API-Key`。
+
+示例：
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
+  -H "Authorization: Bearer dev-secret" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "values": {
+      "MODEL_PROVIDER": "fake",
+      "MODEL_NAME": "fake-roleplay-model",
+      "MODEL_ALIAS": "fake-roleplay-model",
+      "RAG_PROVIDER": "local"
+    }
+  }'
+```
+
+热切换会做三件事：
+
+1. 校验 key 是否在白名单中，拒绝 `API_KEY`、`TOKEN`、`SECRET`、`PASSWORD`、`DATABASE_URL`、`REDIS_URL` 等敏感配置。
+2. 用候选配置先构建新的 model router 和 RAG service。
+3. 构建成功后写回 `.env`，并替换当前进程内 provider。
+
+如果候选配置失败，例如切到 `RAG_PROVIDER=qdrant` 但没有 `QDRANT_URL`，服务会返回错误，不会写回 `.env`，也不会影响当前可用配置。
+
+当前热切换会保留进程内 session store 和 memory store；model router、RAG service、debug trace 开关会按新配置更新。切换 RAG provider 后，非持久化本地向量数据不会自动迁移。
+
 ### Persona
 
 | 配置               | 示例       | 说明                  |
@@ -477,6 +549,46 @@ $env:OPENAI_API_KEY="..."
 ```
 
 Chroma/Faiss 是可选本地库支持，不进入默认依赖。需要使用时先在本地环境安装对应包，再设置 `RAG_PROVIDER=chroma` 或 `RAG_PROVIDER=faiss`。
+
+### Ollama + Chroma 手动体验入口
+
+当前仓库提供一个最小手动 smoke 脚本，用于验证本机 `Ollama chat model + Ollama embedding + Chroma vector store + HTTP runtime` 的完整链路。该脚本不进入默认 CI，也不要求把 `chromadb` 写入默认依赖。
+
+前置条件：
+
+```powershell
+ollama serve
+ollama pull qwen2.5:7b
+ollama pull nomic-embed-text
+```
+
+运行：
+
+```powershell
+uv run --with chromadb python scripts/local_ollama_chroma_smoke.py
+```
+
+脚本会按顺序执行：
+
+1. 检查 `chromadb` 是否可用。
+2. 检查 Ollama 是否可访问，以及 chat / embedding 模型是否存在。
+3. 通过 `RoleplayHttpRuntime` 调用 `GET /health`。
+4. 调用 `GET /v1/personas` 读取角色 catalog。
+5. 调用 `POST /v1/rag/documents` 写入一段本地资料。
+6. 使用 Ollama embedding 写入 Chroma。
+7. 调用 `POST /v1/rag/search` 从 Chroma 检索 source。
+8. 调用 `POST /v1/chat`，启用 RAG，最终由 Ollama 生成角色回复。
+
+可选覆盖项：
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| SMOKE_OLLAMA_BASE_URL | http://localhost:11434 | Ollama 原生 API 地址，用于 `/api/tags` 预检 |
+| SMOKE_OLLAMA_OPENAI_BASE_URL | http://localhost:11434/v1 | Ollama OpenAI-compatible 地址 |
+| SMOKE_CHAT_MODEL | qwen2.5:7b | chat 模型 |
+| SMOKE_EMBEDDING_MODEL | nomic-embed-text:latest | embedding 模型 |
+| SMOKE_EMBEDDING_DIMENSIONS | 768 | embedding 维度 |
+| SMOKE_CHROMA_COLLECTION | haruhi_manual_smoke | Chroma collection 名称 |
 
 ## Memory 调度
 

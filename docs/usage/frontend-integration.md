@@ -140,3 +140,34 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 - RAG 文档物理存储位置
 
 这些调度由本项目根据配置完成，详见 [中转服务后端调度与配置说明](backend-dispatch-and-configuration.md)。
+
+## 管理前端：运行时配置
+
+普通聊天前端不应该直接修改 provider 配置。若需要做本地管理面板或开发调试面板，可以调用：
+
+- `GET /v1/runtime-config`
+- `PATCH /v1/runtime-config`
+
+这两个接口必须带 `Authorization: Bearer <ROLEPLAY_API_KEY>` 或 `X-API-Key`。管理前端只能修改服务端白名单允许的非敏感配置，例如 `MODEL_PROVIDER`、`MODEL_NAME`、`MODEL_ALIAS`、`RAG_PROVIDER`、`EMBEDDING_PROVIDER`、`CHROMA_COLLECTION` 等。
+
+示例：
+
+```ts
+await fetch(`${baseUrl}/v1/runtime-config`, {
+  method: "PATCH",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${adminApiKey}`,
+  },
+  body: JSON.stringify({
+    values: {
+      MODEL_PROVIDER: "fake",
+      MODEL_NAME: "fake-roleplay-model",
+      MODEL_ALIAS: "fake-roleplay-model",
+      RAG_PROVIDER: "local",
+    },
+  }),
+});
+```
+
+密钥类配置不要从前端提交，例如 `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。云端 provider 应通过服务端 `.env` 中的 secret 和 `*_API_KEY_ENV` 间接引用。
