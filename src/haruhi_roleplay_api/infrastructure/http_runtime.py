@@ -11,7 +11,6 @@ from uuid import uuid4
 
 from haruhi_roleplay_api.adapters import (
     InMemoryMemoryStore,
-    InMemorySessionStore,
     LocalPersonaRepository,
 )
 from haruhi_roleplay_api.api.chat import post_chat, post_chat_stream
@@ -37,7 +36,11 @@ from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     build_rag_service_from_env,
 )
 from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
-from haruhi_roleplay_api.ports import AgentContextPlanner
+from haruhi_roleplay_api.infrastructure.session_store_factory import (
+    SessionStoreSettings,
+    build_session_store,
+)
+from haruhi_roleplay_api.ports import AgentContextPlanner, SessionStore
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -73,7 +76,8 @@ class RoleplayHttpRuntime:
         persona_repository: LocalPersonaRepository,
         prompt_builder: PersonaPromptBuilder,
         model_router: object,
-        session_store: InMemorySessionStore,
+        session_store: SessionStore,
+        session_recent_limit: int,
         memory_store: InMemoryMemoryStore,
         rag_service: object,
         backend_context_provider: object | None,
@@ -86,6 +90,7 @@ class RoleplayHttpRuntime:
         self._prompt_builder = prompt_builder
         self._model_router = model_router
         self._session_store = session_store
+        self._session_recent_limit = session_recent_limit
         self._memory_store = memory_store
         self._rag_service = rag_service
         self._backend_context_provider = backend_context_provider
@@ -105,13 +110,15 @@ class RoleplayHttpRuntime:
         config_store = runtime_config_store or RuntimeConfigStore.in_memory(env)
         runtime_env = config_store.env()
         settings = HttpRuntimeSettings.from_env(runtime_env)
+        session_settings = SessionStoreSettings.from_mapping(runtime_env)
         return cls(
             persona_repository=LocalPersonaRepository(project_root / "personas"),
             prompt_builder=PersonaPromptBuilder(),
             model_router=build_model_router(
                 ModelProviderSettings.from_mapping(runtime_env)
             ),
-            session_store=InMemorySessionStore(),
+            session_store=build_session_store(session_settings),
+            session_recent_limit=session_settings.recentMessageLimit,
             memory_store=InMemoryMemoryStore(),
             rag_service=build_rag_service_from_env(runtime_env),
             backend_context_provider=build_backend_context_provider_from_env(
@@ -200,6 +207,7 @@ class RoleplayHttpRuntime:
                     rag_service=self._rag_service,
                     backend_context_provider=self._backend_context_provider,
                     agent_context_planner=self._agent_context_planner,
+                    recent_message_limit=self._session_recent_limit,
                     request_id=request_id,
                     debug_trace_enabled=self._debug_trace_enabled,
                 )
@@ -273,6 +281,7 @@ class RoleplayHttpRuntime:
             rag_service=self._rag_service,
             backend_context_provider=self._backend_context_provider,
             agent_context_planner=self._agent_context_planner,
+            recent_message_limit=self._session_recent_limit,
             request_id=request_id,
             debug_trace_enabled=self._debug_trace_enabled,
         )
@@ -331,12 +340,14 @@ class RoleplayHttpRuntime:
                 agent_context_planner = build_agent_context_planner_from_env(
                     candidate_env
                 )
+                session_settings = SessionStoreSettings.from_mapping(candidate_env)
                 settings = HttpRuntimeSettings.from_env(candidate_env)
                 applied_keys = self._runtime_config_store.commit(update)
                 self._model_router = model_router
                 self._rag_service = rag_service
                 self._backend_context_provider = backend_context_provider
                 self._agent_context_planner = agent_context_planner
+                self._session_recent_limit = session_settings.recentMessageLimit
                 self._api_key = settings.api_key
                 self._debug_trace_enabled = settings.debug_trace_enabled
             except Exception as exc:

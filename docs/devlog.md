@@ -572,4 +572,74 @@
 
 ### 下一步
 
-- 继续实现真实业务后端 adapter 或进入 `08.03.frontend-demo.md`。
+- 继续实现真实业务后端 adapter 或进入 `08.03.session-persistence-adapters.md`。
+
+## 2026-07-05：Session Store Factory
+
+### 完成
+
+- 新增 `SessionStoreSettings` 和 `build_session_store_from_env`。
+- HTTP runtime 改为通过 session store factory 装配 session store，默认仍使用 `InMemorySessionStore`。
+- 新增 `SESSION_PROVIDER`、`SESSION_RECENT_LIMIT`、`SESSION_TTL_SECONDS` 等 `.env.example` 配置入口。
+- `SESSION_RECENT_LIMIT` 已接入 chat 编排，可通过 runtime config 热更新。
+- runtime config 新增 `restart_required_keys`，用于展示 `SESSION_PROVIDER`、`SESSION_SQLITE_PATH` 等需要重启后生效的配置。
+- 当时记录 `postgres` session provider 尚待补齐；本分支后续已在 PostgreSQL Session Store 中实现。
+
+### 验证
+
+- `uv run python -m unittest tests.test_session_store_factory tests.test_http_runtime_adapter tests.test_continuous_session_v1` 通过。
+
+### 下一步
+
+- 后续已实现 `08.03.02 SQLite Session Store`，让本地 session 在服务重启后仍可读取。
+
+## 2026-07-05：Session Recent Limit 文档澄清
+
+### 完成
+
+- 补充 `SESSION_RECENT_LIMIT` 的字段含义：只控制连续会话读取最近 session message 的数量。
+- 明确它不限制 session 总保存数量，也不是 memory 读取数量或数据库分页参数。
+- 补充说明当前不做 `memory.md` 式滚动摘要的原因：MVP 优先保留可审核、可回放的原始 recent messages。
+- 记录未来可优化方向：单独增加 `SessionSummaryStore` 或 `SessionCompactor`，把旧消息压缩成 session summary。
+
+### 验证
+
+- 使用 `rg` 检查 `SESSION_RECENT_LIMIT`、`SessionSummaryStore`、`SessionCompactor` 和 `memory.md` 文档位置。
+
+## 2026-07-05：SQLite Session Store
+
+### 完成
+
+- 新增 `SQLiteSessionStore`，使用标准库 `sqlite3` 实现本地 session 持久化。
+- SQLite schema 包含 `sessions` 和 `session_messages`，支持 session 创建、读取、recent messages 和消息追加。
+- `SESSION_PROVIDER=sqlite` 已接入 session store factory。
+- `.gitignore` 新增 `.data/`，避免默认 SQLite 数据库文件误提交。
+- `.env.example` 补充 SQLite session persistence 示例。
+- HTTP runtime 可通过同一个 SQLite 文件跨 runtime 实例读取已有 session 历史。
+
+### 验证
+
+- `uv run python -m unittest tests.test_sqlite_session_store tests.test_session_store_factory tests.test_http_runtime_adapter tests.test_continuous_session_v1` 通过。
+
+### 下一步
+
+- 继续实现 `08.03.03 PostgreSQL Session Store`，为云端部署提供 session 持久化 adapter。
+
+## 2026-07-05：PostgreSQL Session Store
+
+### 完成
+
+- 新增 `PostgresSessionStore`，通过可选 `psycopg` v3 支持云端 session 持久化。
+- `SESSION_PROVIDER=postgres` 已接入 session store factory。
+- PostgreSQL schema 包含 session 表、message 表和基础索引，支持自动建表和已有 schema 校验。
+- 缺少 `DATABASE_URL` 会返回稳定配置错误；provider 异常会转换为 `SESSION_PROVIDER_ERROR`。
+- `.env.example`、架构文档、接口文档和后端调度文档补充 PostgreSQL 配置说明。
+- 明确 `DATABASE_URL` 不进入 runtime config public snapshot，也不能通过前端 PATCH 写入。
+
+### 验证
+
+- `uv run python -m unittest tests.test_postgres_session_store tests.test_session_store_factory` 通过。
+
+### 下一步
+
+- 继续验证完整测试集，并在后续卡片中考虑真实 PostgreSQL smoke 或连接池能力。

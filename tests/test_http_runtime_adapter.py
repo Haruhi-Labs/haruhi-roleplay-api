@@ -39,10 +39,18 @@ def auth_headers() -> dict[str, str]:
     }
 
 
-def chat_body(*, rag: bool = False, stream: bool = False) -> dict:
+def chat_body(
+    *,
+    rag: bool = False,
+    stream: bool = False,
+    session_id: str | None = None,
+    continuous_session: bool = False,
+    user_id: str = "user-1",
+) -> dict:
     return {
         "app_id": "web",
-        "user_id": "user-1",
+        "user_id": user_id,
+        "session_id": session_id,
         "character_id": "haruhi",
         "persona_mode": "mid_late_haruhi",
         "message": "社团 活动 怎么安排？",
@@ -50,7 +58,7 @@ def chat_body(*, rag: bool = False, stream: bool = False) -> dict:
         "capabilities": {
             "rag": rag,
             "memory": False,
-            "continuous_session": False,
+            "continuous_session": continuous_session,
             "safety_filter": True,
             "debug_trace": True,
             "stream": stream,
@@ -73,6 +81,15 @@ def rag_document_body() -> dict:
         "spoiler_level": 2,
         "language": "zh-CN",
         "content": "社团 活动 计划：春日会主动安排调查和招募。",
+    }
+
+
+def session_body() -> dict:
+    return {
+        "app_id": "web",
+        "user_id": "user-1",
+        "character_id": "haruhi",
+        "persona_mode": "mid_late_haruhi",
     }
 
 
@@ -268,6 +285,29 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         self.assertNotIn("ROLEPLAY_API_KEY", values)
         self.assertNotIn("OPENAI_API_KEY", values)
 
+    def test_runtime_config_snapshot_includes_session_config_boundary(self) -> None:
+        app = runtime(
+            {
+                "ROLEPLAY_API_KEY": "secret",
+                "SESSION_PROVIDER": "memory",
+                "SESSION_RECENT_LIMIT": "4",
+                "SESSION_SQLITE_PATH": ".data/sessions.sqlite3",
+            }
+        )
+
+        response = app.handle(
+            method="GET",
+            target="/v1/runtime-config",
+            headers=auth_headers(),
+        )
+        body = json_response(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(body["data"]["values"]["SESSION_PROVIDER"], "memory")
+        self.assertEqual(body["data"]["values"]["SESSION_RECENT_LIMIT"], "4")
+        self.assertIn("SESSION_RECENT_LIMIT", body["data"]["configurable_keys"])
+        self.assertIn("SESSION_PROVIDER", body["data"]["restart_required_keys"])
+
     def test_runtime_config_patch_rebuilds_model_without_restart(self) -> None:
         app = runtime(
             {
@@ -325,6 +365,139 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         )
         self.assertEqual(after_body["data"]["reply"], "[fake:fake-two] 社团 活动 怎么安排？")
 
+    def test_runtime_config_patch_updates_session_recent_limit_without_replacing_store(
+        self,
+    ) -> None:
+        app = runtime(
+            {
+                "ROLEPLAY_API_KEY": "secret",
+                "SESSION_PROVIDER": "memory",
+                "SESSION_RECENT_LIMIT": "2",
+            }
+        )
+        session_response = app.handle(
+            method="POST",
+            target="/v1/sessions",
+            headers=auth_headers(),
+            body=json_body(session_body()),
+        )
+        session_id = json_response(session_response.body)["data"]["session_id"]
+
+        app.handle(
+            method="POST",
+            target="/v1/chat",
+            headers=auth_headers(),
+            body=json_body(
+                chat_body(
+                    session_id=session_id,
+                    continuous_session=True,
+                )
+            ),
+        )
+        patch = app.handle(
+            method="PATCH",
+            target="/v1/runtime-config",
+            headers=auth_headers(),
+            body=json_body({"values": {"SESSION_RECENT_LIMIT": "1"}}),
+        )
+        second = app.handle(
+            method="POST",
+            target="/v1/chat",
+            headers=auth_headers(),
+            body=json_body(
+                chat_body(
+                    session_id=session_id,
+                    continuous_session=True,
+                )
+            ),
+        )
+        patch_body = json_response(patch.body)
+        second_body = json_response(second.body)
+
+        self.assertEqual(patch.status, 200)
+        self.assertEqual(patch_body["data"]["applied_keys"], ["SESSION_RECENT_LIMIT"])
+        self.assertEqual(second.status, 200)
+        self.assertEqual(second_body["data"]["session_id"], session_id)
+        self.assertEqual(second_body["data"]["debug"]["sessionReadCount"], 1)
+
+    def test_sqlite_session_provider_persists_across_runtime_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = {
+                "ROLEPLAY_API_KEY": "secret",
+                "SESSION_PROVIDER": "sqlite",
+                "SESSION_SQLITE_PATH": str(Path(temp_dir) / "sessions.sqlite3"),
+            }
+            first_app = runtime(env)
+            session_response = first_app.handle(
+                method="POST",
+                target="/v1/sessions",
+                headers=auth_headers(),
+                body=json_body(session_body()),
+            )
+            session_id = json_response(session_response.body)["data"]["session_id"]
+            first_app.handle(
+                method="POST",
+                target="/v1/chat",
+                headers=auth_headers(),
+                body=json_body(
+                    chat_body(
+                        session_id=session_id,
+                        continuous_session=True,
+                    )
+                ),
+            )
+
+            second_app = runtime(env)
+            second = second_app.handle(
+                method="POST",
+                target="/v1/chat",
+                headers=auth_headers(),
+                body=json_body(
+                    chat_body(
+                        session_id=session_id,
+                        continuous_session=True,
+                    )
+                ),
+            )
+            second_body = json_response(second.body)
+
+        self.assertEqual(second.status, 200)
+        self.assertEqual(second_body["data"]["session_id"], session_id)
+        self.assertEqual(second_body["data"]["debug"]["sessionReadCount"], 2)
+
+    def test_sqlite_session_provider_keeps_scope_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = runtime(
+                {
+                    "ROLEPLAY_API_KEY": "secret",
+                    "SESSION_PROVIDER": "sqlite",
+                    "SESSION_SQLITE_PATH": str(Path(temp_dir) / "sessions.sqlite3"),
+                }
+            )
+            session_response = app.handle(
+                method="POST",
+                target="/v1/sessions",
+                headers=auth_headers(),
+                body=json_body(session_body()),
+            )
+            session_id = json_response(session_response.body)["data"]["session_id"]
+            response = app.handle(
+                method="POST",
+                target="/v1/chat",
+                headers=auth_headers(),
+                body=json_body(
+                    chat_body(
+                        session_id=session_id,
+                        continuous_session=True,
+                        user_id="user-2",
+                    )
+                ),
+            )
+            body = json_response(response.body)
+
+        self.assertEqual(response.status, 404)
+        self.assertEqual(body["error"]["code"], "SESSION_NOT_FOUND")
+
     def test_runtime_config_patch_can_select_model_backed_agent_planner_placeholder(
         self,
     ) -> None:
@@ -357,6 +530,19 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
             target="/v1/runtime-config",
             headers=auth_headers(),
             body=json_body({"values": {"OPENAI_API_KEY": "secret-value"}}),
+        )
+        body = json_response(response.body)
+
+        self.assertEqual(response.status, 400)
+        self.assertEqual(body["error"]["code"], "VALIDATION_ERROR")
+
+    def test_runtime_config_patch_rejects_session_provider_hot_switch(self) -> None:
+        app = runtime({"ROLEPLAY_API_KEY": "secret"})
+        response = app.handle(
+            method="PATCH",
+            target="/v1/runtime-config",
+            headers=auth_headers(),
+            body=json_body({"values": {"SESSION_PROVIDER": "sqlite"}}),
         )
         body = json_response(response.body)
 

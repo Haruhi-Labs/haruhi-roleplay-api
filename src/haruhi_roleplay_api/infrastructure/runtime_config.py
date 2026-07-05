@@ -39,6 +39,7 @@ RUNTIME_CONFIG_KEYS = (
     "QDRANT_COLLECTION",
     "QDRANT_TIMEOUT_MS",
     "QDRANT_ENSURE_COLLECTION",
+    "SESSION_RECENT_LIMIT",
     "EMBEDDING_PROVIDER",
     "EMBEDDING_MODEL",
     "EMBEDDING_BASE_URL",
@@ -46,6 +47,21 @@ RUNTIME_CONFIG_KEYS = (
     "EMBEDDING_TIMEOUT_MS",
     "EMBEDDING_API_KEY_ENV",
     "EMBEDDING_PATH",
+)
+
+RUNTIME_CONFIG_RESTART_REQUIRED_KEYS = (
+    "SESSION_PROVIDER",
+    "SESSION_TTL_SECONDS",
+    "SESSION_AUTO_CREATE_SCHEMA",
+    "SESSION_SQLITE_PATH",
+    "SESSION_SQLITE_BUSY_TIMEOUT_MS",
+    "SESSION_POSTGRES_SCHEMA",
+    "SESSION_POSTGRES_TABLE_PREFIX",
+    "SESSION_POSTGRES_POOL_SIZE",
+)
+
+RUNTIME_CONFIG_SNAPSHOT_KEYS = (
+    RUNTIME_CONFIG_KEYS + RUNTIME_CONFIG_RESTART_REQUIRED_KEYS
 )
 
 _RUNTIME_CONFIG_KEY_SET = set(RUNTIME_CONFIG_KEYS)
@@ -105,13 +121,14 @@ class RuntimeConfigStore:
         env = self.env()
         values = {
             key: _public_value(key, env[key])
-            for key in RUNTIME_CONFIG_KEYS
+            for key in RUNTIME_CONFIG_SNAPSHOT_KEYS
             if key in env
         }
         return {
             "source": self.source,
             "persists_updates": self.persists_updates,
             "configurable_keys": list(RUNTIME_CONFIG_KEYS),
+            "restart_required_keys": list(RUNTIME_CONFIG_RESTART_REQUIRED_KEYS),
             "values": values,
         }
 

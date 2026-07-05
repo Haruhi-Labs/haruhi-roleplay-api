@@ -83,6 +83,7 @@
 - HTTP adapter 不直接创建具体 provider。
 - SSE event 必须来自 application 层的统一 stream event，不在 HTTP 层重组业务字段。
 - 本地 demo 可以直连本项目本地 HTTP 服务；真实产品前端必须经过业务后端。
+- Runtime config 可以热更新无状态或可安全重建的 provider；session store 这类有状态资源只能在启动时装配，运行中最多热更新 `SESSION_RECENT_LIMIT` 这类不替换 store 的参数。
 
 ## RAG 设计规范
 
@@ -98,6 +99,8 @@
 ## Memory 设计规范
 
 - 记忆不是聊天记录。
+- Session recent messages 不是长期记忆，只表示当前连续会话最近 N 条原始消息。
+- Session summary 是未来长对话压缩能力，不应写入 `MemoryStore`，也不应由普通前端直接编辑。
 - 写入记忆必须经过 MemoryPolicy。
 - 用户可以删除记忆。
 - persona mode 专属记忆不能污染其它模式。

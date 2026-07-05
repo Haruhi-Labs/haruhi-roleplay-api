@@ -80,16 +80,16 @@ Provider Pack 是一组后端实现绑定。
 
 用于本地开发和最小验证。
 
-| 能力              | 实现                                         |
-| ----------------- | -------------------------------------------- |
-| PersonaRepository | 本地 YAML 或 JSON，包含角色和 preset catalog |
-| SessionStore      | InMemory 或 SQLite                           |
-| MemoryStore       | InMemory 或 SQLite                           |
-| RagService        | LocalRagService                              |
-| VectorIndex       | LocalVectorIndex                             |
+| 能力              | 实现                                                                             |
+| ----------------- | -------------------------------------------------------------------------------- |
+| PersonaRepository | 本地 YAML 或 JSON，包含角色和 preset catalog                                     |
+| SessionStore      | InMemory 或 SQLite                                                               |
+| MemoryStore       | InMemory 或 SQLite                                                               |
+| RagService        | LocalRagService                                                                  |
+| VectorIndex       | LocalVectorIndex                                                                 |
 | EmbeddingProvider | HashEmbeddingProvider、OllamaEmbeddingProvider 或本地 OpenAI-compatible endpoint |
-| ModelProvider     | Ollama 或本地 OpenAI-compatible              |
-| Logger            | ConsoleLogger                                |
+| ModelProvider     | Ollama 或本地 OpenAI-compatible                                                  |
+| Logger            | ConsoleLogger                                                                    |
 
 ### test
 
@@ -125,17 +125,17 @@ Provider Pack 是一组后端实现绑定。
 
 ### 基础环境
 
-| 配置                 | 示例  | 说明                 |
-| -------------------- | ----- | -------------------- |
-| APP_ENV              | local | 运行环境             |
-| PROVIDER_PACK        | local | provider pack 名称   |
-| PORT                 | 3000  | HTTP 服务端口        |
-| ENABLE_DEBUG_TRACE   | true  | 是否允许 debug trace |
-| ENABLE_SAFETY_FILTER | true  | 是否默认启用安全过滤 |
-| AGENT_CONTEXT_PLANNER | deterministic | Agent 上下文计划器；当前支持 `deterministic`，`model` 仅预留 |
-| BACKEND_CONTEXT_PROVIDER | none | backend context provider；当前支持 `none`、`fake` |
-| BACKEND_CONTEXT_SOURCES | user_profile,game_state | 本服务允许本次计划读取的业务上下文 source |
-| BACKEND_CONTEXT_ALLOWED_SOURCES | user_profile,game_state | fake provider 白名单 source |
+| 配置                            | 示例                    | 说明                                                         |
+| ------------------------------- | ----------------------- | ------------------------------------------------------------ |
+| APP_ENV                         | local                   | 运行环境                                                     |
+| PROVIDER_PACK                   | local                   | provider pack 名称                                           |
+| PORT                            | 3000                    | HTTP 服务端口                                                |
+| ENABLE_DEBUG_TRACE              | true                    | 是否允许 debug trace                                         |
+| ENABLE_SAFETY_FILTER            | true                    | 是否默认启用安全过滤                                         |
+| AGENT_CONTEXT_PLANNER           | deterministic           | Agent 上下文计划器；当前支持 `deterministic`，`model` 仅预留 |
+| BACKEND_CONTEXT_PROVIDER        | none                    | backend context provider；当前支持 `none`、`fake`            |
+| BACKEND_CONTEXT_SOURCES         | user_profile,game_state | 本服务允许本次计划读取的业务上下文 source                    |
+| BACKEND_CONTEXT_ALLOWED_SOURCES | user_profile,game_state | fake provider 白名单 source                                  |
 
 `ENABLE_DEBUG_TRACE=false` 时，后端装配 API handler 应传入 `debug_trace_enabled=false`。该配置优先级高于请求中的 `capabilities.debug_trace=true`，用于生产环境统一关闭 debug 返回。
 
@@ -158,6 +158,8 @@ MODEL_NAME=fake-roleplay-model
 MODEL_ALIAS=fake-roleplay-model
 RAG_PROVIDER=local
 ENABLE_DEBUG_TRACE=true
+SESSION_PROVIDER=memory
+SESSION_RECENT_LIMIT=12
 ```
 
 启动：
@@ -209,16 +211,23 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 
 如果候选配置失败，例如切到 `RAG_PROVIDER=qdrant` 但没有 `QDRANT_URL`，服务会返回错误，不会写回 `.env`，也不会影响当前可用配置。
 
-当前热切换会保留进程内 session store 和 memory store；model router、RAG service、debug trace 开关会按新配置更新。切换 RAG provider 后，非持久化本地向量数据不会自动迁移。
+当前热切换会保留进程内 session store 和 memory store；model router、RAG service、debug trace 开关、agent planner、backend context provider 和 `SESSION_RECENT_LIMIT` 会按新配置更新。切换 RAG provider 后，非持久化本地向量数据不会自动迁移。
+
+`GET /v1/runtime-config` 会返回两类配置 key：
+
+- `configurable_keys`：可以通过 PATCH 热更新的非敏感配置。
+- `restart_required_keys`：可以展示给管理前端，但需要重启服务才能生效的有状态配置，例如 `SESSION_PROVIDER`、`SESSION_SQLITE_PATH`。
+
+`SESSION_PROVIDER` 不允许热切换。原因是 session store 是有状态资源，运行中从内存切到 SQLite/PostgreSQL 会让已有 session 的读写位置突然改变，容易造成会话丢失或跨库不一致。
 
 ### Agent Context Planner
 
 `AGENT_CONTEXT_PLANNER` 控制 Orchestrator 使用哪一种上下文规划方式：
 
-| 值 | 状态 | 说明 |
-| --- | --- | --- |
-| deterministic | 已实现，默认值 | 不调用大模型，只按 capability 和 persona policy 生成 `ContextPlan` |
-| model | 接口预留，未实现 | 可以配置和装配，但 chat 执行时会返回 `MODEL_PROVIDER_ERROR` |
+| 值            | 状态             | 说明                                                               |
+| ------------- | ---------------- | ------------------------------------------------------------------ |
+| deterministic | 已实现，默认值   | 不调用大模型，只按 capability 和 persona policy 生成 `ContextPlan` |
+| model         | 接口预留，未实现 | 可以配置和装配，但 chat 执行时会返回 `MODEL_PROVIDER_ERROR`        |
 
 当前确定性 planner 会生成两类安全信息：
 
@@ -231,11 +240,11 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 
 Backend context 用于从业务后端或其它数据库读取受控 facts，例如用户资料、游戏状态、活动进度。当前实现的是最小 fake provider：
 
-| 配置 | 示例 | 说明 |
-| --- | --- | --- |
-| BACKEND_CONTEXT_PROVIDER | fake | 支持 `none`、`fake`；默认 `none` |
-| BACKEND_CONTEXT_SOURCES | user_profile,game_state | Orchestrator 本次计划读取的 source，由服务端配置 |
-| BACKEND_CONTEXT_ALLOWED_SOURCES | user_profile,game_state | fake provider 允许的 source 白名单 |
+| 配置                            | 示例                    | 说明                                             |
+| ------------------------------- | ----------------------- | ------------------------------------------------ |
+| BACKEND_CONTEXT_PROVIDER        | fake                    | 支持 `none`、`fake`；默认 `none`                 |
+| BACKEND_CONTEXT_SOURCES         | user_profile,game_state | Orchestrator 本次计划读取的 source，由服务端配置 |
+| BACKEND_CONTEXT_ALLOWED_SOURCES | user_profile,game_state | fake provider 允许的 source 白名单               |
 
 示例：
 
@@ -266,17 +275,58 @@ BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
 
 ### Session
 
-| 配置                 | 示例   | 说明             |
-| -------------------- | ------ | ---------------- |
-| SESSION_PROVIDER     | sqlite | session provider |
-| SESSION_RECENT_LIMIT | 12     | 读取最近消息数量 |
-| SESSION_TTL_SECONDS  | 604800 | session 过期时间 |
+| 配置                 | 示例   | 说明                                                                        |
+| -------------------- | ------ | --------------------------------------------------------------------------- |
+| SESSION_PROVIDER     | memory | session provider；当前已实现 `memory` / `sqlite` / `postgres` |
+| SESSION_RECENT_LIMIT | 12     | 每次 chat 开启连续会话时，最多读取多少条最近 session message 进入 prompt    |
+| SESSION_TTL_SECONDS  | 604800 | session 过期时间                                                            |
+| SESSION_AUTO_CREATE_SCHEMA | true | SQLite / PostgreSQL 是否自动建表                                      |
+| SESSION_SQLITE_PATH | .data/sessions.sqlite3 | SQLite 文件路径，建议放在已忽略的 `.data/` 下                    |
+| SESSION_SQLITE_BUSY_TIMEOUT_MS | 5000 | SQLite busy timeout                                                   |
+| DATABASE_URL | postgresql://... | PostgreSQL 连接串，敏感配置，只能从服务端环境或 `.env` 读取 |
+| SESSION_POSTGRES_SCHEMA | public | PostgreSQL schema 名称 |
+| SESSION_POSTGRES_TABLE_PREFIX | roleplay_ | PostgreSQL session 表名前缀 |
+| SESSION_POSTGRES_POOL_SIZE | 5 | 预留连接池配置；当前 adapter 每次操作创建短连接 |
+
+当前实现状态：
+
+- 已实现 `SessionStoreSettings` 和 `build_session_store_from_env`。
+- HTTP runtime 已通过 session store factory 装配，不再直接写死 `InMemorySessionStore`。
+- 已实现 `SQLiteSessionStore`，使用标准库 `sqlite3`，不新增默认依赖。
+- `SESSION_PROVIDER=sqlite` 会在 `SESSION_AUTO_CREATE_SCHEMA=true` 时自动创建 schema。
+- `SESSION_SQLITE_PATH` 的父目录会自动创建；默认 `.data/` 已加入 `.gitignore`，避免本地数据库误提交。
+- 使用同一个 SQLite 文件重新创建 runtime 后，可以继续读取已有 session 和 recent messages。
+- 已实现 `PostgresSessionStore`，用于云端 session 持久化。
+- `SESSION_PROVIDER=postgres` 需要服务端提供 `DATABASE_URL`，并在运行环境安装可选依赖 `psycopg` v3，例如 `uv run --with "psycopg[binary]" ...`。
+- `SESSION_PROVIDER=postgres` 会在 `SESSION_AUTO_CREATE_SCHEMA=true` 时自动创建 schema、session 表、message 表和索引。
+- PostgreSQL provider 错误会转换为统一 `SESSION_PROVIDER_ERROR`，不会把底层连接串或驱动错误原样返回给前端。
+- `SESSION_RECENT_LIMIT` 可以通过 `PATCH /v1/runtime-config` 热更新。
+- `SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS` 等状态相关配置只在启动装配时读取，runtime config 只展示、不热切换。
+- `DATABASE_URL` 不属于 runtime config public snapshot，也不能通过 `PATCH /v1/runtime-config` 写入。
+
+`SESSION_RECENT_LIMIT` 的作用范围：
+
+- 只影响 `capabilities.continuous_session=true` 的 chat 请求。
+- 只限制本次从 `SessionStore.recent_messages()` 读取多少条最近消息。
+- 不限制 session 中实际保存的消息总数。
+- 不等同于数据库分页参数，也不等同于长期记忆数量。
+- 值越大，上下文更完整，但 prompt 更长、成本和延迟更高。
+- 值越小，更省 token，但模型可能看不到稍早的对话。
+
+当前没有采用 `memory.md` 式会话摘要设计。这里的判断是：session 是短期对话历史，memory 是跨会话长期事实，两者不能混在一个文件或一个 store 里。MVP 阶段直接读取最近原始消息更容易人工审核，也更容易写测试：创建 session、写入消息、读取最近 N 条即可验证。
+
+未来可以优化为两层 session 上下文：
+
+1. `session summary`：把较早的 session 消息压缩成滚动摘要，适合长对话。
+2. `recent messages`：继续保留最近 N 条原始消息，保证角色回复能接住最近语境。
+
+这个优化应单独拆卡实现，建议新增 `SessionSummaryStore` 或 `SessionCompactor`，并明确摘要生成策略、失败回退、摘要重建、人工可审查格式和持久化位置。不要把 session summary 写入 `MemoryStore`，也不要让普通前端直接上传或编辑 summary。
 
 ### Memory
 
 | 配置                 | 示例   | 说明                 |
 | -------------------- | ------ | -------------------- |
-| MEMORY_PROVIDER      | sqlite | memory provider      |
+| MEMORY_PROVIDER      | memory | memory provider；当前已实现 `memory`，持久化 adapter 为后续能力 |
 | MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量     |
 | MEMORY_WRITE_ENABLED | true   | 是否允许显式候选写入 |
 
@@ -286,7 +336,7 @@ BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
 | ------------------------ | ----------- | ------------------------------------------------------------------------------- |
 | RAG_PROVIDER             | local       | RAG provider；支持 `fake`、`local`、`local_vector`、`chroma`、`faiss`、`qdrant` |
 | RAG_CHUNK_SIZE           | 320         | 文档切分 chunk 大小                                                             |
-| RAG_EMBEDDING_DIMENSIONS | 384         | 兼容配置；未设置 `EMBEDDING_DIMENSIONS` 时作为 embedding 维度回退                 |
+| RAG_EMBEDDING_DIMENSIONS | 384         | 兼容配置；未设置 `EMBEDDING_DIMENSIONS` 时作为 embedding 维度回退               |
 | RAG_VECTOR_BACKEND       | memory      | `local_vector` 的本地 backend，可选 `memory`、`chroma`、`faiss`                 |
 | CHROMA_COLLECTION        | haruhi_rag  | Chroma collection 名称                                                          |
 | CHROMA_PERSIST_PATH      | .chroma     | Chroma 本地持久化目录，可选                                                     |
@@ -302,16 +352,16 @@ BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
 
 Embedding provider 只由服务端配置决定，前端和业务后端不能传 provider、URL 或 API key。
 
-| 配置 | 示例 | 说明 |
-| --- | --- | --- |
-| EMBEDDING_PROVIDER | hash | 支持 `hash`、`local_openai_compatible`、`ollama`、`openai` |
-| EMBEDDING_MODEL | text-embedding-3-small | provider 侧真实 embedding 模型名 |
-| EMBEDDING_BASE_URL | http://localhost:11434/v1 | 本地或 OpenAI-compatible embedding endpoint |
-| EMBEDDING_DIMENSIONS | 1536 | 向量维度；必须和向量库 collection 维度一致 |
-| EMBEDDING_TIMEOUT_MS | 30000 | embedding 请求超时 |
-| EMBEDDING_API_KEY | 可选 | embedding provider API key；不写入前端请求 |
-| EMBEDDING_API_KEY_ENV | OPENAI_API_KEY | 从指定环境变量读取 key |
-| EMBEDDING_PATH | embeddings | 自定义 OpenAI-compatible embeddings path |
+| 配置                  | 示例                      | 说明                                                       |
+| --------------------- | ------------------------- | ---------------------------------------------------------- |
+| EMBEDDING_PROVIDER    | hash                      | 支持 `hash`、`local_openai_compatible`、`ollama`、`openai` |
+| EMBEDDING_MODEL       | text-embedding-3-small    | provider 侧真实 embedding 模型名                           |
+| EMBEDDING_BASE_URL    | http://localhost:11434/v1 | 本地或 OpenAI-compatible embedding endpoint                |
+| EMBEDDING_DIMENSIONS  | 1536                      | 向量维度；必须和向量库 collection 维度一致                 |
+| EMBEDDING_TIMEOUT_MS  | 30000                     | embedding 请求超时                                         |
+| EMBEDDING_API_KEY     | 可选                      | embedding provider API key；不写入前端请求                 |
+| EMBEDDING_API_KEY_ENV | OPENAI_API_KEY            | 从指定环境变量读取 key                                     |
+| EMBEDDING_PATH        | embeddings                | 自定义 OpenAI-compatible embeddings path                   |
 
 本地 Ollama 示例：
 
@@ -631,14 +681,14 @@ uv run --with chromadb python scripts/local_ollama_chroma_smoke.py
 
 可选覆盖项：
 
-| 环境变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| SMOKE_OLLAMA_BASE_URL | http://localhost:11434 | Ollama 原生 API 地址，用于 `/api/tags` 预检 |
-| SMOKE_OLLAMA_OPENAI_BASE_URL | http://localhost:11434/v1 | Ollama OpenAI-compatible 地址 |
-| SMOKE_CHAT_MODEL | qwen2.5:7b | chat 模型 |
-| SMOKE_EMBEDDING_MODEL | nomic-embed-text:latest | embedding 模型 |
-| SMOKE_EMBEDDING_DIMENSIONS | 768 | embedding 维度 |
-| SMOKE_CHROMA_COLLECTION | haruhi_manual_smoke | Chroma collection 名称 |
+| 环境变量                     | 默认值                    | 说明                                        |
+| ---------------------------- | ------------------------- | ------------------------------------------- |
+| SMOKE_OLLAMA_BASE_URL        | http://localhost:11434    | Ollama 原生 API 地址，用于 `/api/tags` 预检 |
+| SMOKE_OLLAMA_OPENAI_BASE_URL | http://localhost:11434/v1 | Ollama OpenAI-compatible 地址               |
+| SMOKE_CHAT_MODEL             | qwen2.5:7b                | chat 模型                                   |
+| SMOKE_EMBEDDING_MODEL        | nomic-embed-text:latest   | embedding 模型                              |
+| SMOKE_EMBEDDING_DIMENSIONS   | 768                       | embedding 维度                              |
+| SMOKE_CHROMA_COLLECTION      | haruhi_manual_smoke       | Chroma collection 名称                      |
 
 ## Memory 调度
 
@@ -864,7 +914,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | PROVIDER_PACK           | local                |
 | PERSONA_PROVIDER        | file                 |
 | SESSION_PROVIDER        | sqlite               |
-| MEMORY_PROVIDER         | sqlite               |
+| MEMORY_PROVIDER         | memory               |
 | RAG_PROVIDER            | local_vector         |
 | RAG_VECTOR_BACKEND      | memory               |
 | EMBEDDING_PROVIDER      | ollama               |
@@ -873,6 +923,8 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | MODEL_PROVIDER_REGISTRY | 见 Ollama local 示例 |
 | ENABLE_DEBUG_TRACE      | true                 |
 | ENABLE_SAFETY_FILTER    | true                 |
+
+当前本地推荐可以使用 `SESSION_PROVIDER=sqlite` 保存连续会话；Memory 的本地持久化 adapter 尚未实现，当前推荐仍使用 `MEMORY_PROVIDER=memory`。
 
 ## 推荐测试配置
 
@@ -894,6 +946,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | PROVIDER_PACK           | cloud                              |
 | PERSONA_PROVIDER        | postgres                           |
 | SESSION_PROVIDER        | postgres                           |
+| DATABASE_URL            | 部署平台 secret 注入               |
 | MEMORY_PROVIDER         | postgres                           |
 | CACHE_PROVIDER          | redis                              |
 | RAG_PROVIDER            | qdrant                             |
@@ -905,6 +958,8 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | MODEL_PROVIDER_REGISTRY | 见 DeepSeek / Gemini / OpenAI 示例 |
 | ENABLE_DEBUG_TRACE      | false                              |
 | ENABLE_SAFETY_FILTER    | true                               |
+
+生产配置中的 PostgreSQL session adapter 已实现；persona / memory 的 PostgreSQL adapter 仍是目标形态，后续应按同样的 ports / adapters / infrastructure 边界逐步补齐。
 
 ## 前端调用时的关键约束
 

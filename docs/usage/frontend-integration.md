@@ -16,16 +16,16 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 ## 前端需要关心的字段
 
-| 字段 | 来源 | 用途 |
-| --- | --- | --- |
-| session_id | 后端创建后返回 | 连续会话 |
-| character_id | catalog 接口 | 选择角色 |
-| persona_mode | catalog 接口 | 选择角色 preset |
-| message | 用户输入 | 当前消息 |
-| stream | UI 设置 | 是否流式显示 |
-| reply | API 返回 | 展示回复 |
-| sources | API 返回 | 展示 RAG 来源 |
-| debug | 开发环境返回 | 调试，不给普通用户展示 |
+| 字段         | 来源           | 用途                   |
+| ------------ | -------------- | ---------------------- |
+| session_id   | 后端创建后返回 | 连续会话               |
+| character_id | catalog 接口   | 选择角色               |
+| persona_mode | catalog 接口   | 选择角色 preset        |
+| message      | 用户输入       | 当前消息               |
+| stream       | UI 设置        | 是否流式显示           |
+| reply        | API 返回       | 展示回复               |
+| sources      | API 返回       | 展示 RAG 来源          |
+| debug        | 开发环境返回   | 调试，不给普通用户展示 |
 
 ## UI 角色和 Preset 选择
 
@@ -33,13 +33,13 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 内置角色可以先展示为：
 
-| UI 名称 | character_id | persona_mode | 说明 |
-| --- | --- | --- | --- |
-| 刚入学的春日 | haruhi | entrance_haruhi | 更强势、更兴奋、更主动 |
-| 中后期的春日 | haruhi | mid_late_haruhi | 更熟悉社团关系，互动更稳定 |
-| 消失春日 | haruhi | disappearance_haruhi | 更日常、更克制 |
-| 朝比奈学姐 | asahina_mikuru | default_mikuru | 更温和、更紧张、更照顾对话氛围 |
-| 阿虚 | kyon | default_kyon | 更冷静、更吐槽、更像旁观叙述 |
+| UI 名称      | character_id   | persona_mode         | 说明                           |
+| ------------ | -------------- | -------------------- | ------------------------------ |
+| 刚入学的春日 | haruhi         | entrance_haruhi      | 更强势、更兴奋、更主动         |
+| 中后期的春日 | haruhi         | mid_late_haruhi      | 更熟悉社团关系，互动更稳定     |
+| 消失春日     | haruhi         | disappearance_haruhi | 更日常、更克制                 |
+| 朝比奈学姐   | asahina_mikuru | default_mikuru       | 更温和、更紧张、更照顾对话氛围 |
+| 阿虚         | kyon           | default_kyon         | 更冷静、更吐槽、更像旁观叙述   |
 
 自定义角色只要 `visibility=public`，也应该出现在 catalog 中。
 
@@ -81,13 +81,13 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 ## 前端状态建议
 
-| 状态 | 说明 |
-| --- | --- |
-| idle | 未发送 |
-| sending | 请求已发出 |
+| 状态      | 说明           |
+| --------- | -------------- |
+| idle      | 未发送         |
+| sending   | 请求已发出     |
 | streaming | 正在接收 delta |
-| completed | 回复完成 |
-| failed | 请求失败 |
+| completed | 回复完成       |
+| failed    | 请求失败       |
 
 ## 前端展示规则
 
@@ -151,7 +151,7 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 - `GET /v1/runtime-config`
 - `PATCH /v1/runtime-config`
 
-这两个接口必须带 `Authorization: Bearer <ROLEPLAY_API_KEY>` 或 `X-API-Key`。管理前端只能修改服务端白名单允许的非敏感配置，例如 `MODEL_PROVIDER`、`MODEL_NAME`、`MODEL_ALIAS`、`RAG_PROVIDER`、`EMBEDDING_PROVIDER`、`CHROMA_COLLECTION`、`AGENT_CONTEXT_PLANNER`、`BACKEND_CONTEXT_PROVIDER`、`BACKEND_CONTEXT_SOURCES` 等。
+这两个接口必须带 `Authorization: Bearer <ROLEPLAY_API_KEY>` 或 `X-API-Key`。管理前端只能修改服务端白名单允许的非敏感配置，例如 `MODEL_PROVIDER`、`MODEL_NAME`、`MODEL_ALIAS`、`RAG_PROVIDER`、`EMBEDDING_PROVIDER`、`CHROMA_COLLECTION`、`AGENT_CONTEXT_PLANNER`、`BACKEND_CONTEXT_PROVIDER`、`BACKEND_CONTEXT_SOURCES`、`SESSION_RECENT_LIMIT` 等。
 
 示例：
 
@@ -171,12 +171,15 @@ await fetch(`${baseUrl}/v1/runtime-config`, {
       AGENT_CONTEXT_PLANNER: "deterministic",
       BACKEND_CONTEXT_PROVIDER: "fake",
       BACKEND_CONTEXT_SOURCES: "user_profile,game_state",
+      SESSION_RECENT_LIMIT: "12",
     },
   }),
 });
 ```
 
 密钥类配置不要从前端提交，例如 `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。云端 provider 应通过服务端 `.env` 中的 secret 和 `*_API_KEY_ENV` 间接引用。
+
+管理前端可以展示 `GET /v1/runtime-config` 返回的 `restart_required_keys`，但不要把这些 key 做成“立即生效”的开关。比如 `SESSION_PROVIDER`、`SESSION_SQLITE_PATH` 需要服务重启后重新装配 session store，不能在普通聊天过程中热切换。
 
 `AGENT_CONTEXT_PLANNER=model` 当前只是后续模型辅助规划的预留入口。管理前端可以展示这个状态，但不应把它作为可用选项开放给普通用户。
 

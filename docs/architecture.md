@@ -34,22 +34,23 @@
 
 ## 核心模块
 
-| 模块                   | 职责                                                               |
-| ---------------------- | ------------------------------------------------------------------ |
-| PersonaRepository      | 读取 `CharacterProfile` 和 `PersonaPreset`                         |
-| RoleplayOrchestrator   | 编排 persona、session、RAG、memory、backend context、prompt、model |
-| AgentContextPlanner    | 分析本次请求需要哪些上下文和能力                                   |
-| ContextExecutor        | 按计划调用 session、memory、RAG、业务后端 context port             |
-| PromptBuilder          | 把已准备好的上下文组装成模型 messages                              |
-| ChatModelRouter        | application 依赖的模型路由 port                                    |
-| ModelProviderRegistryRouter | 根据服务端 alias 白名单选择模型 provider                     |
-| ChatModelProvider      | 调用具体模型                                                       |
-| SessionStore           | 管理连续会话                                                       |
-| RagService             | 文档接入和检索                                                     |
-| TextEmbeddingProvider  | 把文本转成向量，供本地/云端 RAG provider 使用                     |
-| MemoryStore            | 长期记忆存取                                                       |
-| BackendContextProvider | 从业务后端或其它数据库读取受控上下文                               |
-| SafetyGuard            | 输入、输出和越界检查                                               |
+| 模块                        | 职责                                                               |
+| --------------------------- | ------------------------------------------------------------------ |
+| PersonaRepository           | 读取 `CharacterProfile` 和 `PersonaPreset`                         |
+| RoleplayOrchestrator        | 编排 persona、session、RAG、memory、backend context、prompt、model |
+| AgentContextPlanner         | 分析本次请求需要哪些上下文和能力                                   |
+| ContextExecutor             | 按计划调用 session、memory、RAG、业务后端 context port             |
+| PromptBuilder               | 把已准备好的上下文组装成模型 messages                              |
+| ChatModelRouter             | application 依赖的模型路由 port                                    |
+| ModelProviderRegistryRouter | 根据服务端 alias 白名单选择模型 provider                           |
+| ChatModelProvider           | 调用具体模型                                                       |
+| SessionStore                | 管理连续会话                                                       |
+| SessionStoreFactory         | 根据服务端配置装配 session store，并暴露 session 运行参数          |
+| RagService                  | 文档接入和检索                                                     |
+| TextEmbeddingProvider       | 把文本转成向量，供本地/云端 RAG provider 使用                      |
+| MemoryStore                 | 长期记忆存取                                                       |
+| BackendContextProvider      | 从业务后端或其它数据库读取受控上下文                               |
+| SafetyGuard                 | 输入、输出和越界检查                                               |
 
 角色字段的含义见 `character-schema.md`。其中 `ToneConfig`、`IdentityConfig`、`KnowledgeBoundary` 会被 Orchestrator 读取，并由 PromptBuilder 融合进模型上下文。
 
@@ -69,6 +70,10 @@ PromptBuilder 的推荐顺序：
 8. RAG chunks。
 9. backend context facts。
 10. 当前用户消息。
+
+当前 session 上下文只实现 `recent messages`，尚未实现 `session summary`。`SESSION_RECENT_LIMIT` 控制每次 chat 最多读取多少条最近会话消息进入 prompt，用于限制 prompt 长度、成本和延迟。
+
+暂时不做 `memory.md` 式滚动摘要或会话笔记，原因是它会引入额外的摘要生成、摘要更新时机、过期纠错和持久化一致性问题；当前 MVP 更需要可审核、可回放的原始 recent messages。后续可以在 `SessionStore` 之外增加 `SessionSummaryStore` 或 `SessionCompactor`，把旧消息压缩成 session summary，再按“session summary -> recent messages -> memory items”的顺序融合进 PromptBuilder。
 
 ## Agent 编排定位
 
@@ -99,6 +104,16 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 - Source 配置：`BACKEND_CONTEXT_SOURCES=user_profile,game_state`，由服务端配置决定，普通前端不传真实 source。
 - Prompt 融合：`PromptBuilder` 将 `BackendContextFact` 插入“业务后端上下文摘要”段。
 - Debug：只返回 `backendContextFactCount` 和 `backendContextSources`，不返回 fact 内容或原始业务 JSON。
+
+当前 session store 装配状态：
+
+- 默认配置：`SESSION_PROVIDER=memory`。
+- 已实现：`SessionStoreSettings` 和 `build_session_store_from_env`，HTTP runtime 不再直接创建 `InMemorySessionStore`。
+- 本地持久化：`SESSION_PROVIDER=sqlite` 已可用，使用标准库 `sqlite3` 和 `SQLiteSessionStore` 保存 session / session messages。
+- 云端持久化：`SESSION_PROVIDER=postgres` 已可用，使用可选 `psycopg` v3 和 `PostgresSessionStore` 保存 session / session messages。
+- 已接入：`SESSION_RECENT_LIMIT` 控制 Orchestrator 读取最近消息数量，并可通过 runtime config 热更新。
+- 只展示不热切换：`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS`、`SESSION_POSTGRES_SCHEMA` 等有状态配置会出现在 runtime config 的 `restart_required_keys`，但不能通过 `PATCH /v1/runtime-config` 热切换。
+- 敏感边界：`DATABASE_URL` 只从服务端环境或 `.env` 读取，不进入 runtime config public snapshot、debug trace 或普通前端请求。
 
 同时预留了基于后端大模型的 planner：
 
