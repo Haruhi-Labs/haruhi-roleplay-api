@@ -1,5 +1,7 @@
 # 中转服务后端调度与配置说明
 
+如果只是想启动项目、选择本地/云端后端、理解哪些配置需要热更新或重启，先看 `docs/usage/backend-config.md`。本文保留更细的 provider 调度、adapter 边界和历史设计说明。
+
 ## 目标
 
 说明当前项目在收到前端链路请求后，如何在中转服务内部调度具体后端实现，以及后端能力应该如何配置和实现。
@@ -216,9 +218,9 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 `GET /v1/runtime-config` 会返回两类配置 key：
 
 - `configurable_keys`：可以通过 PATCH 热更新的非敏感配置。
-- `restart_required_keys`：可以展示给管理前端，但需要重启服务才能生效的有状态配置，例如 `SESSION_PROVIDER`、`SESSION_SQLITE_PATH`。
+- `restart_required_keys`：可以展示给管理前端，但需要重启服务才能生效的启动级或有状态配置，例如 `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`。
 
-`SESSION_PROVIDER` 不允许热切换。原因是 session store 是有状态资源，运行中从内存切到 SQLite/PostgreSQL 会让已有 session 的读写位置突然改变，容易造成会话丢失或跨库不一致。
+`ROLEPLAY_PORT` 和 `SESSION_PROVIDER` 不允许热切换。端口在服务启动时已经绑定到 HTTP socket；session store 是有状态资源，运行中从内存切到 SQLite/PostgreSQL 会让已有 session 的读写位置突然改变，容易造成会话丢失或跨库不一致。
 
 ### 全量 `.env` 编辑器
 
@@ -244,7 +246,7 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 - 不让面板绕过 Env Config Editor API 直接修改 `.env` 文件。
 - check 阶段默认不请求真实云服务，避免保存配置时产生额外费用或外部副作用。
 
-建议第一版 Env Config Editor API：
+当前 Env Config Editor API：
 
 | 接口                        | 作用                                                  |
 | --------------------------- | ----------------------------------------------------- |
@@ -252,6 +254,8 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 | `GET /v1/env-config`        | 返回当前 `.env` redacted snapshot                     |
 | `POST /v1/env-config/check` | 校验单字段或整份候选配置                              |
 | `PATCH /v1/env-config`      | 保存 `.env` 修改，并返回新摘要                        |
+
+本地受信任页面入口是 `/config`。它会通过 Env Config Editor API 生成表单、维护草稿 diff、执行 check 并保存 `.env`。保存后，服务会尝试热更新可热更新字段；session provider、数据库路径和 PostgreSQL schema 等有状态字段只写回 `.env`，需要重启服务后完整生效。
 
 ### Agent Context Planner
 
@@ -334,7 +338,7 @@ BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
 - `SESSION_PROVIDER=postgres` 会在 `SESSION_AUTO_CREATE_SCHEMA=true` 时自动创建 schema、session 表、message 表和索引。
 - PostgreSQL provider 错误会转换为统一 `SESSION_PROVIDER_ERROR`，不会把底层连接串或驱动错误原样返回给前端。
 - `SESSION_RECENT_LIMIT` 可以通过 `PATCH /v1/runtime-config` 热更新。
-- `SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS` 等状态相关配置只在启动装配时读取，runtime config 只展示、不热切换。
+- `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS` 等启动级或状态相关配置只在启动装配时读取，runtime config 只展示、不热切换。
 - `DATABASE_URL` 不属于 runtime config public snapshot，也不能通过 `PATCH /v1/runtime-config` 写入。
 
 `SESSION_RECENT_LIMIT` 的作用范围：

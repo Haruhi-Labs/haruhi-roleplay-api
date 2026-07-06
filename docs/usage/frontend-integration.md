@@ -1,5 +1,7 @@
 # 前端接入说明
 
+如果你要直接照着写调用代码，先看 [前端调用完整文档](frontend-api-calling.md)。本文主要解释前端、业务后端和本项目中转服务之间的边界。
+
 ## 适用场景
 
 Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服务。前端通常不应该直接持有 Roleplay API 的 API Key。
@@ -88,6 +90,25 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 | streaming | 正在接收 delta |
 | completed | 回复完成       |
 | failed    | 请求失败       |
+
+## 本地 Demo
+
+当前仓库提供零构建静态前端 demo。启动本地 HTTP server 后访问：
+
+```text
+http://127.0.0.1:8000/demo
+```
+
+Demo 功能：
+
+- 读取 `GET /v1/personas` 并选择角色和 preset。
+- 调用 `POST /v1/sessions` 创建连续会话。
+- 调用 `POST /v1/chat` 发送非流式消息。
+- 调用 `POST /v1/chat/stream` 展示 stream delta。
+- 调用 `POST /v1/rag/documents` 导入最小资料片段。
+- 展示 RAG source 摘要；debug 摘要默认折叠，仅用于开发排查。
+
+Demo 默认使用同源 API。若本地服务配置了 `ROLEPLAY_API_KEY`，需要在 demo 的 API Key 输入框中临时填写；该值只保存在当前页面内存，不写入 localStorage。
 
 ## 前端展示规则
 
@@ -189,6 +210,7 @@ await fetch(`${baseUrl}/v1/runtime-config`, {
 
 `.env` 编辑器建议拆成独立受信任页面，而不是放进普通聊天界面。它可以做：
 
+- 通过 `/config` 打开本地受信任配置页面。
 - 读取当前 `.env` 的 redacted 摘要。
 - 按 HTTP、Model、RAG、Embedding、Agent、Backend Context、Session、Secrets 分组展示字段。
 - 创建配置草稿、字段 check 和 diff preview。
@@ -203,3 +225,5 @@ await fetch(`${baseUrl}/v1/runtime-config`, {
 - 让浏览器直接读写 `.env` 文件。
 - 承诺所有字段保存后都立即生效。
 - 绕过 Env Config Editor API 直接写 `.env`。
+
+当前 `/config` 页面不会在普通聊天 demo 中出现入口。接入后台时，也应把它放在受信任管理区，而不是普通用户聊天页。

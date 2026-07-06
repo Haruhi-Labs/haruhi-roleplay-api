@@ -661,3 +661,122 @@
 ### 下一步
 
 - 后续实现时先完成普通聊天 demo，再按 `09.02` 单独实现全量 `.env` 编辑器。
+
+## 2026-07-06：Frontend Demo
+
+### 完成
+
+- 新增 `frontend-demo/` 零构建静态页面，提供角色/preset 选择、消息发送、stream delta、source 和 debug 展示。
+- HTTP runtime 新增 `/demo` 静态路由，方便通过同一个本地服务打开 demo。
+- Demo 支持创建 session、切换 stream/RAG/memory/debug 能力，并提供最小 RAG 文档导入入口。
+- Debug 面板默认折叠，普通聊天视图不直接展示调试 JSON。
+- 普通聊天 demo 不包含 `.env` 编辑器，继续由 `09.02` 单独规划。
+
+### 验证
+
+- `uv run python -m unittest tests.test_http_runtime_adapter` 通过。
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+- `git diff --check` 通过，仅有 Windows CRLF 转换提示。
+- HTTP smoke 通过：`/demo`、`/v1/personas`、`/v1/chat/stream` 均返回 200。
+- 浏览器 smoke 通过：demo 读取角色、发送 stream 消息、导入 RAG 文档并展示 source。
+
+### 下一步
+
+- 继续按 `09.02` 实现受信任的全量 `.env` 配置编辑器。
+
+## 2026-07-06：Env Config Editor
+
+### 完成
+
+- 新增 `EnvConfigEditor`，提供 `.env` 字段 schema、redacted snapshot、单字段 check、整份候选配置 check 和写回能力。
+- 新增 `GET /v1/env-config/schema`、`GET /v1/env-config`、`POST /v1/env-config/check`、`PATCH /v1/env-config`。
+- 新增 `/config` 零构建受信任配置页面，按 HTTP、Model、RAG、Embedding、Agent、Backend Context、Session、Secrets 等分组渲染字段。
+- 支持 secret write-only 输入；响应和 UI 只显示 `set`、`empty`、`missing`，不回显原文。
+- `.env` 写回会保留注释和未知 key；已知字段可新增、修改、清空或移除。
+- 保存后返回 hot reload 结果和 restart-required 提示；有状态 session store 配置仍需要重启后完整生效。
+
+### 验证
+
+- `uv run python -m unittest tests.test_env_config_editor` 通过。
+- `uv run python -m unittest tests.test_http_runtime_adapter` 通过。
+- `uv run python -m unittest discover -s tests` 通过。
+- `$env:PYTHONPYCACHEPREFIX='.uv-cache\compile-pycache'; uv run python -m compileall -q src tests` 通过。
+- `git diff --check` 通过，仅有 Windows CRLF 转换提示。
+- HTTP smoke 通过：`/config`、`/v1/env-config/schema`、`/v1/env-config`、`/v1/env-config/check`、`PATCH /v1/env-config` 均按预期返回。
+- 重启 smoke 通过：通过 Env Config API 写入临时 `.env` 后重启服务，新 model alias 仍可用于 chat。
+- 浏览器只读 smoke 通过：`/config` 页面 title、Admin Key 输入框、Connect 按钮和配置容器存在。
+- 浏览器交互 smoke 未完成：当前 in-app browser 虚拟剪贴板不可用，`fill()` / `type()` 无法向输入框写入。
+
+### 下一步
+
+- 后续可补浏览器环境可写输入后的完整 UI 交互 smoke。
+
+## 2026-07-06：Backend Config Simplification Docs
+
+### 完成
+
+- 新增 `docs/usage/backend-config.md`，作为后端配置第一入口。
+- 补充 fake local、Ollama local、云模型等最小配置示例。
+- 说明 `.env`、runtime config API、Env Config Editor API 的职责边界。
+- 分析当前配置复杂度来源，并提出 backend profile、Simple/Advanced UI、字段收敛和 schema 拆分的化简路线。
+- 在 `docs/README.md` 和后端调度长文档中加入入口链接。
+
+### 验证
+
+- 使用 `rg` 检查 `backend-config`、`BACKEND_PROFILE`、`fake_local`、`ollama_local` 等文档入口和关键词。
+
+### 下一步
+
+- 若进入实现阶段，优先做 `/config` 的 Simple / Advanced 视图，再引入 `BACKEND_PROFILE` 默认值解析。
+
+## 2026-07-06：Frontend Calling And Backend Config Usage Docs
+
+### 完成
+
+- 新增 `docs/usage/frontend-api-calling.md`，集中说明前端调用 chat、stream、RAG、memory、demo 和 config 页面的方式。
+- 补充 `docs/usage/backend-config.md` 的使用流程和当前已实现后端能力表。
+- 更新 `docs/README.md` 推荐阅读顺序，把前端调用完整文档作为前端接入第一入口。
+- 在 `docs/usage/frontend-integration.md` 增加入口提示，区分“调用手册”和“架构边界说明”。
+
+### 验证
+
+- 使用 `rg` 检查 `frontend-api-calling`、`POST /v1/chat/stream`、`使用方式总览`、`当前已实现后端能力` 等文档关键词。
+
+### 下一步
+
+- 后续如果继续化简配置，优先把 `/config` 做成 Simple / Advanced 两种视图，再实现 `BACKEND_PROFILE`。
+
+## 2026-07-06：HTTP Port Restart Config
+
+### 完成
+
+- 将 `ROLEPLAY_HOST` 和 `ROLEPLAY_PORT` 纳入 runtime config 的 `restart_required_keys`。
+- 明确端口是启动级配置：可通过 `.env` / `/config` 修改，但需要重启服务后重新绑定 HTTP socket。
+- 补充测试验证 `HttpRuntimeSettings` 会从环境变量和 `.env` 读取 host / port。
+- 更新后端配置、配置面板、接口参考和后端调度文档中的 restart-required 说明。
+
+### 验证
+
+- `uv run python -m unittest tests.test_http_runtime_adapter tests.test_env_config_editor` 通过。
+
+### 下一步
+
+- 后续可在 `/config` UI 中把 restart-required 字段做成更明显的重启提示。
+
+## 2026-07-06：Backend Config Field Dictionary
+
+### 完成
+
+- 扩充 `docs/usage/backend-config.md`，新增后端字段字典。
+- 按 HTTP、Model、Model Registry、RAG、Embedding、Agent、Backend Context、Session、Secrets、Advanced 分块说明字段含义。
+- 为每个配置块补充使用场景和 `.env` 示例。
+- 标注 hot reload、restart required、secret、reserved 等状态，避免把预留字段误认为已完整可用。
+
+### 验证
+
+- 使用 `rg` 检查主要配置字段和分组标题均已写入 `docs/usage/backend-config.md`。
+
+### 下一步
+
+- 后续可把 `/config` UI 的字段说明直接对齐这份字段字典，减少配置页面和文档之间的理解偏差。

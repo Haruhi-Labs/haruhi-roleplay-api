@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Haruhi Env Config</title>
+    <link rel="stylesheet" href="/demo/styles.css" />
+  </head>
+  <body>
+    <div class="config-shell">
+      <aside class="sidebar config-sidebar" aria-label="配置分组">
+        <div class="brand">
+          <div class="brand-mark">ENV</div>
+          <div>
+            <h1>Env Config</h1>
+            <p>Trusted Editor</p>
+          </div>
+        </div>
+
+        <section class="panel connection-panel">
+          <div class="section-title">
+            <span>Connection</span>
+            <span id="connectionStatus" class="status-pill">idle</span>
+          </div>
+          <label class="field">
+            <span>API Base</span>
+            <input id="apiBaseInput" type="url" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>Admin Key</span>
+            <input id="apiKeyInput" type="password" autocomplete="off" />
+          </label>
+          <button id="connectButton" class="secondary-button full-width" type="button">Connect</button>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <span>Groups</span>
+            <span id="fieldCount" class="muted-count">0</span>
+          </div>
+          <nav id="groupNav" class="group-nav"></nav>
+        </section>
+      </aside>
+
+      <main class="config-main">
+        <header class="config-header">
+          <div>
+            <h2>.env Editor</h2>
+            <p id="configSource">No config loaded</p>
+          </div>
+          <div class="config-actions">
+            <span id="draftBadge" class="status-pill">clean</span>
+            <button id="checkAllButton" class="secondary-button" type="button">Check</button>
+            <button id="saveButton" class="primary-button" type="button">Save</button>
+          </div>
+        </header>
+
+        <section id="fieldGrid" class="config-field-grid" aria-live="polite"></section>
+      </main>
+
+      <aside class="inspector config-inspector" aria-label="校验与差异">
+        <section class="panel">
+          <div class="section-title">
+            <span>Snapshot</span>
+            <span id="writableBadge" class="status-pill">unknown</span>
+          </div>
+          <div id="snapshotMeta" class="config-meta"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <span>Draft Diff</span>
+            <span id="diffCount" class="muted-count">0</span>
+          </div>
+          <div id="diffList" class="diff-list empty-panel">No draft changes</div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <span>Check</span>
+            <span id="checkBadge" class="status-pill">idle</span>
+          </div>
+          <div id="checkOutput" class="check-output empty-panel">No check result</div>
+        </section>
+      </aside>
+    </div>
+
+    <script src="/config/config.js" type="module"></script>
+  </body>
+</html>

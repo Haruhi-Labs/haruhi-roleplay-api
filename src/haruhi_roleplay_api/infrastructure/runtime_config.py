@@ -50,6 +50,8 @@ RUNTIME_CONFIG_KEYS = (
 )
 
 RUNTIME_CONFIG_RESTART_REQUIRED_KEYS = (
+    "ROLEPLAY_HOST",
+    "ROLEPLAY_PORT",
     "SESSION_PROVIDER",
     "SESSION_TTL_SECONDS",
     "SESSION_AUTO_CREATE_SCHEMA",
@@ -109,8 +111,16 @@ class RuntimeConfigStore:
         return str(self._config_path) if self._config_path else "memory"
 
     @property
+    def config_path(self) -> Path | None:
+        return self._config_path
+
+    @property
     def persists_updates(self) -> bool:
         return self._config_path is not None
+
+    def refresh(self) -> None:
+        if self._config_path is not None:
+            self._file_values = _read_env_file(self._config_path)
 
     def env(self) -> dict[str, str]:
         merged = dict(self._base_env)

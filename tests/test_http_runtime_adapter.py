@@ -9,7 +9,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from haruhi_roleplay_api.infrastructure import RoleplayHttpRuntime  # noqa: E402
+from haruhi_roleplay_api.infrastructure import (  # noqa: E402
+    HttpRuntimeSettings,
+    RoleplayHttpRuntime,
+    RuntimeConfigStore,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,6 +98,31 @@ def session_body() -> dict:
 
 
 class HttpRuntimeAdapterTests(unittest.TestCase):
+    def test_http_runtime_settings_reads_configured_bind_address(self) -> None:
+        settings = HttpRuntimeSettings.from_env(
+            {"ROLEPLAY_HOST": "0.0.0.0", "ROLEPLAY_PORT": "8123"}
+        )
+
+        self.assertEqual(settings.host, "0.0.0.0")
+        self.assertEqual(settings.port, 8123)
+
+    def test_http_runtime_settings_reads_port_from_env_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            env_path = project_root / ".env"
+            env_path.write_text(
+                "ROLEPLAY_HOST=127.0.0.1\nROLEPLAY_PORT=8124\n",
+                encoding="utf-8",
+            )
+            config_store = RuntimeConfigStore.env_file(
+                project_root=project_root,
+                env={},
+            )
+            settings = HttpRuntimeSettings.from_env(config_store.env())
+
+        self.assertEqual(settings.host, "127.0.0.1")
+        self.assertEqual(settings.port, 8124)
+
     def test_get_personas_returns_catalog_over_http_shape(self) -> None:
         response = runtime().handle(
             method="GET",
@@ -231,6 +260,150 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         self.assertFalse(body["ok"])
         self.assertEqual(body["error"]["code"], "NOT_FOUND")
 
+    def test_demo_index_is_served_without_api_auth(self) -> None:
+        app = runtime({"ROLEPLAY_API_KEY": "secret"})
+        response = app.handle(method="GET", target="/demo", headers={})
+        body = response.body.decode("utf-8")
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertIn("Haruhi Roleplay Demo", body)
+
+    def test_demo_static_asset_is_served(self) -> None:
+        response = runtime().handle(method="GET", target="/demo/app.js", headers={})
+        body = response.body.decode("utf-8")
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            response.headers["Content-Type"],
+            "text/javascript; charset=utf-8",
+        )
+        self.assertIn("loadCatalog", body)
+
+    def test_demo_static_route_rejects_path_traversal(self) -> None:
+        response = runtime().handle(
+            method="GET",
+            target="/demo/../README.md",
+            headers={},
+        )
+
+        self.assertEqual(response.status, 404)
+
+    def test_config_editor_page_is_served_without_api_auth(self) -> None:
+        app = runtime({"ROLEPLAY_API_KEY": "secret"})
+        response = app.handle(method="GET", target="/config", headers={})
+        body = response.body.decode("utf-8")
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertIn("Haruhi Env Config", body)
+
+    def test_env_config_requires_api_key(self) -> None:
+        response = runtime().handle(
+            method="GET",
+            target="/v1/env-config/schema",
+            headers={"content-type": "application/json"},
+        )
+        body = json_response(response.body)
+
+        self.assertEqual(response.status, 403)
+        self.assertEqual(body["error"]["code"], "AUTH_PERMISSION_DENIED")
+
+    def test_env_config_schema_snapshot_check_and_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_path = Path(temp_dir) / ".env"
+            env_path.write_text(
+                "\n".join(
+                    [
+                        "ROLEPLAY_API_KEY=secret",
+                        "OPENAI_API_KEY=cloud-secret",
+                        "MODEL_PROVIDER=fake",
+                        "MODEL_NAME=fake-one",
+                        "MODEL_ALIAS=fake-one",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            app = RoleplayHttpRuntime.from_env_file(
+                project_root=ROOT,
+                env={"ROLEPLAY_CONFIG_FILE": str(env_path)},
+            )
+            schema = app.handle(
+                method="GET",
+                target="/v1/env-config/schema",
+                headers=auth_headers(),
+            )
+            snapshot = app.handle(
+                method="GET",
+                target="/v1/env-config",
+                headers=auth_headers(),
+            )
+            check = app.handle(
+                method="POST",
+                target="/v1/env-config/check",
+                headers=auth_headers(),
+                body=json_body({"key": "MODEL_TIMEOUT_MS", "value": "0"}),
+            )
+            patch = app.handle(
+                method="PATCH",
+                target="/v1/env-config",
+                headers=auth_headers(),
+                body=json_body(
+                    {
+                        "values": {
+                            "MODEL_NAME": "fake-two",
+                            "MODEL_ALIAS": "fake-two",
+                        }
+                    }
+                ),
+            )
+            chat = app.handle(
+                method="POST",
+                target="/v1/chat",
+                headers=auth_headers(),
+                body=json_body(
+                    {
+                        **chat_body(),
+                        "generation": {"model": "fake-two"},
+                    }
+                ),
+            )
+
+        schema_body = json_response(schema.body)
+        snapshot_body = json_response(snapshot.body)
+        check_body = json_response(check.body)
+        patch_body = json_response(patch.body)
+        chat_body_data = json_response(chat.body)
+        serialized_snapshot = json.dumps(snapshot_body, ensure_ascii=False)
+
+        self.assertEqual(schema.status, 200)
+        self.assertTrue(
+            any(
+                field["key"] == "ROLEPLAY_API_KEY" and field["secret"]
+                for field in schema_body["data"]["fields"]
+            )
+        )
+        self.assertEqual(snapshot.status, 200)
+        self.assertEqual(
+            snapshot_body["data"]["values"]["OPENAI_API_KEY"]["status"],
+            "set",
+        )
+        self.assertNotIn("cloud-secret", serialized_snapshot)
+        self.assertEqual(check.status, 200)
+        self.assertFalse(check_body["data"]["valid"])
+        self.assertEqual(patch.status, 200)
+        self.assertEqual(patch_body["data"]["hot_reload"]["status"], "applied")
+        self.assertEqual(
+            patch_body["data"]["applied_keys"],
+            ["MODEL_NAME", "MODEL_ALIAS"],
+        )
+        self.assertEqual(chat.status, 200)
+        self.assertEqual(
+            chat_body_data["data"]["reply"],
+            "[fake:fake-two] 社团 活动 怎么安排？",
+        )
+
     def test_runtime_config_requires_api_key_even_in_local_runtime(self) -> None:
         response = runtime().handle(
             method="GET",
@@ -289,6 +462,8 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         app = runtime(
             {
                 "ROLEPLAY_API_KEY": "secret",
+                "ROLEPLAY_HOST": "0.0.0.0",
+                "ROLEPLAY_PORT": "8125",
                 "SESSION_PROVIDER": "memory",
                 "SESSION_RECENT_LIMIT": "4",
                 "SESSION_SQLITE_PATH": ".data/sessions.sqlite3",
@@ -303,9 +478,12 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         body = json_response(response.body)
 
         self.assertEqual(response.status, 200)
+        self.assertEqual(body["data"]["values"]["ROLEPLAY_HOST"], "0.0.0.0")
+        self.assertEqual(body["data"]["values"]["ROLEPLAY_PORT"], "8125")
         self.assertEqual(body["data"]["values"]["SESSION_PROVIDER"], "memory")
         self.assertEqual(body["data"]["values"]["SESSION_RECENT_LIMIT"], "4")
         self.assertIn("SESSION_RECENT_LIMIT", body["data"]["configurable_keys"])
+        self.assertIn("ROLEPLAY_PORT", body["data"]["restart_required_keys"])
         self.assertIn("SESSION_PROVIDER", body["data"]["restart_required_keys"])
 
     def test_runtime_config_patch_rebuilds_model_without_restart(self) -> None:
@@ -543,6 +721,19 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
             target="/v1/runtime-config",
             headers=auth_headers(),
             body=json_body({"values": {"SESSION_PROVIDER": "sqlite"}}),
+        )
+        body = json_response(response.body)
+
+        self.assertEqual(response.status, 400)
+        self.assertEqual(body["error"]["code"], "VALIDATION_ERROR")
+
+    def test_runtime_config_patch_rejects_http_port_hot_switch(self) -> None:
+        app = runtime({"ROLEPLAY_API_KEY": "secret"})
+        response = app.handle(
+            method="PATCH",
+            target="/v1/runtime-config",
+            headers=auth_headers(),
+            body=json_body({"values": {"ROLEPLAY_PORT": "8126"}}),
         )
         body = json_response(response.body)
 

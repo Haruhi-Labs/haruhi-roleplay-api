@@ -13,6 +13,12 @@
 - `POST /v1/env-config/check`
 - `PATCH /v1/env-config`
 
+当前仓库已提供最小受信任页面：
+
+```text
+http://127.0.0.1:8000/config
+```
+
 当前不新增配置 profile CRUD API。面板里的“创建”指创建一份待提交的 `.env` 配置草稿；如果后续需要保存多套命名配置方案，应单独设计服务端 profile 存储。
 
 ## 使用边界
@@ -20,7 +26,7 @@
 - 必须携带 `ROLEPLAY_API_KEY` 对应的 `Authorization: Bearer <key>` 或 `X-API-Key`。
 - 可以编辑 `.env` 中的普通字段、restart-required 字段和 secret 字段。
 - `DATABASE_URL`、`REDIS_URL`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY` 等 secret 可以设置新值，但接口响应和 UI 保存后只能显示状态，不回显原文。
-- `SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_POSTGRES_SCHEMA` 等有状态配置可以写入 `.env`，但必须提示需要重启服务后生效。
+- `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_POSTGRES_SCHEMA` 等启动级或有状态配置可以写入 `.env`，但必须提示需要重启服务后生效。
 - 普通聊天前端不展示该面板入口。
 - 不把 `.env` 原文完整返回给浏览器。
 - 不在浏览器 localStorage 保存 API key、secret 或连接串。
@@ -91,6 +97,15 @@
 6. check 通过后调用 `PATCH /v1/env-config`。
 7. 服务端写回 `.env`，返回 redacted snapshot、hot reload 结果和 restart-required 提示。
 8. 失败时展示 `error.code`、`error.message` 和字段级错误，不覆盖本地草稿。
+
+## 当前实现状态
+
+- 已实现 `/config` 零构建页面。
+- 已实现 schema、redacted snapshot、单字段 check、整份草稿 check 和 PATCH 写回。
+- 已实现 secret write-only：保存后只显示 `set`、`empty` 或 `missing`。
+- 已实现 `.env` 注释和未知 key 保留；未知 key 只展示 key 和状态，不允许通过 UI 修改。
+- 已实现保存后的 hot reload 结果提示；`ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`SESSION_PROVIDER`、数据库路径、PostgreSQL schema 等 restart-required 字段仍需要重启。
+- 未实现命名 profile CRUD、真实云服务连通性 smoke、用户权限系统和多租户后台。
 
 ## 验收标准
 

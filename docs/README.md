@@ -21,16 +21,22 @@
 5. `api-contract.md`
    查看对外 API 契约。
 
-6. `usage/frontend-integration.md`
-   前端接入从这里开始。
+6. `usage/frontend-api-calling.md`
+   前端调用完整手册从这里开始，包含 chat、stream、RAG、memory 和本地 demo 调用方式。
 
-7. `usage/config-panel.md`
+7. `usage/frontend-integration.md`
+   查看前端、业务后端和本项目中转服务的职责边界。
+
+8. `usage/backend-config.md`
+   后端配置从这里开始，包含最小 `.env`、配置分组、热更新边界和化简分析。
+
+9. `usage/config-panel.md`
    查看受信任全量 `.env` 编辑器的使用边界和设计规则。
 
-8. `usage/interface-reference.md`
+10. `usage/interface-reference.md`
    查看更完整的接口字段说明。
 
-9. `devlog.md`
+11. `devlog.md`
    查看开发记录。
 
 ## 目录说明

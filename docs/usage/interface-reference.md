@@ -379,7 +379,7 @@ item 字段：
 session 相关配置当前分两类：
 
 - `SESSION_RECENT_LIMIT` 属于 `configurable_keys`，可以热更新并影响后续 chat 读取最近消息的数量。
-- `SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS`、`SESSION_POSTGRES_SCHEMA` 等属于 `restart_required_keys`，管理前端可以展示，但不能通过 PATCH 热切换。
+- `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS`、`SESSION_POSTGRES_SCHEMA` 等属于 `restart_required_keys`，管理前端可以展示，但不能通过 PATCH 热切换。
 
 `DATABASE_URL` 是敏感连接串，不会出现在 `values`、`configurable_keys` 或 `restart_required_keys` 中，也不能通过 PATCH 写入。需要 PostgreSQL session store 时，应由服务端 `.env` 或部署平台 secret 注入。
 
@@ -422,13 +422,13 @@ session 相关配置当前分两类：
 
 服务端会先用候选配置构建 model router、RAG service、agent context planner 和 backend context provider，并校验 session runtime 参数；如果构建失败，不会写回 `.env`，当前运行配置也不会改变。
 
-`PATCH /v1/runtime-config` 不允许热切换 `SESSION_PROVIDER`。当前 session store 在服务启动时装配，热更新只支持 `SESSION_RECENT_LIMIT` 这类不会替换有状态 store 的运行参数。
+`PATCH /v1/runtime-config` 不允许热切换 `ROLEPLAY_PORT` 或 `SESSION_PROVIDER`。当前 HTTP 监听地址和 session store 在服务启动时装配，热更新只支持 `SESSION_RECENT_LIMIT` 这类不会替换有状态资源的运行参数。
 
 `AGENT_CONTEXT_PLANNER=model` 当前只是预留入口。它可以通过 runtime config 设置，但真实模型辅助 planner 未实现；设置后 chat 会返回 `MODEL_PROVIDER_ERROR`，直到后续补齐 planner prompt、结构化输出解析和安全校验。
 
-## Env Config Editor: Planned
+## Env Config Editor
 
-用途：提供受信任 `.env` 编辑器所需的 schema、redacted snapshot、字段 check 和保存能力。当前为规划接口，尚未实现。
+用途：提供受信任 `.env` 编辑器所需的 schema、redacted snapshot、字段 check 和保存能力。该组接口必须携带 `ROLEPLAY_API_KEY` 对应的 `Authorization: Bearer <key>` 或 `X-API-Key`。
 
 | Endpoint                    | 用途                                                |
 | --------------------------- | --------------------------------------------------- |
@@ -436,6 +436,12 @@ session 相关配置当前分两类：
 | `GET /v1/env-config`        | 返回当前 `.env` redacted 摘要                       |
 | `POST /v1/env-config/check` | 校验单字段或整份候选配置                            |
 | `PATCH /v1/env-config`      | 保存 `.env` 修改，返回 redacted snapshot 和生效提示 |
+
+本地受信任页面入口：
+
+```text
+http://127.0.0.1:8000/config
+```
 
 ### schema 字段
 
@@ -447,10 +453,36 @@ session 相关配置当前分两类：
 | secret           | 是否为敏感字段                                                         |
 | hot_reload       | 是否可在当前进程热更新                                                 |
 | restart_required | 是否需要重启服务完整生效                                               |
-| allowed_values   | enum 可选值                                                            |
-| dependencies     | 依赖字段说明                                                           |
+| enum             | enum 可选值                                                            |
+| min / max        | 数字字段范围                                                           |
 
 secret 字段在 `GET /v1/env-config` 响应中只返回 `set`、`empty` 或 `missing` 状态，不返回原文。
+
+`POST /v1/env-config/check` 支持两种请求：
+
+```json
+{ "key": "MODEL_TIMEOUT_MS", "value": "60000" }
+```
+
+```json
+{
+  "values": {
+    "RAG_PROVIDER": "qdrant",
+    "QDRANT_URL": "http://127.0.0.1:6333"
+  }
+}
+```
+
+check 成功执行时即使配置无效也返回 `ok=true`，并在 `data.valid=false`、`data.errors` 中说明原因；请求结构错误或不支持的 key 返回 `VALIDATION_ERROR`。
+
+`PATCH /v1/env-config` 写回 `.env` 前会先执行同一套 check。写入成功后返回：
+
+- `config`：新的 redacted snapshot。
+- `changes`：不含 secret 原文的 diff 摘要。
+- `hot_reload`：当前进程热更新结果。
+- `restart_required_keys`：保存后需要重启服务才能完整生效的字段。
+
+已知注释和未知 key 会被保留；编辑器只允许修改 schema 中声明的已知 key。
 
 ## 错误响应
 
