@@ -11,7 +11,6 @@ from uuid import uuid4
 
 from haruhi_roleplay_api.adapters import (
     InMemoryMemoryStore,
-    InMemorySessionStore,
     LocalPersonaRepository,
 )
 from haruhi_roleplay_api.api.chat import post_chat, post_chat_stream
@@ -21,8 +20,20 @@ from haruhi_roleplay_api.api.rag import post_rag_document, post_rag_search
 from haruhi_roleplay_api.api.responses import ApiResponse, error_response
 from haruhi_roleplay_api.api.sessions import post_session
 from haruhi_roleplay_api.application import PersonaPromptBuilder
-from haruhi_roleplay_api.application.errors import AppError, ERROR_STATUS, ErrorCode
+from haruhi_roleplay_api.application.errors import (
+    AppError,
+    ERROR_STATUS,
+    ErrorCode,
+    app_error_from_exception,
+)
 from haruhi_roleplay_api.domain import DTOValidationError
+from haruhi_roleplay_api.infrastructure.agent_planner_factory import (
+    build_agent_context_planner_from_env,
+)
+from haruhi_roleplay_api.infrastructure.backend_context_provider_factory import (
+    build_backend_context_provider_from_env,
+)
+from haruhi_roleplay_api.infrastructure.env_config_editor import EnvConfigEditor
 from haruhi_roleplay_api.infrastructure.models import (
     ModelProviderSettings,
     build_model_router,
@@ -31,6 +42,11 @@ from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     build_rag_service_from_env,
 )
 from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
+from haruhi_roleplay_api.infrastructure.session_store_factory import (
+    SessionStoreSettings,
+    build_session_store,
+)
+from haruhi_roleplay_api.ports import AgentContextPlanner, SessionStore
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -66,10 +82,14 @@ class RoleplayHttpRuntime:
         persona_repository: LocalPersonaRepository,
         prompt_builder: PersonaPromptBuilder,
         model_router: object,
-        session_store: InMemorySessionStore,
+        session_store: SessionStore,
+        session_recent_limit: int,
         memory_store: InMemoryMemoryStore,
         rag_service: object,
+        backend_context_provider: object | None,
+        agent_context_planner: AgentContextPlanner,
         runtime_config_store: RuntimeConfigStore,
+        env_config_editor: EnvConfigEditor,
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
     ) -> None:
@@ -77,9 +97,13 @@ class RoleplayHttpRuntime:
         self._prompt_builder = prompt_builder
         self._model_router = model_router
         self._session_store = session_store
+        self._session_recent_limit = session_recent_limit
         self._memory_store = memory_store
         self._rag_service = rag_service
+        self._backend_context_provider = backend_context_provider
+        self._agent_context_planner = agent_context_planner
         self._runtime_config_store = runtime_config_store
+        self._env_config_editor = env_config_editor
         self._api_key = api_key
         self._debug_trace_enabled = debug_trace_enabled
 
@@ -94,16 +118,26 @@ class RoleplayHttpRuntime:
         config_store = runtime_config_store or RuntimeConfigStore.in_memory(env)
         runtime_env = config_store.env()
         settings = HttpRuntimeSettings.from_env(runtime_env)
+        session_settings = SessionStoreSettings.from_mapping(runtime_env)
         return cls(
             persona_repository=LocalPersonaRepository(project_root / "personas"),
             prompt_builder=PersonaPromptBuilder(),
             model_router=build_model_router(
                 ModelProviderSettings.from_mapping(runtime_env)
             ),
-            session_store=InMemorySessionStore(),
+            session_store=build_session_store(session_settings),
+            session_recent_limit=session_settings.recentMessageLimit,
             memory_store=InMemoryMemoryStore(),
             rag_service=build_rag_service_from_env(runtime_env),
+            backend_context_provider=build_backend_context_provider_from_env(
+                runtime_env
+            ),
+            agent_context_planner=build_agent_context_planner_from_env(runtime_env),
             runtime_config_store=config_store,
+            env_config_editor=EnvConfigEditor(
+                base_env=env,
+                config_path=config_store.config_path,
+            ),
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
         )
@@ -134,6 +168,10 @@ class RoleplayHttpRuntime:
     ) -> HttpRuntimeResponse:
         headers = _normalized_headers(headers)
         request_id = _request_id(headers)
+        parsed = urlparse(target)
+        static_response = _demo_static_response(method, parsed.path)
+        if static_response is not None:
+            return static_response
         if method == "OPTIONS":
             return _empty_response(204)
         if not self._is_authorized(headers):
@@ -144,7 +182,6 @@ class RoleplayHttpRuntime:
                 ),
             )
 
-        parsed = urlparse(target)
         path_parts = _path_parts(parsed.path)
         query = _query_params(parsed.query)
         json_body = _json_body(body, request_id)
@@ -163,6 +200,8 @@ class RoleplayHttpRuntime:
             return _json_response(
                 get_personas(self._persona_repository, request_id),
             )
+        if len(path_parts) >= 2 and path_parts[:2] == ["v1", "env-config"]:
+            return self._env_config(method, path_parts, json_body, headers, request_id)
         if path_parts == ["v1", "runtime-config"]:
             return self._runtime_config(method, json_body, headers, request_id)
         if method == "POST" and path_parts == ["v1", "sessions"]:
@@ -183,6 +222,9 @@ class RoleplayHttpRuntime:
                     session_store=self._session_store,
                     memory_store=self._memory_store,
                     rag_service=self._rag_service,
+                    backend_context_provider=self._backend_context_provider,
+                    agent_context_planner=self._agent_context_planner,
+                    recent_message_limit=self._session_recent_limit,
                     request_id=request_id,
                     debug_trace_enabled=self._debug_trace_enabled,
                 )
@@ -254,6 +296,9 @@ class RoleplayHttpRuntime:
             session_store=self._session_store,
             memory_store=self._memory_store,
             rag_service=self._rag_service,
+            backend_context_provider=self._backend_context_provider,
+            agent_context_planner=self._agent_context_planner,
+            recent_message_limit=self._session_recent_limit,
             request_id=request_id,
             debug_trace_enabled=self._debug_trace_enabled,
         )
@@ -270,6 +315,109 @@ class RoleplayHttpRuntime:
             },
             body=_sse_body(events),
         )
+
+    def _env_config(
+        self,
+        method: str,
+        path_parts: list[str],
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        request_id: str,
+    ) -> HttpRuntimeResponse:
+        if not self._is_config_authorized(headers):
+            return _json_response(
+                error_response(
+                    AppError(
+                        code=ErrorCode.AUTH_PERMISSION_DENIED,
+                        message="Env config API requires ROLEPLAY_API_KEY.",
+                    ),
+                    request_id,
+                )
+            )
+        try:
+            if method == "GET" and path_parts == ["v1", "env-config", "schema"]:
+                return _json_response(
+                    {
+                        "ok": True,
+                        "data": self._env_config_editor.schema(),
+                        "request_id": request_id,
+                    }
+                )
+            if method == "GET" and path_parts == ["v1", "env-config"]:
+                return _json_response(
+                    {
+                        "ok": True,
+                        "data": self._env_config_editor.snapshot(),
+                        "request_id": request_id,
+                    }
+                )
+            if method == "POST" and path_parts == ["v1", "env-config", "check"]:
+                return _json_response(
+                    {
+                        "ok": True,
+                        "data": self._env_config_editor.check(body).to_data(),
+                        "request_id": request_id,
+                    }
+                )
+            if method == "PATCH" and path_parts == ["v1", "env-config"]:
+                result = self._env_config_editor.commit(body)
+                result["hot_reload"] = self._reload_runtime_after_env_config(
+                    result["hot_reload_keys"]
+                )
+                return _json_response(
+                    {
+                        "ok": True,
+                        "data": result,
+                        "request_id": request_id,
+                    }
+                )
+        except Exception as exc:
+            return _json_response(error_response(exc, request_id))
+        return _json_response(
+            {
+                "ok": False,
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Route was not found.",
+                },
+                "request_id": request_id,
+            },
+            status=404,
+        )
+
+    def _reload_runtime_after_env_config(
+        self,
+        hot_reload_keys: list[str],
+    ) -> dict[str, Any]:
+        if not hot_reload_keys:
+            return {"status": "skipped", "applied_keys": []}
+        self._runtime_config_store.refresh()
+        env = self._runtime_config_store.env()
+        try:
+            model_router = build_model_router(ModelProviderSettings.from_mapping(env))
+            rag_service = build_rag_service_from_env(env)
+            backend_context_provider = build_backend_context_provider_from_env(env)
+            agent_context_planner = build_agent_context_planner_from_env(env)
+            session_settings = SessionStoreSettings.from_mapping(env)
+            settings = HttpRuntimeSettings.from_env(env)
+        except Exception as exc:
+            app_error = app_error_from_exception(exc)
+            return {
+                "status": "failed",
+                "applied_keys": [],
+                "error": {
+                    "code": app_error.code.value,
+                    "message": app_error.public_message,
+                },
+            }
+        self._model_router = model_router
+        self._rag_service = rag_service
+        self._backend_context_provider = backend_context_provider
+        self._agent_context_planner = agent_context_planner
+        self._session_recent_limit = session_settings.recentMessageLimit
+        self._api_key = settings.api_key
+        self._debug_trace_enabled = settings.debug_trace_enabled
+        return {"status": "applied", "applied_keys": list(hot_reload_keys)}
 
     def _runtime_config(
         self,
@@ -306,10 +454,20 @@ class RoleplayHttpRuntime:
                     ModelProviderSettings.from_mapping(candidate_env)
                 )
                 rag_service = build_rag_service_from_env(candidate_env)
+                backend_context_provider = build_backend_context_provider_from_env(
+                    candidate_env
+                )
+                agent_context_planner = build_agent_context_planner_from_env(
+                    candidate_env
+                )
+                session_settings = SessionStoreSettings.from_mapping(candidate_env)
                 settings = HttpRuntimeSettings.from_env(candidate_env)
                 applied_keys = self._runtime_config_store.commit(update)
                 self._model_router = model_router
                 self._rag_service = rag_service
+                self._backend_context_provider = backend_context_provider
+                self._agent_context_planner = agent_context_planner
+                self._session_recent_limit = session_settings.recentMessageLimit
                 self._api_key = settings.api_key
                 self._debug_trace_enabled = settings.debug_trace_enabled
             except Exception as exc:
@@ -415,6 +573,56 @@ def _json_response(
 
 def _empty_response(status: int) -> HttpRuntimeResponse:
     return HttpRuntimeResponse(status=status, headers=_base_headers(), body=b"")
+
+
+def _demo_static_response(method: str, path: str) -> HttpRuntimeResponse | None:
+    if method != "GET":
+        return None
+    mount = _static_mount(path)
+    if mount is None:
+        return None
+    prefix, index_file = mount
+    relative_path = index_file
+    if path.startswith(f"{prefix}/") and path != f"{prefix}/":
+        relative_path = unquote(path.removeprefix(f"{prefix}/"))
+    if not relative_path or relative_path.endswith("/"):
+        relative_path = f"{relative_path}{index_file}"
+    if "\\" in relative_path:
+        return _empty_response(404)
+    demo_root = _project_root() / "frontend-demo"
+    resolved_root = demo_root.resolve()
+    target = (demo_root / relative_path).resolve()
+    if not target.is_relative_to(resolved_root) or not target.is_file():
+        return _empty_response(404)
+    return HttpRuntimeResponse(
+        status=200,
+        headers={
+            **_base_headers(),
+            "Content-Type": _content_type(target),
+            "Cache-Control": "no-store",
+        },
+        body=target.read_bytes(),
+    )
+
+
+def _static_mount(path: str) -> tuple[str, str] | None:
+    for prefix, index_file in {"/demo": "index.html", "/config": "config.html"}.items():
+        if path in {prefix, f"{prefix}/"} or path.startswith(f"{prefix}/"):
+            return prefix, index_file
+    return None
+
+
+def _content_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".html":
+        return "text/html; charset=utf-8"
+    if suffix == ".css":
+        return "text/css; charset=utf-8"
+    if suffix == ".js":
+        return "text/javascript; charset=utf-8"
+    if suffix == ".json":
+        return "application/json; charset=utf-8"
+    return "application/octet-stream"
 
 
 def _base_headers() -> dict[str, str]:

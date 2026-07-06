@@ -29,6 +29,7 @@ class PersonaPromptBuilder:
                 *_recent_message_section(prompt_input),
                 *_memory_item_section(prompt_input),
                 *_rag_chunk_section(prompt_input),
+                *_backend_context_section(prompt_input),
                 PromptMessage(role="user", content=prompt_input.userMessage),
             )
         )
@@ -133,6 +134,22 @@ def _rag_chunk_section(prompt_input: PromptBuildInput) -> tuple[PromptMessage, .
             f"spoilerLevel={chunk.metadata.spoilerLevel})"
         )
     lines.append("- 只把这些资料作为当前对话的辅助上下文，不要逐字复述来源。")
+    return (PromptMessage(role="system", content="\n".join(lines)),)
+
+
+def _backend_context_section(
+    prompt_input: PromptBuildInput,
+) -> tuple[PromptMessage, ...]:
+    if not prompt_input.backendContextFacts:
+        return ()
+    lines = ["业务后端上下文摘要："]
+    for index, fact in enumerate(prompt_input.backendContextFacts, start=1):
+        lines.append(
+            f"- [{index}] source={fact.source}, key={fact.key}, "
+            f"confidence={fact.confidence:.2f}, ttl={fact.ttlSeconds}s: "
+            f"{fact.content}"
+        )
+    lines.append("- 只把这些事实作为当前业务状态参考，不要暴露内部字段或声称正在读取后端。")
     return (PromptMessage(role="system", content="\n".join(lines)),)
 
 

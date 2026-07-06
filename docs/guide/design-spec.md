@@ -17,6 +17,7 @@
 9. HTTP 运行层只负责协议和响应格式，不写业务编排。
 10. Agent 只能通过白名单 port 调度上下文，不能直接拼 URL、SQL 或 provider 参数。
 11. 前端 demo 只验证接入体验，不承担业务后端、安全策略或 provider 配置职责。
+12. 全量 `.env` 编辑器是受信任管理 UI，必须与普通聊天 UI 分离。
 
 ## 推荐分层
 
@@ -83,6 +84,7 @@
 - HTTP adapter 不直接创建具体 provider。
 - SSE event 必须来自 application 层的统一 stream event，不在 HTTP 层重组业务字段。
 - 本地 demo 可以直连本项目本地 HTTP 服务；真实产品前端必须经过业务后端。
+- Runtime config 可以热更新无状态或可安全重建的 provider；session store 这类有状态资源只能在启动时装配，运行中最多热更新 `SESSION_RECENT_LIMIT` 这类不替换 store 的参数。
 
 ## RAG 设计规范
 
@@ -98,6 +100,8 @@
 ## Memory 设计规范
 
 - 记忆不是聊天记录。
+- Session recent messages 不是长期记忆，只表示当前连续会话最近 N 条原始消息。
+- Session summary 是未来长对话压缩能力，不应写入 `MemoryStore`，也不应由普通前端直接编辑。
 - 写入记忆必须经过 MemoryPolicy。
 - 用户可以删除记忆。
 - persona mode 专属记忆不能污染其它模式。
@@ -108,9 +112,12 @@
 
 - Agent planner 的输出必须是结构化 `ContextPlan`，不能是自由文本指令。
 - `ContextPlan` 只能包含白名单 source，例如 `session`、`memory`、`rag`、`backend_context`。
-- ContextExecutor 负责执行 plan，模型 provider 不直接访问工具。
-- planner v1 优先使用确定性规则，不先依赖大模型自我规划。
-- 模型辅助 planner 只能作为后续增强，并且必须保留可观测 debug trace。
+- Orchestrator/ContextExecutor 负责执行 plan，模型 provider 不直接访问工具。
+- Backend context source 必须由服务端配置或业务后端策略决定，不能由普通前端用户直接选择。
+- Backend context 进入 prompt 前必须转换成 `BackendContextFact`，不能把原始业务 JSON 全量注入 prompt。
+- planner v1 使用确定性规则，不依赖大模型自我规划。
+- `AGENT_CONTEXT_PLANNER=model` 只是后续增强入口，当前未实现，不能作为可用功能对普通用户开放。
+- 模型辅助 planner 后续实现时必须保留结构化输出校验、失败回退和可观测 debug trace。
 - agent debug 只能返回计划摘要、source 数量和阶段，不返回完整 prompt、secret 或原始业务数据。
 
 ## API 设计规范
@@ -153,3 +160,16 @@
 - 不在前端保存 API key。
 - 优先使用项目内约定的 Haruhi UI 风格；如果引入外部框架，只能作为 demo 工程依赖，不能反向污染 API 核心层。
 
+## `.env` 编辑器规范
+
+- `.env` 编辑器只能出现在本地 demo 或受信任后台入口。
+- `.env` 编辑器必须调用 Env Config Editor API，不能让前端直接读写本地文件。
+- 编辑器应覆盖 `.env.example`、runtime config、provider factory 和 store factory 中的已知配置字段。
+- 所有字段必须有 schema：type、group、default、required、secret、hotReload、restartRequired、dependencies。
+- `DATABASE_URL`、`REDIS_URL`、`*_API_KEY`、`TOKEN`、`SECRET`、`PASSWORD` 可以设置新值，但保存后不能回显原文。
+- restart-required 字段可以写入 `.env`，但必须明确提示需要重启服务。
+- 创建配置时先生成草稿、字段 check 和 diff preview，再提交保存。
+- check 必须覆盖字段类型、枚举、JSON、URL、路径、依赖关系和当前未实现能力风险。
+- provider、RAG、embedding、agent、backend context、session 参数必须分组展示。
+- `AGENT_CONTEXT_PLANNER=model` 只能显示为预留状态，不能作为可用推荐项。
+- 普通聊天用户不能看到 provider、数据库、向量库或密钥相关配置。

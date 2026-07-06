@@ -1,5 +1,6 @@
 """External system adapters."""
 
+from haruhi_roleplay_api.adapters.backend_context import FakeBackendContextProvider
 from haruhi_roleplay_api.adapters.embeddings import (
     HashEmbeddingProvider,
     LocalOpenAICompatibleEmbeddingProvider,
@@ -22,10 +23,13 @@ from haruhi_roleplay_api.adapters.rag_qdrant import QdrantRagService
 from haruhi_roleplay_api.adapters.rag_vector import LocalVectorRagService
 from haruhi_roleplay_api.adapters.rag import FakeRagService, LocalRagService
 from haruhi_roleplay_api.adapters.sessions import InMemorySessionStore
+from haruhi_roleplay_api.adapters.sessions_postgres import PostgresSessionStore
+from haruhi_roleplay_api.adapters.sessions_sqlite import SQLiteSessionStore
 
 __all__ = [
     "DeepSeekModelProvider",
     "FakeModelProvider",
+    "FakeBackendContextProvider",
     "FakeRagService",
     "GeminiModelProvider",
     "HashEmbeddingProvider",
@@ -42,6 +46,8 @@ __all__ = [
     "OpenAIModelProvider",
     "OpenAIEmbeddingProvider",
     "OpenAICompatibleModelProvider",
+    "PostgresSessionStore",
     "QdrantRagService",
+    "SQLiteSessionStore",
 ]
 

@@ -14,6 +14,7 @@
 2. 可用后端实现是必须项，但要按 provider 一个个接入，不能一次性接完 Ollama、DeepSeek、OpenAI、云端 RAG。
 3. 完整 Agent 编排是项目的中长期核心，但第一版必须先做 deterministic planner，再考虑模型辅助 planner。
 4. 最简前端 demo 合理，但它应该验证接入体验，不应该变成完整产品后台。
+5. 受信任全量 `.env` 编辑器合理，但应放在普通聊天 demo 之后，用于本地开发和受控后台；它可以编辑 secret 和 restart-required 字段，但必须通过字段 schema、check、redaction 和重启提示保证安全。
 
 不合理的部分是交付方式：如果把以上内容作为一个大任务实现，会造成 diff 过大、测试困难、人工 review 负担过高，也会让 provider、Agent、UI 的问题互相干扰。因此必须拆成可独立验证的 cards。
 
@@ -52,6 +53,7 @@
 | Phase G | Provider Pack 产品化  | Ollama/OpenAI-compatible、DeepSeek、OpenAI、本地/云端 RAG 可替换     |
 | Phase H | Agent 编排 v1         | 能根据请求分析上下文需求，调度 session、memory、RAG 和业务后端上下文 |
 | Phase I | 前端 Demo             | 最简聊天界面可选择角色、发消息、展示 stream、source 和 memory 状态   |
+| Phase J | `.env` 编辑器         | 受信任页面可查看 `.env` 摘要、创建配置草稿、check 字段并保存配置     |
 
 ## 当前优先级
 
@@ -61,6 +63,7 @@
 4. 把 RAG 拆成本地检索和云端检索两类 provider，先稳定 port，再接具体实现。
 5. 增加 AgentContextPlanner 和 ContextExecutor，让本项目能分析请求并决定要拉取哪些上下文。
 6. 做最简前端 demo，用 catalog 选择角色，用 chat/stream 展示回复和 sources。
+7. 做受信任 `.env` 编辑器，用独立 env config API 查看、选择、check 和保存配置草稿。
 
 完成以上步骤后，项目进入“可被前端真实接入的 Roleplay API 中转服务”状态。
 
@@ -74,3 +77,4 @@
 - 不让前端直接选择真实 provider、数据库、向量库或密钥。
 - Agent 先做 deterministic planner，再考虑模型辅助 planner。
 - 前端 demo 先做最小聊天体验，不先做完整产品后台。
+- `.env` 编辑器只面向本地开发或受信任后台，不进入普通聊天 UI。

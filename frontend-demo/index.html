@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Haruhi Roleplay Demo</title>
+    <link rel="stylesheet" href="/demo/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="角色与连接">
+        <div class="brand">
+          <div class="brand-mark">SOS</div>
+          <div>
+            <h1>Haruhi API</h1>
+            <p>Roleplay Demo</p>
+          </div>
+        </div>
+
+        <section class="panel connection-panel">
+          <div class="section-title">
+            <span>Connection</span>
+            <span id="connectionStatus" class="status-pill">idle</span>
+          </div>
+          <label class="field">
+            <span>API Base</span>
+            <input id="apiBaseInput" type="url" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>API Key</span>
+            <input id="apiKeyInput" type="password" autocomplete="off" />
+          </label>
+          <div class="button-row">
+            <button id="connectButton" class="secondary-button" type="button">Connect</button>
+            <button id="newSessionButton" class="secondary-button" type="button">New Session</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <span>Characters</span>
+            <span id="characterCount" class="muted-count">0</span>
+          </div>
+          <div id="characterList" class="character-list"></div>
+        </section>
+
+        <section class="panel compact-panel">
+          <div class="section-title">
+            <span>Session</span>
+            <span id="sessionBadge" class="status-pill">new</span>
+          </div>
+          <label class="field">
+            <span>User</span>
+            <input id="userIdInput" type="text" value="demo-user" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>App</span>
+            <input id="appIdInput" type="text" value="web-demo" autocomplete="off" />
+          </label>
+        </section>
+      </aside>
+
+      <main class="chat-main">
+        <header class="chat-header">
+          <div class="active-persona">
+            <div id="personaAvatar" class="persona-avatar">H</div>
+            <div>
+              <h2 id="activeCharacterName">Roleplay Demo</h2>
+              <p id="activeModeName">Loading catalog...</p>
+            </div>
+          </div>
+          <div class="header-controls">
+            <label class="select-field">
+              <span>Mode</span>
+              <select id="modeSelect"></select>
+            </label>
+            <label class="select-field model-field">
+              <span>Model</span>
+              <input id="modelInput" type="text" value="fake-roleplay-model" autocomplete="off" />
+            </label>
+          </div>
+        </header>
+
+        <div class="toggle-bar" aria-label="能力开关">
+          <label><input id="streamToggle" type="checkbox" checked /> Stream</label>
+          <label><input id="sessionToggle" type="checkbox" /> Session</label>
+          <label><input id="ragToggle" type="checkbox" /> RAG</label>
+          <label><input id="memoryToggle" type="checkbox" /> Memory</label>
+          <label><input id="debugToggle" type="checkbox" checked /> Debug</label>
+        </div>
+
+        <section id="messageList" class="message-list" aria-live="polite"></section>
+
+        <form id="composerForm" class="composer">
+          <textarea id="messageInput" rows="1" placeholder="输入一条消息"></textarea>
+          <button id="sendButton" class="primary-button" type="submit">Send</button>
+        </form>
+      </main>
+
+      <aside class="inspector" aria-label="上下文面板">
+        <section class="panel">
+          <div class="section-title">
+            <span>Sources</span>
+            <span id="sourceCount" class="muted-count">0</span>
+          </div>
+          <div id="sourceList" class="source-list empty-panel">No sources</div>
+        </section>
+
+        <section class="panel">
+          <div class="section-title">
+            <span>Knowledge Seed</span>
+            <span id="ragStatus" class="status-pill">idle</span>
+          </div>
+          <label class="field">
+            <span>Title</span>
+            <input id="ragTitleInput" type="text" value="Demo SOS Note" />
+          </label>
+          <textarea id="ragContentInput" class="seed-input" rows="5">社团 活动 计划：春日会主动安排调查、招募和临时会议。</textarea>
+          <button id="ragImportButton" class="secondary-button full-width" type="button">Import RAG</button>
+        </section>
+
+        <details class="panel debug-panel">
+          <summary class="section-title">
+            <span>Debug</span>
+            <span id="latencyBadge" class="muted-count">0ms</span>
+          </summary>
+          <pre id="debugOutput" class="debug-output">{}</pre>
+        </details>
+      </aside>
+    </div>
+
+    <script src="/demo/app.js" type="module"></script>
+  </body>
+</html>

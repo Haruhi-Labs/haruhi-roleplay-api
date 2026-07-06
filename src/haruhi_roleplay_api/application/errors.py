@@ -18,6 +18,7 @@ class ErrorCode(StrEnum):
     PERSONA_MODE_NOT_FOUND = "PERSONA_MODE_NOT_FOUND"
     SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
     SESSION_EXPIRED = "SESSION_EXPIRED"
+    SESSION_PROVIDER_ERROR = "SESSION_PROVIDER_ERROR"
     RAG_DOCUMENT_NOT_FOUND = "RAG_DOCUMENT_NOT_FOUND"
     RAG_PROVIDER_ERROR = "RAG_PROVIDER_ERROR"
     RAG_INGEST_FAILED = "RAG_INGEST_FAILED"
@@ -39,6 +40,7 @@ ERROR_STATUS: Mapping[ErrorCode, int] = {
     ErrorCode.PERSONA_MODE_NOT_FOUND: 404,
     ErrorCode.SESSION_NOT_FOUND: 404,
     ErrorCode.SESSION_EXPIRED: 410,
+    ErrorCode.SESSION_PROVIDER_ERROR: 502,
     ErrorCode.RAG_DOCUMENT_NOT_FOUND: 404,
     ErrorCode.RAG_PROVIDER_ERROR: 502,
     ErrorCode.RAG_INGEST_FAILED: 500,
@@ -60,6 +62,7 @@ DEFAULT_MESSAGES: Mapping[ErrorCode, str] = {
     ErrorCode.PERSONA_MODE_NOT_FOUND: "Persona preset was not found.",
     ErrorCode.SESSION_NOT_FOUND: "Session was not found.",
     ErrorCode.SESSION_EXPIRED: "Session has expired.",
+    ErrorCode.SESSION_PROVIDER_ERROR: "Session provider failed.",
     ErrorCode.RAG_DOCUMENT_NOT_FOUND: "RAG document was not found.",
     ErrorCode.RAG_PROVIDER_ERROR: "RAG provider failed.",
     ErrorCode.RAG_INGEST_FAILED: "RAG ingest failed.",

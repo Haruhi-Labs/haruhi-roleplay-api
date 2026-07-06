@@ -11,11 +11,15 @@ from haruhi_roleplay_api.application.errors import (
     ErrorCode,
     app_error_from_exception,
 )
+from haruhi_roleplay_api.application.agent import DeterministicAgentContextPlanner
 from haruhi_roleplay_api.application.memory import DefaultMemoryPolicyEngine
 from haruhi_roleplay_api.domain import (
     ChatInput,
     ChatOutput,
     ChatStreamEvent,
+    BackendContextFact,
+    BackendContextRequest,
+    ContextPlan,
     DebugTrace,
     DTOValidationError,
     MemoryItem,
@@ -39,6 +43,8 @@ from haruhi_roleplay_api.domain import (
     model_messages_from_prompt,
 )
 from haruhi_roleplay_api.ports import (
+    AgentContextPlanner,
+    BackendContextProvider,
     ChatModelRouter,
     MemoryPolicyEngine,
     MemoryStore,
@@ -69,6 +75,8 @@ class _PreparedChat:
     recent_messages: tuple[object, ...]
     memory_items: tuple[MemoryItem, ...]
     rag_output: RagRetrieveOutput | None
+    backend_context_facts: tuple[BackendContextFact, ...]
+    context_plan: ContextPlan
     model_messages: tuple[ModelMessage, ...]
 
 
@@ -83,6 +91,8 @@ class RoleplayOrchestrator:
         memory_store: MemoryStore | None = None,
         memory_policy_engine: MemoryPolicyEngine | None = None,
         rag_service: RagService | None = None,
+        backend_context_provider: BackendContextProvider | None = None,
+        agent_context_planner: AgentContextPlanner | None = None,
         recent_message_limit: int = 12,
         memory_read_limit: int = 5,
         rag_top_k: int = 5,
@@ -95,6 +105,10 @@ class RoleplayOrchestrator:
         self._memory_store = memory_store
         self._memory_policy_engine = memory_policy_engine or DefaultMemoryPolicyEngine()
         self._rag_service = rag_service
+        self._backend_context_provider = backend_context_provider
+        self._agent_context_planner = (
+            agent_context_planner or DeterministicAgentContextPlanner()
+        )
         self._recent_message_limit = recent_message_limit
         self._memory_read_limit = memory_read_limit
         self._rag_top_k = rag_top_k
@@ -173,14 +187,24 @@ class RoleplayOrchestrator:
             self._persona_repository,
             chat_input,
         )
+        _record_event(events, "plan_context")
+        context_plan = self._agent_context_planner.plan(
+            chat_input=chat_input,
+            persona=persona,
+        )
         _record_event(events, "load_session")
-        session = self._session_for_chat(chat_input)
+        session = self._session_for_chat(chat_input, context_plan)
         _record_event(events, "read_session_messages")
-        recent_messages = self._recent_messages(chat_input)
+        recent_messages = self._recent_messages(chat_input, context_plan)
         _record_event(events, "read_memory")
-        memory_items = self._memory_for_chat(chat_input, persona)
+        memory_items = self._memory_for_chat(chat_input, persona, context_plan)
         _record_event(events, "retrieve_rag")
-        rag_output = self._rag_for_chat(chat_input, persona)
+        rag_output = self._rag_for_chat(chat_input, persona, context_plan)
+        _record_event(events, "read_backend_context")
+        backend_context_facts = self._backend_context_for_chat(
+            chat_input,
+            context_plan,
+        )
         _record_event(events, "build_prompt")
         prompt_output = self._prompt_builder.build(
             PromptBuildInput(
@@ -192,6 +216,7 @@ class RoleplayOrchestrator:
                 recentMessages=recent_messages,
                 memoryItems=memory_items,
                 ragChunks=rag_output.chunks if rag_output is not None else (),
+                backendContextFacts=backend_context_facts,
             )
         )
         return _PreparedChat(
@@ -202,6 +227,8 @@ class RoleplayOrchestrator:
             recent_messages=recent_messages,
             memory_items=memory_items,
             rag_output=rag_output,
+            backend_context_facts=backend_context_facts,
+            context_plan=context_plan,
             model_messages=model_messages_from_prompt(prompt_output.messages),
         )
 
@@ -247,14 +274,20 @@ class RoleplayOrchestrator:
                 memory_read_count=len(prepared.memory_items),
                 memory_write_count=len(written_memories),
                 rag_output=prepared.rag_output,
+                backend_context_facts=prepared.backend_context_facts,
+                context_plan=prepared.context_plan,
                 started_at=prepared.started_at,
                 events=tuple(prepared.events),
                 enabled=self._debug_trace_enabled,
             ),
         )
 
-    def _session_for_chat(self, chat_input: ChatInput) -> Session | None:
-        if not chat_input.capabilities.continuousSession:
+    def _session_for_chat(
+        self,
+        chat_input: ChatInput,
+        context_plan: ContextPlan,
+    ) -> Session | None:
+        if not context_plan.readSession:
             return None
         if self._session_store is None:
             raise DTOValidationError("sessionStore is required for continuous session")
@@ -265,8 +298,12 @@ class RoleplayOrchestrator:
         _ensure_session_scope(session, chat_input)
         return session
 
-    def _recent_messages(self, chat_input: ChatInput):
-        if not chat_input.capabilities.continuousSession:
+    def _recent_messages(
+        self,
+        chat_input: ChatInput,
+        context_plan: ContextPlan,
+    ):
+        if not context_plan.readSession:
             return ()
         if self._session_store is None or chat_input.sessionId is None:
             return ()
@@ -293,8 +330,9 @@ class RoleplayOrchestrator:
         self,
         chat_input: ChatInput,
         persona: PersonaPreset,
+        context_plan: ContextPlan,
     ) -> tuple[MemoryItem, ...]:
-        if not chat_input.capabilities.memory:
+        if not context_plan.readMemory:
             return ()
         if self._memory_store is None:
             raise DTOValidationError("memoryStore is required for memory")
@@ -366,8 +404,9 @@ class RoleplayOrchestrator:
         self,
         chat_input: ChatInput,
         persona: PersonaPreset,
+        context_plan: ContextPlan,
     ) -> RagRetrieveOutput | None:
-        if not chat_input.capabilities.rag:
+        if not context_plan.retrieveRag:
             return None
         if self._rag_service is None:
             raise DTOValidationError("ragService is required for RAG")
@@ -381,6 +420,27 @@ class RoleplayOrchestrator:
                 topK=self._rag_top_k,
                 filters=_rag_filters_for_chat(chat_input, persona),
                 debug=chat_input.capabilities.debugTrace,
+            )
+        )
+
+    def _backend_context_for_chat(
+        self,
+        chat_input: ChatInput,
+        context_plan: ContextPlan,
+    ) -> tuple[BackendContextFact, ...]:
+        if not context_plan.backendFetches:
+            return ()
+        if self._backend_context_provider is None:
+            raise DTOValidationError(
+                "backendContextProvider is required for backend context"
+            )
+        return self._backend_context_provider.fetch(
+            BackendContextRequest(
+                appId=chat_input.appId,
+                userId=chat_input.userId,
+                characterId=chat_input.characterId,
+                personaMode=chat_input.personaMode,
+                sources=context_plan.backendFetches,
             )
         )
 
@@ -445,6 +505,8 @@ def _debug_trace_for_chat(
     memory_read_count: int,
     memory_write_count: int,
     rag_output: RagRetrieveOutput | None,
+    backend_context_facts: tuple[BackendContextFact, ...],
+    context_plan: ContextPlan,
     started_at: float,
     events: tuple[str, ...],
     enabled: bool,
@@ -464,6 +526,8 @@ def _debug_trace_for_chat(
         ragFilteredHitCount=(
             rag_output.filteredHitCount if rag_output is not None else 0
         ),
+        backendContextFactCount=len(backend_context_facts),
+        backendContextSources=_backend_context_sources(backend_context_facts),
         modelProvider=model_response.provider,
         modelRoute=model_response.model,
         safetyAction="allow",
@@ -471,7 +535,14 @@ def _debug_trace_for_chat(
         capabilities=_capability_trace(chat_input),
         events=events,
         modelDebug=model_response.debug,
+        contextPlan=context_plan.to_debug_mapping(),
     ).to_mapping()
+
+
+def _backend_context_sources(
+    facts: tuple[BackendContextFact, ...],
+) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(fact.source for fact in facts))
 
 
 def _capability_trace(chat_input: ChatInput) -> dict[str, bool]:

@@ -14,6 +14,10 @@ CONFIG_VALUES_FIELD = "values"
 
 # TODO: 把可提供配置项单独封装
 RUNTIME_CONFIG_KEYS = (
+    "AGENT_CONTEXT_PLANNER",
+    "BACKEND_CONTEXT_ALLOWED_SOURCES",
+    "BACKEND_CONTEXT_PROVIDER",
+    "BACKEND_CONTEXT_SOURCES",
     "ENABLE_DEBUG_TRACE",
     "MODEL_ALIAS",
     "MODEL_API_KEY_ENV",
@@ -35,6 +39,7 @@ RUNTIME_CONFIG_KEYS = (
     "QDRANT_COLLECTION",
     "QDRANT_TIMEOUT_MS",
     "QDRANT_ENSURE_COLLECTION",
+    "SESSION_RECENT_LIMIT",
     "EMBEDDING_PROVIDER",
     "EMBEDDING_MODEL",
     "EMBEDDING_BASE_URL",
@@ -42,6 +47,23 @@ RUNTIME_CONFIG_KEYS = (
     "EMBEDDING_TIMEOUT_MS",
     "EMBEDDING_API_KEY_ENV",
     "EMBEDDING_PATH",
+)
+
+RUNTIME_CONFIG_RESTART_REQUIRED_KEYS = (
+    "ROLEPLAY_HOST",
+    "ROLEPLAY_PORT",
+    "SESSION_PROVIDER",
+    "SESSION_TTL_SECONDS",
+    "SESSION_AUTO_CREATE_SCHEMA",
+    "SESSION_SQLITE_PATH",
+    "SESSION_SQLITE_BUSY_TIMEOUT_MS",
+    "SESSION_POSTGRES_SCHEMA",
+    "SESSION_POSTGRES_TABLE_PREFIX",
+    "SESSION_POSTGRES_POOL_SIZE",
+)
+
+RUNTIME_CONFIG_SNAPSHOT_KEYS = (
+    RUNTIME_CONFIG_KEYS + RUNTIME_CONFIG_RESTART_REQUIRED_KEYS
 )
 
 _RUNTIME_CONFIG_KEY_SET = set(RUNTIME_CONFIG_KEYS)
@@ -89,8 +111,16 @@ class RuntimeConfigStore:
         return str(self._config_path) if self._config_path else "memory"
 
     @property
+    def config_path(self) -> Path | None:
+        return self._config_path
+
+    @property
     def persists_updates(self) -> bool:
         return self._config_path is not None
+
+    def refresh(self) -> None:
+        if self._config_path is not None:
+            self._file_values = _read_env_file(self._config_path)
 
     def env(self) -> dict[str, str]:
         merged = dict(self._base_env)
@@ -101,13 +131,14 @@ class RuntimeConfigStore:
         env = self.env()
         values = {
             key: _public_value(key, env[key])
-            for key in RUNTIME_CONFIG_KEYS
+            for key in RUNTIME_CONFIG_SNAPSHOT_KEYS
             if key in env
         }
         return {
             "source": self.source,
             "persists_updates": self.persists_updates,
             "configurable_keys": list(RUNTIME_CONFIG_KEYS),
+            "restart_required_keys": list(RUNTIME_CONFIG_RESTART_REQUIRED_KEYS),
             "values": values,
         }
 

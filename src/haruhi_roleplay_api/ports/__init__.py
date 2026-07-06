@@ -1,5 +1,7 @@
 """Application ports."""
 
+from haruhi_roleplay_api.ports.agent import AgentContextPlanner
+from haruhi_roleplay_api.ports.backend_context import BackendContextProvider
 from haruhi_roleplay_api.ports.embeddings import TextEmbeddingProvider
 from haruhi_roleplay_api.ports.memory import MemoryPolicyEngine, MemoryStore
 from haruhi_roleplay_api.ports.models import ChatModelRouter
@@ -14,6 +16,8 @@ __all__ = [
     "ChatModelProvider",
     "MemoryPolicyEngine",
     "MemoryStore",
+    "AgentContextPlanner",
+    "BackendContextProvider",
     "PersonaRepository",
     "PromptBuilder",
     "RagIngestService",

@@ -310,6 +310,7 @@ memory item 字段：
 | PERSONA_NOT_FOUND      | 角色不存在         |
 | PERSONA_MODE_NOT_FOUND | preset 不存在      |
 | SESSION_NOT_FOUND      | session 不存在     |
+| SESSION_PROVIDER_ERROR | session provider 失败 |
 | RAG_PROVIDER_ERROR     | RAG provider 失败  |
 | MODEL_PROVIDER_ERROR   | 模型 provider 失败 |
 | MODEL_TIMEOUT          | 模型超时           |

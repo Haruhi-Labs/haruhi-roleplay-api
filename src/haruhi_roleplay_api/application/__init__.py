@@ -1,5 +1,9 @@
 """Application layer primitives."""
 
+from haruhi_roleplay_api.application.agent import (
+    DeterministicAgentContextPlanner,
+    ModelBackedAgentContextPlanner,
+)
 from haruhi_roleplay_api.application.chat import (
     RoleplayOrchestrator,
     SendChatMessageUseCase,
@@ -26,9 +30,11 @@ __all__ = [
     "CreateSessionInput",
     "CreateSessionUseCase",
     "DefaultMemoryPolicyEngine",
+    "DeterministicAgentContextPlanner",
     "DeleteMemoryUseCase",
     "ListMemoryUseCase",
     "ListPublicPersonas",
+    "ModelBackedAgentContextPlanner",
     "ModelAliasRoute",
     "ModelProviderRegistryRouter",
     "ModelRouteDecision",

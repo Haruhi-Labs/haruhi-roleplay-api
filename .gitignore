@@ -2,6 +2,7 @@ docs/agent-dev/
 .venv/
 .uv-cache/
 .uv-python/
+.data/
 __pycache__/
 *.py[cod]
 .env

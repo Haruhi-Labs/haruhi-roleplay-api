@@ -1,5 +1,7 @@
 # 中转服务后端调度与配置说明
 
+如果只是想启动项目、选择本地/云端后端、理解哪些配置需要热更新或重启，先看 `docs/usage/backend-config.md`。本文保留更细的 provider 调度、adapter 边界和历史设计说明。
+
 ## 目标
 
 说明当前项目在收到前端链路请求后，如何在中转服务内部调度具体后端实现，以及后端能力应该如何配置和实现。
@@ -80,16 +82,16 @@ Provider Pack 是一组后端实现绑定。
 
 用于本地开发和最小验证。
 
-| 能力              | 实现                                         |
-| ----------------- | -------------------------------------------- |
-| PersonaRepository | 本地 YAML 或 JSON，包含角色和 preset catalog |
-| SessionStore      | InMemory 或 SQLite                           |
-| MemoryStore       | InMemory 或 SQLite                           |
-| RagService        | LocalRagService                              |
-| VectorIndex       | LocalVectorIndex                             |
+| 能力              | 实现                                                                             |
+| ----------------- | -------------------------------------------------------------------------------- |
+| PersonaRepository | 本地 YAML 或 JSON，包含角色和 preset catalog                                     |
+| SessionStore      | InMemory 或 SQLite                                                               |
+| MemoryStore       | InMemory 或 SQLite                                                               |
+| RagService        | LocalRagService                                                                  |
+| VectorIndex       | LocalVectorIndex                                                                 |
 | EmbeddingProvider | HashEmbeddingProvider、OllamaEmbeddingProvider 或本地 OpenAI-compatible endpoint |
-| ModelProvider     | Ollama 或本地 OpenAI-compatible              |
-| Logger            | ConsoleLogger                                |
+| ModelProvider     | Ollama 或本地 OpenAI-compatible                                                  |
+| Logger            | ConsoleLogger                                                                    |
 
 ### test
 
@@ -125,13 +127,17 @@ Provider Pack 是一组后端实现绑定。
 
 ### 基础环境
 
-| 配置                 | 示例  | 说明                 |
-| -------------------- | ----- | -------------------- |
-| APP_ENV              | local | 运行环境             |
-| PROVIDER_PACK        | local | provider pack 名称   |
-| PORT                 | 3000  | HTTP 服务端口        |
-| ENABLE_DEBUG_TRACE   | true  | 是否允许 debug trace |
-| ENABLE_SAFETY_FILTER | true  | 是否默认启用安全过滤 |
+| 配置                            | 示例                    | 说明                                                         |
+| ------------------------------- | ----------------------- | ------------------------------------------------------------ |
+| APP_ENV                         | local                   | 运行环境                                                     |
+| PROVIDER_PACK                   | local                   | provider pack 名称                                           |
+| PORT                            | 3000                    | HTTP 服务端口                                                |
+| ENABLE_DEBUG_TRACE              | true                    | 是否允许 debug trace                                         |
+| ENABLE_SAFETY_FILTER            | true                    | 是否默认启用安全过滤                                         |
+| AGENT_CONTEXT_PLANNER           | deterministic           | Agent 上下文计划器；当前支持 `deterministic`，`model` 仅预留 |
+| BACKEND_CONTEXT_PROVIDER        | none                    | backend context provider；当前支持 `none`、`fake`            |
+| BACKEND_CONTEXT_SOURCES         | user_profile,game_state | 本服务允许本次计划读取的业务上下文 source                    |
+| BACKEND_CONTEXT_ALLOWED_SOURCES | user_profile,game_state | fake provider 白名单 source                                  |
 
 `ENABLE_DEBUG_TRACE=false` 时，后端装配 API handler 应传入 `debug_trace_enabled=false`。该配置优先级高于请求中的 `capabilities.debug_trace=true`，用于生产环境统一关闭 debug 返回。
 
@@ -154,6 +160,8 @@ MODEL_NAME=fake-roleplay-model
 MODEL_ALIAS=fake-roleplay-model
 RAG_PROVIDER=local
 ENABLE_DEBUG_TRACE=true
+SESSION_PROVIDER=memory
+SESSION_RECENT_LIMIT=12
 ```
 
 启动：
@@ -168,7 +176,7 @@ uv run python -m haruhi_roleplay_api.infrastructure.http_server
 2. `.env` 文件中的值覆盖同名进程环境变量。
 3. `PATCH /v1/runtime-config` 写回 `.env`，并在当前进程内热重建 provider。
 
-`.env` 可以保存服务端密钥，例如 `ROLEPLAY_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。这些值不会通过 runtime config 查询接口返回，也不能通过前端热更新接口写入。
+`.env` 可以保存服务端密钥，例如 `ROLEPLAY_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。这些值不会通过 runtime config 查询接口返回，也不能通过 `PATCH /v1/runtime-config` 写入。后续全量 `.env` 编辑器可以提供 write-only secret 写入能力，但响应仍只能返回 set/empty/missing 状态。
 
 ### Runtime Config 热切换
 
@@ -205,7 +213,95 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 
 如果候选配置失败，例如切到 `RAG_PROVIDER=qdrant` 但没有 `QDRANT_URL`，服务会返回错误，不会写回 `.env`，也不会影响当前可用配置。
 
-当前热切换会保留进程内 session store 和 memory store；model router、RAG service、debug trace 开关会按新配置更新。切换 RAG provider 后，非持久化本地向量数据不会自动迁移。
+当前热切换会保留进程内 session store 和 memory store；model router、RAG service、debug trace 开关、agent planner、backend context provider 和 `SESSION_RECENT_LIMIT` 会按新配置更新。切换 RAG provider 后，非持久化本地向量数据不会自动迁移。
+
+`GET /v1/runtime-config` 会返回两类配置 key：
+
+- `configurable_keys`：可以通过 PATCH 热更新的非敏感配置。
+- `restart_required_keys`：可以展示给管理前端，但需要重启服务才能生效的启动级或有状态配置，例如 `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`。
+
+`ROLEPLAY_PORT` 和 `SESSION_PROVIDER` 不允许热切换。端口在服务启动时已经绑定到 HTTP socket；session store 是有状态资源，运行中从内存切到 SQLite/PostgreSQL 会让已有 session 的读写位置突然改变，容易造成会话丢失或跨库不一致。
+
+### 全量 `.env` 编辑器
+
+受信任 `.env` 编辑器不是 `PATCH /v1/runtime-config` 的可视化外壳。runtime config 只适合非敏感热更新；全量 `.env` 编辑器需要独立 Env Config Editor API 来处理 schema、redaction、字段 check、草稿 diff 和写回。
+
+推荐行为：
+
+1. 读取 `.env` 字段 schema。
+2. 读取当前 `.env` redacted snapshot。
+3. 按 HTTP、Model、RAG、Embedding、Agent、Backend Context、Session、Secrets 分组组织表单。
+4. 用户修改后先生成配置草稿和 diff preview。
+5. 用户可以对单字段执行 check。
+6. 保存前对整份候选配置执行 check。
+7. 后端写回 `.env`，返回 redacted snapshot、hot reload 结果和 restart-required 提示。
+
+编辑器中的“创建配置”表示创建一份待提交的 `.env` 配置草稿。当前不提供服务端命名 profile CRUD；如果未来要保存多套配置方案，应新增独立 profile API 和权限模型。
+
+边界：
+
+- 不让普通聊天用户打开 `.env` 编辑器。
+- 可以通过编辑器设置 `DATABASE_URL`、`REDIS_URL`、`*_API_KEY`、`TOKEN`、`SECRET` 或 `PASSWORD`，但响应和 UI 不能回显原文。
+- restart-required 字段可以写入 `.env`，但不能承诺运行中立即生效。
+- 不让面板绕过 Env Config Editor API 直接修改 `.env` 文件。
+- check 阶段默认不请求真实云服务，避免保存配置时产生额外费用或外部副作用。
+
+当前 Env Config Editor API：
+
+| 接口                        | 作用                                                  |
+| --------------------------- | ----------------------------------------------------- |
+| `GET /v1/env-config/schema` | 返回字段 schema、类型、分组、secret、热更新和重启信息 |
+| `GET /v1/env-config`        | 返回当前 `.env` redacted snapshot                     |
+| `POST /v1/env-config/check` | 校验单字段或整份候选配置                              |
+| `PATCH /v1/env-config`      | 保存 `.env` 修改，并返回新摘要                        |
+
+本地受信任页面入口是 `/config`。它会通过 Env Config Editor API 生成表单、维护草稿 diff、执行 check 并保存 `.env`。保存后，服务会尝试热更新可热更新字段；session provider、数据库路径和 PostgreSQL schema 等有状态字段只写回 `.env`，需要重启服务后完整生效。
+
+### Agent Context Planner
+
+`AGENT_CONTEXT_PLANNER` 控制 Orchestrator 使用哪一种上下文规划方式：
+
+| 值            | 状态             | 说明                                                               |
+| ------------- | ---------------- | ------------------------------------------------------------------ |
+| deterministic | 已实现，默认值   | 不调用大模型，只按 capability 和 persona policy 生成 `ContextPlan` |
+| model         | 接口预留，未实现 | 可以配置和装配，但 chat 执行时会返回 `MODEL_PROVIDER_ERROR`        |
+
+当前确定性 planner 会生成两类安全信息：
+
+- 调度布尔值：`readSession`、`readMemory`、`retrieveRag`。
+- 安全 notes：只包含稳定标签，例如 `capability-gated`，不包含用户输入、prompt、query、URL、SQL 或 secret。
+
+模型辅助 planner 后续会通过同一个 `AgentContextPlanner` port 接入，但必须先补齐结构化输出 schema、schema validation、权限控制、失败回退和评测集。当前不要在生产或演示配置中使用 `AGENT_CONTEXT_PLANNER=model`。
+
+### Backend Context
+
+Backend context 用于从业务后端或其它数据库读取受控 facts，例如用户资料、游戏状态、活动进度。当前实现的是最小 fake provider：
+
+| 配置                            | 示例                    | 说明                                             |
+| ------------------------------- | ----------------------- | ------------------------------------------------ |
+| BACKEND_CONTEXT_PROVIDER        | fake                    | 支持 `none`、`fake`；默认 `none`                 |
+| BACKEND_CONTEXT_SOURCES         | user_profile,game_state | Orchestrator 本次计划读取的 source，由服务端配置 |
+| BACKEND_CONTEXT_ALLOWED_SOURCES | user_profile,game_state | fake provider 允许的 source 白名单               |
+
+示例：
+
+```env
+BACKEND_CONTEXT_PROVIDER=fake
+BACKEND_CONTEXT_SOURCES=user_profile,game_state
+BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
+```
+
+当前 fake provider 会返回：
+
+- `user_profile`：用户资料摘要 fact。
+- `game_state`：当前活动或游戏状态 fact。
+
+边界：
+
+- 前端或普通用户请求不传真实 source。
+- provider 只返回 `BackendContextFact`，不把业务系统原始 JSON 全量塞进 prompt。
+- debug 只返回 fact 数量和 source 名称，不返回 fact 内容。
+- 真实业务后端 adapter 后续应放在 `adapters/` 或独立 provider 包中，并通过同一个 `BackendContextProvider` port 注入。
 
 ### Persona
 
@@ -216,19 +312,60 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 
 ### Session
 
-| 配置                 | 示例   | 说明             |
-| -------------------- | ------ | ---------------- |
-| SESSION_PROVIDER     | sqlite | session provider |
-| SESSION_RECENT_LIMIT | 12     | 读取最近消息数量 |
-| SESSION_TTL_SECONDS  | 604800 | session 过期时间 |
+| 配置                           | 示例                   | 说明                                                                     |
+| ------------------------------ | ---------------------- | ------------------------------------------------------------------------ |
+| SESSION_PROVIDER               | memory                 | session provider；当前已实现 `memory` / `sqlite` / `postgres`            |
+| SESSION_RECENT_LIMIT           | 12                     | 每次 chat 开启连续会话时，最多读取多少条最近 session message 进入 prompt |
+| SESSION_TTL_SECONDS            | 604800                 | session 过期时间                                                         |
+| SESSION_AUTO_CREATE_SCHEMA     | true                   | SQLite / PostgreSQL 是否自动建表                                         |
+| SESSION_SQLITE_PATH            | .data/sessions.sqlite3 | SQLite 文件路径，建议放在已忽略的 `.data/` 下                            |
+| SESSION_SQLITE_BUSY_TIMEOUT_MS | 5000                   | SQLite busy timeout                                                      |
+| DATABASE_URL                   | postgresql://...       | PostgreSQL 连接串，敏感配置，只能从服务端环境或 `.env` 读取              |
+| SESSION_POSTGRES_SCHEMA        | public                 | PostgreSQL schema 名称                                                   |
+| SESSION_POSTGRES_TABLE_PREFIX  | roleplay_              | PostgreSQL session 表名前缀                                              |
+| SESSION_POSTGRES_POOL_SIZE     | 5                      | 预留连接池配置；当前 adapter 每次操作创建短连接                          |
+
+当前实现状态：
+
+- 已实现 `SessionStoreSettings` 和 `build_session_store_from_env`。
+- HTTP runtime 已通过 session store factory 装配，不再直接写死 `InMemorySessionStore`。
+- 已实现 `SQLiteSessionStore`，使用标准库 `sqlite3`，不新增默认依赖。
+- `SESSION_PROVIDER=sqlite` 会在 `SESSION_AUTO_CREATE_SCHEMA=true` 时自动创建 schema。
+- `SESSION_SQLITE_PATH` 的父目录会自动创建；默认 `.data/` 已加入 `.gitignore`，避免本地数据库误提交。
+- 使用同一个 SQLite 文件重新创建 runtime 后，可以继续读取已有 session 和 recent messages。
+- 已实现 `PostgresSessionStore`，用于云端 session 持久化。
+- `SESSION_PROVIDER=postgres` 需要服务端提供 `DATABASE_URL`，并在运行环境安装可选依赖 `psycopg` v3，例如 `uv run --with "psycopg[binary]" ...`。
+- `SESSION_PROVIDER=postgres` 会在 `SESSION_AUTO_CREATE_SCHEMA=true` 时自动创建 schema、session 表、message 表和索引。
+- PostgreSQL provider 错误会转换为统一 `SESSION_PROVIDER_ERROR`，不会把底层连接串或驱动错误原样返回给前端。
+- `SESSION_RECENT_LIMIT` 可以通过 `PATCH /v1/runtime-config` 热更新。
+- `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS` 等启动级或状态相关配置只在启动装配时读取，runtime config 只展示、不热切换。
+- `DATABASE_URL` 不属于 runtime config public snapshot，也不能通过 `PATCH /v1/runtime-config` 写入。
+
+`SESSION_RECENT_LIMIT` 的作用范围：
+
+- 只影响 `capabilities.continuous_session=true` 的 chat 请求。
+- 只限制本次从 `SessionStore.recent_messages()` 读取多少条最近消息。
+- 不限制 session 中实际保存的消息总数。
+- 不等同于数据库分页参数，也不等同于长期记忆数量。
+- 值越大，上下文更完整，但 prompt 更长、成本和延迟更高。
+- 值越小，更省 token，但模型可能看不到稍早的对话。
+
+当前没有采用 `memory.md` 式会话摘要设计。这里的判断是：session 是短期对话历史，memory 是跨会话长期事实，两者不能混在一个文件或一个 store 里。MVP 阶段直接读取最近原始消息更容易人工审核，也更容易写测试：创建 session、写入消息、读取最近 N 条即可验证。
+
+未来可以优化为两层 session 上下文：
+
+1. `session summary`：把较早的 session 消息压缩成滚动摘要，适合长对话。
+2. `recent messages`：继续保留最近 N 条原始消息，保证角色回复能接住最近语境。
+
+这个优化应单独拆卡实现，建议新增 `SessionSummaryStore` 或 `SessionCompactor`，并明确摘要生成策略、失败回退、摘要重建、人工可审查格式和持久化位置。不要把 session summary 写入 `MemoryStore`，也不要让普通前端直接上传或编辑 summary。
 
 ### Memory
 
-| 配置                 | 示例   | 说明                 |
-| -------------------- | ------ | -------------------- |
-| MEMORY_PROVIDER      | sqlite | memory provider      |
-| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量     |
-| MEMORY_WRITE_ENABLED | true   | 是否允许显式候选写入 |
+| 配置                 | 示例   | 说明                                                            |
+| -------------------- | ------ | --------------------------------------------------------------- |
+| MEMORY_PROVIDER      | memory | memory provider；当前已实现 `memory`，持久化 adapter 为后续能力 |
+| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量                                                |
+| MEMORY_WRITE_ENABLED | true   | 是否允许显式候选写入                                            |
 
 ### RAG
 
@@ -236,7 +373,7 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 | ------------------------ | ----------- | ------------------------------------------------------------------------------- |
 | RAG_PROVIDER             | local       | RAG provider；支持 `fake`、`local`、`local_vector`、`chroma`、`faiss`、`qdrant` |
 | RAG_CHUNK_SIZE           | 320         | 文档切分 chunk 大小                                                             |
-| RAG_EMBEDDING_DIMENSIONS | 384         | 兼容配置；未设置 `EMBEDDING_DIMENSIONS` 时作为 embedding 维度回退                 |
+| RAG_EMBEDDING_DIMENSIONS | 384         | 兼容配置；未设置 `EMBEDDING_DIMENSIONS` 时作为 embedding 维度回退               |
 | RAG_VECTOR_BACKEND       | memory      | `local_vector` 的本地 backend，可选 `memory`、`chroma`、`faiss`                 |
 | CHROMA_COLLECTION        | haruhi_rag  | Chroma collection 名称                                                          |
 | CHROMA_PERSIST_PATH      | .chroma     | Chroma 本地持久化目录，可选                                                     |
@@ -252,16 +389,16 @@ curl -X PATCH http://127.0.0.1:8000/v1/runtime-config \
 
 Embedding provider 只由服务端配置决定，前端和业务后端不能传 provider、URL 或 API key。
 
-| 配置 | 示例 | 说明 |
-| --- | --- | --- |
-| EMBEDDING_PROVIDER | hash | 支持 `hash`、`local_openai_compatible`、`ollama`、`openai` |
-| EMBEDDING_MODEL | text-embedding-3-small | provider 侧真实 embedding 模型名 |
-| EMBEDDING_BASE_URL | http://localhost:11434/v1 | 本地或 OpenAI-compatible embedding endpoint |
-| EMBEDDING_DIMENSIONS | 1536 | 向量维度；必须和向量库 collection 维度一致 |
-| EMBEDDING_TIMEOUT_MS | 30000 | embedding 请求超时 |
-| EMBEDDING_API_KEY | 可选 | embedding provider API key；不写入前端请求 |
-| EMBEDDING_API_KEY_ENV | OPENAI_API_KEY | 从指定环境变量读取 key |
-| EMBEDDING_PATH | embeddings | 自定义 OpenAI-compatible embeddings path |
+| 配置                  | 示例                      | 说明                                                       |
+| --------------------- | ------------------------- | ---------------------------------------------------------- |
+| EMBEDDING_PROVIDER    | hash                      | 支持 `hash`、`local_openai_compatible`、`ollama`、`openai` |
+| EMBEDDING_MODEL       | text-embedding-3-small    | provider 侧真实 embedding 模型名                           |
+| EMBEDDING_BASE_URL    | http://localhost:11434/v1 | 本地或 OpenAI-compatible embedding endpoint                |
+| EMBEDDING_DIMENSIONS  | 1536                      | 向量维度；必须和向量库 collection 维度一致                 |
+| EMBEDDING_TIMEOUT_MS  | 30000                     | embedding 请求超时                                         |
+| EMBEDDING_API_KEY     | 可选                      | embedding provider API key；不写入前端请求                 |
+| EMBEDDING_API_KEY_ENV | OPENAI_API_KEY            | 从指定环境变量读取 key                                     |
+| EMBEDDING_PATH        | embeddings                | 自定义 OpenAI-compatible embeddings path                   |
 
 本地 Ollama 示例：
 
@@ -581,14 +718,14 @@ uv run --with chromadb python scripts/local_ollama_chroma_smoke.py
 
 可选覆盖项：
 
-| 环境变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| SMOKE_OLLAMA_BASE_URL | http://localhost:11434 | Ollama 原生 API 地址，用于 `/api/tags` 预检 |
-| SMOKE_OLLAMA_OPENAI_BASE_URL | http://localhost:11434/v1 | Ollama OpenAI-compatible 地址 |
-| SMOKE_CHAT_MODEL | qwen2.5:7b | chat 模型 |
-| SMOKE_EMBEDDING_MODEL | nomic-embed-text:latest | embedding 模型 |
-| SMOKE_EMBEDDING_DIMENSIONS | 768 | embedding 维度 |
-| SMOKE_CHROMA_COLLECTION | haruhi_manual_smoke | Chroma collection 名称 |
+| 环境变量                     | 默认值                    | 说明                                        |
+| ---------------------------- | ------------------------- | ------------------------------------------- |
+| SMOKE_OLLAMA_BASE_URL        | http://localhost:11434    | Ollama 原生 API 地址，用于 `/api/tags` 预检 |
+| SMOKE_OLLAMA_OPENAI_BASE_URL | http://localhost:11434/v1 | Ollama OpenAI-compatible 地址               |
+| SMOKE_CHAT_MODEL             | qwen2.5:7b                | chat 模型                                   |
+| SMOKE_EMBEDDING_MODEL        | nomic-embed-text:latest   | embedding 模型                              |
+| SMOKE_EMBEDDING_DIMENSIONS   | 768                       | embedding 维度                              |
+| SMOKE_CHROMA_COLLECTION      | haruhi_manual_smoke       | Chroma collection 名称                      |
 
 ## Memory 调度
 
@@ -605,45 +742,47 @@ Memory 调度需要避免污染：
 
 ## Agent 编排调度
 
-当前 Orchestrator 已经有确定性编排顺序。完整 Agent 编排应在这个基础上增加“上下文计划”层，而不是让模型直接调用工具。
+当前 Orchestrator 已经接入“上下文计划”层。第一版使用确定性 planner，不让模型直接调用工具。
 
 推荐链路：
 
 1. API 层生成 `ChatInput`。
-2. `AgentContextPlanner` 读取 `ChatInput`、persona policy、capabilities 和 app 权限。
+2. `AgentContextPlanner` 读取 `ChatInput`、persona policy 和 capabilities。
 3. Planner 输出结构化 `ContextPlan`。
-4. `ContextExecutor` 按 plan 调用 session、memory、RAG 和 backend context ports。
-5. Executor 输出 `ContextBundle`。
-6. `PromptBuilder` 融合 persona、ContextBundle 和用户消息。
+4. Orchestrator 按 plan 调用 session、memory、RAG 和 backend context ports。
+5. `BackendContextProvider` 返回受控 `BackendContextFact`，不返回原始业务 JSON。
+6. `PromptBuilder` 融合 persona、session、memory、RAG、backend facts 和用户消息。
 7. `ChatModelRouter` 调用模型 provider，当前实现是 `ModelProviderRegistryRouter`。
 8. `MemoryCandidateExtractor` 可在回复后生成候选记忆。
 9. `MemoryPolicyEngine` 决定是否写入。
 
-`ContextPlan` 示例：
+当前确定性 `ContextPlan` 示例：
 
 ```json
 {
-  "read_session": true,
-  "read_memory": {
-    "enabled": true,
-    "types": ["user_preference", "relationship"],
-    "limit": 5
-  },
-  "retrieve_rag": {
-    "enabled": true,
-    "query": "改写后的检索查询",
-    "top_k": 5
-  },
-  "backend_fetches": [
-    {
-      "source": "user_profile",
-      "required": false
-    }
-  ]
+  "planner": "deterministic",
+  "status": "ready",
+  "readSession": true,
+  "readMemory": true,
+  "retrieveRag": true,
+  "backendFetches": ["user_profile", "game_state"],
+  "notes": ["capability-gated", "persona-rag-policy", "persona-memory-policy"]
 }
 ```
 
-第一版 planner 应该用确定性规则实现。模型辅助 planner 放到后续阶段，避免一开始就引入不可控工具调用。
+基于后端大模型的 plan 当前只预留接口：
+
+```env
+AGENT_CONTEXT_PLANNER=model
+```
+
+当前状态：
+
+- 已有 `ModelBackedAgentContextPlanner` 占位类。
+- 已有 `AgentContextPlanner` port 和 factory。
+- 已有 runtime config 配置入口。
+- 未实现 planner prompt、模型调用、结构化输出解析、schema validation 和失败回退。
+- 配置为 `model` 后发起 chat 会返回 `MODEL_PROVIDER_ERROR`，这是预期状态。
 
 ## 后端实现步骤
 
@@ -785,6 +924,14 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 - debug trace 能看到 plan 摘要。
 - 模型 provider 不直接访问 backend context。
 
+当前状态：
+
+- `AgentContextPlanner` 确定性版本已实现。
+- `BackendContextProvider` port 已实现。
+- `FakeBackendContextProvider` 已实现。
+- `PromptBuilder` 已能插入 backend facts。
+- 真实业务系统 adapter 尚未实现。
+
 ## 配置校验
 
 服务启动时必须校验：
@@ -804,7 +951,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | PROVIDER_PACK           | local                |
 | PERSONA_PROVIDER        | file                 |
 | SESSION_PROVIDER        | sqlite               |
-| MEMORY_PROVIDER         | sqlite               |
+| MEMORY_PROVIDER         | memory               |
 | RAG_PROVIDER            | local_vector         |
 | RAG_VECTOR_BACKEND      | memory               |
 | EMBEDDING_PROVIDER      | ollama               |
@@ -813,6 +960,8 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | MODEL_PROVIDER_REGISTRY | 见 Ollama local 示例 |
 | ENABLE_DEBUG_TRACE      | true                 |
 | ENABLE_SAFETY_FILTER    | true                 |
+
+当前本地推荐可以使用 `SESSION_PROVIDER=sqlite` 保存连续会话；Memory 的本地持久化 adapter 尚未实现，当前推荐仍使用 `MEMORY_PROVIDER=memory`。
 
 ## 推荐测试配置
 
@@ -834,6 +983,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | PROVIDER_PACK           | cloud                              |
 | PERSONA_PROVIDER        | postgres                           |
 | SESSION_PROVIDER        | postgres                           |
+| DATABASE_URL            | 部署平台 secret 注入               |
 | MEMORY_PROVIDER         | postgres                           |
 | CACHE_PROVIDER          | redis                              |
 | RAG_PROVIDER            | qdrant                             |
@@ -845,6 +995,8 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | MODEL_PROVIDER_REGISTRY | 见 DeepSeek / Gemini / OpenAI 示例 |
 | ENABLE_DEBUG_TRACE      | false                              |
 | ENABLE_SAFETY_FILTER    | true                               |
+
+生产配置中的 PostgreSQL session adapter 已实现；persona / memory 的 PostgreSQL adapter 仍是目标形态，后续应按同样的 ports / adapters / infrastructure 边界逐步补齐。
 
 ## 前端调用时的关键约束
 
