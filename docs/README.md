@@ -30,13 +30,16 @@
 8. `usage/backend-config.md`
    后端配置从这里开始，包含最小 `.env`、配置分组、热更新边界和化简分析。
 
-9. `usage/config-panel.md`
+9. `usage/docker-compose.md`
+   查看 Docker Compose 使用方式，以及酒馆式 provider、base URL、model/index、token 配置入口。
+
+10. `usage/config-panel.md`
    查看受信任全量 `.env` 编辑器的使用边界和设计规则。
 
-10. `usage/interface-reference.md`
+11. `usage/interface-reference.md`
    查看更完整的接口字段说明。
 
-11. `devlog.md`
+12. `devlog.md`
    查看开发记录。
 
 ## 目录说明

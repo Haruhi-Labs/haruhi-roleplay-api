@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from haruhi_roleplay_api.domain import DTOValidationError
+from haruhi_roleplay_api.infrastructure.provider_config_facade import (
+    apply_provider_config_facade,
+)
 
 CONFIG_VALUES_FIELD = "values"
 
@@ -19,6 +22,9 @@ RUNTIME_CONFIG_KEYS = (
     "BACKEND_CONTEXT_PROVIDER",
     "BACKEND_CONTEXT_SOURCES",
     "ENABLE_DEBUG_TRACE",
+    "LLM_API_TYPE",
+    "LLM_BASE_URL",
+    "LLM_MODEL",
     "MODEL_ALIAS",
     "MODEL_API_KEY_ENV",
     "MODEL_BASE_URL",
@@ -28,6 +34,9 @@ RUNTIME_CONFIG_KEYS = (
     "MODEL_PROVIDER_NAME",
     "MODEL_PROVIDER_REGISTRY",
     "MODEL_TIMEOUT_MS",
+    "RAG_API_TYPE",
+    "RAG_BASE_URL",
+    "RAG_INDEX",
     "RAG_PROVIDER",
     "RAG_CHUNK_SIZE",
     "RAG_EMBEDDING_DIMENSIONS",
@@ -40,6 +49,7 @@ RUNTIME_CONFIG_KEYS = (
     "QDRANT_TIMEOUT_MS",
     "QDRANT_ENSURE_COLLECTION",
     "SESSION_RECENT_LIMIT",
+    "EMBEDDING_API_TYPE",
     "EMBEDDING_PROVIDER",
     "EMBEDDING_MODEL",
     "EMBEDDING_BASE_URL",
@@ -125,7 +135,7 @@ class RuntimeConfigStore:
     def env(self) -> dict[str, str]:
         merged = dict(self._base_env)
         merged.update(self._file_values)
-        return merged
+        return apply_provider_config_facade(merged)
 
     def public_snapshot(self) -> dict[str, Any]:
         env = self.env()
@@ -165,7 +175,7 @@ class RuntimeConfigStore:
         _apply_update(file_values, update)
         merged = dict(self._base_env)
         merged.update(file_values)
-        return merged
+        return apply_provider_config_facade(merged)
 
     def commit(self, update: RuntimeConfigUpdate) -> tuple[str, ...]:
         _apply_update(self._file_values, update)

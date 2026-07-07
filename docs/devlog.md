@@ -719,16 +719,16 @@
 - 新增 `docs/usage/backend-config.md`，作为后端配置第一入口。
 - 补充 fake local、Ollama local、云模型等最小配置示例。
 - 说明 `.env`、runtime config API、Env Config Editor API 的职责边界。
-- 分析当前配置复杂度来源，并提出 backend profile、Simple/Advanced UI、字段收敛和 schema 拆分的化简路线。
+- 分析当前配置复杂度来源，并提出 Simple/Advanced UI、字段收敛和 schema 拆分的化简路线。
 - 在 `docs/README.md` 和后端调度长文档中加入入口链接。
 
 ### 验证
 
-- 使用 `rg` 检查 `backend-config`、`BACKEND_PROFILE`、`fake_local`、`ollama_local` 等文档入口和关键词。
+- 使用 `rg` 检查 `backend-config`、fake local、Ollama local 等文档入口和关键词。
 
 ### 下一步
 
-- 若进入实现阶段，优先做 `/config` 的 Simple / Advanced 视图，再引入 `BACKEND_PROFILE` 默认值解析。
+- 若进入实现阶段，优先做 `/config` 的 Simple / Advanced 视图，再引入酒馆式 provider 字段映射。
 
 ## 2026-07-06：Frontend Calling And Backend Config Usage Docs
 
@@ -745,7 +745,7 @@
 
 ### 下一步
 
-- 后续如果继续化简配置，优先把 `/config` 做成 Simple / Advanced 两种视图，再实现 `BACKEND_PROFILE`。
+- 后续如果继续化简配置，优先把 `/config` 做成 Simple / Advanced 两种视图，再实现酒馆式 provider 字段映射。
 
 ## 2026-07-06：HTTP Port Restart Config
 
@@ -780,3 +780,48 @@
 ### 下一步
 
 - 后续可把 `/config` UI 的字段说明直接对齐这份字段字典，减少配置页面和文档之间的理解偏差。
+
+## 2026-07-07：Docker Compose And Tavern-Style Config Planning
+
+### 完成
+
+- 删除上一版过重的云端部署规划文档。
+- 新增 `docs/usage/docker-compose.md`，只说明 Compose 使用方式。
+- 新增 `docs/agent-dev/cards/10.01.docker-compose-wrapper.md`。
+- 新增 `docs/agent-dev/cards/10.02.tavern-style-provider-config.md`。
+- 新增 `docs/agent-dev/cards/10.03.compose-usage-docs.md`。
+- 明确“预设”只表示 API type / provider 选择器，不表示一整套部署方案。
+- 将配置收束为 LLM、Embedding、RAG 各自的 API type / provider、base URL、model 或 index、token。
+- 在 `docs/README.md`、`docs/roadmap.md` 和 `docs/usage/backend-config.md` 更新入口。
+
+### 验证
+
+- 本次只修改文档，使用 `rg` 检查旧部署规划关键词和新 Compose / provider 配置入口。
+
+### 下一步
+
+- 进入实现时先做 `10.01` Docker Compose 封装，再做 `10.02` 酒馆式 provider 配置外观；不要同时改 provider adapter 和 Orchestrator。
+
+## 2026-07-07：Tavern-Style Provider Config
+
+### 完成
+
+- 新增 provider config facade，将 `LLM_*`、`EMBEDDING_*`、`RAG_*` 映射到现有 provider 配置。
+- `LLM_*` 可生成内部 `MODEL_PROVIDER_REGISTRY`，并覆盖 legacy 单 provider 默认值。
+- 显式 `MODEL_PROVIDER_REGISTRY` 仍然优先，用于高级多模型路由。
+- `EMBEDDING_*` 可映射到现有 embedding provider。
+- `RAG_*` 可映射到 Qdrant / Chroma 等现有 RAG 字段。
+- simple provider 字段存在且未显式设置 session 时，默认使用 SQLite session。
+- `/config` schema 和 check 支持 simple 字段、secret redaction 和依赖校验。
+- `.env.example` 和后端配置文档补充 simple provider 示例。
+
+### 验证
+
+- `uv run python -m unittest tests.test_provider_config_facade` 通过。
+- `uv run python -m unittest tests.test_env_config_editor tests.test_provider_config_facade` 通过。
+- `uv run python -m unittest tests.test_model_provider_registry tests.test_cloud_model_providers tests.test_embedding_providers tests.test_qdrant_rag_provider tests.test_local_vector_rag_provider tests.test_session_store_factory` 通过。
+- `uv run python -m unittest tests.test_http_runtime_adapter` 通过。
+
+### 下一步
+
+- 继续实现 `10.01` Docker Compose 封装，复用本次已经跑通的 simple provider 字段。

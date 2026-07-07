@@ -12,6 +12,9 @@ from haruhi_roleplay_api.adapters import (
     OpenAIEmbeddingProvider,
 )
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
+from haruhi_roleplay_api.infrastructure.provider_config_facade import (
+    apply_provider_config_facade,
+)
 from haruhi_roleplay_api.ports import TextEmbeddingProvider
 
 
@@ -29,6 +32,7 @@ class EmbeddingProviderSettings:
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, str]) -> "EmbeddingProviderSettings":
+        data = apply_provider_config_facade(data)
         provider = data.get("EMBEDDING_PROVIDER", "hash")
         api_key_env = data.get("EMBEDDING_API_KEY_ENV")
         return cls(
