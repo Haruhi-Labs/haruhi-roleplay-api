@@ -4,11 +4,14 @@
 
 这份文档是后端配置的第一入口。它只说明当前项目已经能用的配置方式、最小推荐配置
 
-更完整的历史说明和 provider 调度细节见：
+更完整的使用说明和 provider 调度细节见：
 
+- `docs/usage/docker-compose.md`
 - `docs/usage/backend-dispatch-and-configuration.md`
 - `docs/usage/config-panel.md`
 - `docs/usage/interface-reference.md`
+
+如果目标是 Linux 单机部署，后续推荐走 Docker Compose 单容器路径。配置化简方向不是整套部署方案，而是模仿酒馆：选择 API type / provider，再填写 base URL、model 或 index、token。酒馆式 provider 配置字段已经实现；Docker Compose 封装仍在后续 `10.01` 中实现。使用形状见 `docs/usage/docker-compose.md`，实现卡片见 `docs/agent-dev/cards/10.*.md`。
 
 ## 当前配置面
 
@@ -19,6 +22,16 @@
 | `.env` / `ROLEPLAY_CONFIG_FILE` | 持久化后端配置，包含 secret 和需要重启的配置     | 本地开发、部署环境       |
 | `GET/PATCH /v1/runtime-config`  | 非敏感配置热更新                                 | 受信任管理后端或本地调试 |
 | `/config` + `/v1/env-config/*`  | 可视化 `.env` 编辑、字段 check、secret redaction | 本地开发、受信任后台     |
+
+当前推荐新增一层简单 provider 配置：
+
+| 分组             | 字段                                                                       | 作用                         |
+| ---------------- | -------------------------------------------------------------------------- | ---------------------------- |
+| Simple LLM       | `LLM_API_TYPE`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`                 | 配置单个聊天模型后端         |
+| Simple Embedding | `EMBEDDING_API_TYPE`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_API_KEY` | 配置单个 embedding 后端      |
+| Simple RAG       | `RAG_API_TYPE`、`RAG_BASE_URL`、`RAG_INDEX`、`RAG_API_KEY`                 | 配置单个 RAG / vector 后端   |
+
+这些 simple 字段会在服务端映射到现有 `MODEL_PROVIDER_REGISTRY`、`EMBEDDING_*`、`RAG_PROVIDER`、`QDRANT_*` 等内部配置。显式 `MODEL_PROVIDER_REGISTRY` 仍然优先，适合高级多模型路由。
 
 普通聊天前端不应该配置后端 provider。普通前端只传：
 
@@ -186,8 +199,11 @@ secret 可以保存在 `.env` 或部署平台 secret 中。API 响应和 `/confi
 | --------------- | ------------------------------------------------------------------------------------- | ------------------------ |
 | HTTP            | `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`ROLEPLAY_API_KEY`                                  | 服务监听和管理鉴权       |
 | Model           | `MODEL_PROVIDER_REGISTRY`、`MODEL_PROVIDER`、`MODEL_NAME`、`MODEL_ALIAS`              | 模型 provider 和模型别名 |
+| Simple LLM      | `LLM_API_TYPE`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`                            | 单模型后端的酒馆式入口   |
 | RAG             | `RAG_PROVIDER`、`RAG_CHUNK_SIZE`、`RAG_VECTOR_BACKEND`、`CHROMA_*`、`QDRANT_*`        | 文档导入、检索和向量库   |
+| Simple RAG      | `RAG_API_TYPE`、`RAG_BASE_URL`、`RAG_INDEX`、`RAG_API_KEY`                            | 单 RAG 后端的酒馆式入口  |
 | Embedding       | `EMBEDDING_PROVIDER`、`EMBEDDING_MODEL`、`EMBEDDING_BASE_URL`、`EMBEDDING_DIMENSIONS` | 向量生成                 |
+| Simple Embedding | `EMBEDDING_API_TYPE`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_API_KEY`   | 单 embedding 后端入口     |
 | Session         | `SESSION_PROVIDER`、`SESSION_RECENT_LIMIT`、`SESSION_SQLITE_PATH`、`DATABASE_URL`     | 连续会话存储             |
 | Agent           | `AGENT_CONTEXT_PLANNER`                                                               | 当前推荐 `deterministic` |
 | Backend Context | `BACKEND_CONTEXT_PROVIDER`、`BACKEND_CONTEXT_SOURCES`                                 | 当前只建议本地 fake 调试 |
@@ -233,6 +249,51 @@ http://127.0.0.1:8010/config
 ```
 
 如果修改 `ROLEPLAY_HOST` 或 `ROLEPLAY_PORT`，必须重启服务。端口不是热更新字段，因为 HTTP socket 在启动时已经绑定。
+
+### Simple Provider Facade
+
+用途：个人用户只接一个 LLM、一个 embedding provider、一个 RAG provider 时使用。它是当前推荐入口，形状接近酒馆类工具：选择 API type/provider，再填 base URL、模型或 index、token。
+
+| 字段                 | 状态               | 含义                                                  | 映射到内部字段                         |
+| -------------------- | ------------------ | ----------------------------------------------------- | -------------------------------------- |
+| `LLM_API_TYPE`       | hot reload         | LLM API 类型，支持 `fake`、`openai`、`openai_compatible`、`ollama`、`deepseek`、`gemini` | `MODEL_PROVIDER_REGISTRY.providers.*.type` |
+| `LLM_BASE_URL`       | hot reload         | LLM base URL；OpenAI/DeepSeek/Gemini 可使用默认值     | `MODEL_PROVIDER_REGISTRY.providers.*.base_url` |
+| `LLM_MODEL`          | hot reload         | LLM 模型名，同时作为默认模型 alias                    | `MODEL_PROVIDER_REGISTRY.aliases.*.model` |
+| `LLM_API_KEY`        | secret, hot reload | LLM token                                             | `MODEL_PROVIDER_REGISTRY.providers.*.api_key_env=LLM_API_KEY` |
+| `EMBEDDING_API_TYPE` | hot reload         | Embedding API 类型，支持 `hash`、`openai`、`openai_compatible`、`local_openai_compatible`、`ollama` | `EMBEDDING_PROVIDER` |
+| `EMBEDDING_BASE_URL` | hot reload         | Embedding base URL                                    | `EMBEDDING_BASE_URL` |
+| `EMBEDDING_MODEL`    | hot reload         | Embedding 模型名                                      | `EMBEDDING_MODEL` |
+| `EMBEDDING_API_KEY`  | secret, hot reload | Embedding token                                       | `EMBEDDING_API_KEY` |
+| `RAG_API_TYPE`       | hot reload         | RAG API 类型；当前云端链路主要是 `qdrant`             | `RAG_PROVIDER` |
+| `RAG_BASE_URL`       | hot reload         | RAG base URL                                          | `QDRANT_URL` when `RAG_API_TYPE=qdrant` |
+| `RAG_INDEX`          | hot reload         | collection、index 或 vector store id                  | `QDRANT_COLLECTION` / `CHROMA_COLLECTION` |
+| `RAG_API_KEY`        | secret, hot reload | RAG token                                             | `QDRANT_API_KEY` when `RAG_API_TYPE=qdrant` |
+
+示例：
+
+```env
+LLM_API_TYPE=openai
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4.1-mini
+LLM_API_KEY=replace-with-local-secret
+
+EMBEDDING_API_TYPE=openai
+EMBEDDING_BASE_URL=https://api.openai.com/v1
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_API_KEY=replace-with-local-secret
+
+RAG_API_TYPE=qdrant
+RAG_BASE_URL=https://your-qdrant.example
+RAG_INDEX=haruhi_rag
+RAG_API_KEY=replace-with-local-secret
+```
+
+优先级：
+
+- 如果设置了 `MODEL_PROVIDER_REGISTRY`，模型侧使用高级 registry，忽略 `LLM_*` facade。
+- 如果设置了 `LLM_*` 且没有 `MODEL_PROVIDER_REGISTRY`，`LLM_*` 会覆盖 legacy `MODEL_PROVIDER` / `MODEL_NAME` / `MODEL_ALIAS`。
+- `EMBEDDING_*` 和 `RAG_*` simple 字段会覆盖对应内部 provider 字段。
+- 如果 simple provider 字段存在但没有显式 `SESSION_PROVIDER`，服务端默认使用 `sqlite` 和 `.data/sessions.sqlite3`；Docker Compose 后续会在 `.env.compose.example` 中显式设置 `/app/data/sessions.sqlite3`。
 
 ### Model：简单单 provider 配置
 

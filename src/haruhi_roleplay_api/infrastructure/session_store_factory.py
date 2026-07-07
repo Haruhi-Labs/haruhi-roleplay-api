@@ -9,6 +9,9 @@ from haruhi_roleplay_api.adapters.sessions import InMemorySessionStore
 from haruhi_roleplay_api.adapters.sessions_postgres import PostgresSessionStore
 from haruhi_roleplay_api.adapters.sessions_sqlite import SQLiteSessionStore
 from haruhi_roleplay_api.domain import DTOValidationError
+from haruhi_roleplay_api.infrastructure.provider_config_facade import (
+    apply_provider_config_facade,
+)
 from haruhi_roleplay_api.ports import SessionStore
 
 
@@ -27,6 +30,7 @@ class SessionStoreSettings:
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, str]) -> "SessionStoreSettings":
+        data = apply_provider_config_facade(data)
         return cls(
             provider=data.get("SESSION_PROVIDER", "memory"),
             recentMessageLimit=_positive_int(

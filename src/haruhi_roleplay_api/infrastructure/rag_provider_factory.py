@@ -16,6 +16,9 @@ from haruhi_roleplay_api.infrastructure.embedding_provider_factory import (
     EmbeddingProviderSettings,
     build_embedding_provider,
 )
+from haruhi_roleplay_api.infrastructure.provider_config_facade import (
+    apply_provider_config_facade,
+)
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.ports import TextEmbeddingProvider
 
@@ -36,6 +39,7 @@ class RagProviderSettings:
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, str]) -> "RagProviderSettings":
+        data = apply_provider_config_facade(data)
         return cls(
             provider=data.get("RAG_PROVIDER", "local"),
             chunkSize=_int_from_mapping(data, "RAG_CHUNK_SIZE", default=320),
@@ -124,6 +128,7 @@ def build_rag_service(
 
 
 def build_rag_service_from_env(env: Mapping[str, str]):
+    env = apply_provider_config_facade(env)
     settings = RagProviderSettings.from_mapping(env)
     provider = settings.provider.strip().lower().replace("-", "_")
     embedding_provider = (

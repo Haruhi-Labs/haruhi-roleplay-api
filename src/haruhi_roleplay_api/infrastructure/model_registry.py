@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
+from haruhi_roleplay_api.infrastructure.provider_config_facade import (
+    apply_provider_config_facade,
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -85,6 +88,7 @@ class ModelProviderSettings:
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, str]) -> "ModelProviderSettings":
+        data = apply_provider_config_facade(data)
         registry_json = data.get("MODEL_PROVIDER_REGISTRY")
         if registry_json is not None and registry_json.strip():
             return cls.from_registry_mapping(_json_mapping(registry_json), env=data)

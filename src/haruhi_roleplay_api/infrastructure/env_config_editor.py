@@ -14,6 +14,9 @@ from haruhi_roleplay_api.infrastructure.runtime_config import (
     RUNTIME_CONFIG_KEYS,
     RUNTIME_CONFIG_RESTART_REQUIRED_KEYS,
 )
+from haruhi_roleplay_api.infrastructure.provider_config_facade import (
+    apply_provider_config_facade,
+)
 
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -128,6 +131,8 @@ _RESTART_KEYS = {
 _HOT_RELOAD_KEYS = {
     *RUNTIME_CONFIG_KEYS,
     "ROLEPLAY_API_KEY",
+    "LLM_API_KEY",
+    "RAG_API_KEY",
     "OPENAI_API_KEY",
     "DEEPSEEK_API_KEY",
     "GEMINI_API_KEY",
@@ -141,6 +146,10 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("ROLEPLAY_PORT", "HTTP", "int", "HTTP bind port.", default="8000", min_value=1, max_value=65535),
     _field("ROLEPLAY_API_KEY", "HTTP", "secret", "Trusted admin API key.", secret=True, hot_reload=True),
     _field("ENABLE_DEBUG_TRACE", "HTTP", "bool", "Return safe debug trace summaries.", default="true"),
+    _field("LLM_API_TYPE", "Simple LLM", "enum", "LLM API type/provider.", enum=("fake", "openai", "openai_compatible", "ollama", "deepseek", "gemini")),
+    _field("LLM_BASE_URL", "Simple LLM", "url", "LLM API base URL."),
+    _field("LLM_MODEL", "Simple LLM", "string", "LLM model name."),
+    _field("LLM_API_KEY", "Simple LLM", "secret", "LLM API token.", secret=True, hot_reload=True),
     _field("MODEL_PROVIDER", "Model", "enum", "Legacy model provider type.", default="fake", enum=("fake", "local", "openai_compatible", "ollama", "openai", "deepseek", "gemini")),
     _field("MODEL_PROVIDER_ID", "Model", "string", "Legacy provider id override."),
     _field("MODEL_PROVIDER_NAME", "Model", "string", "Display/debug name for local compatible provider."),
@@ -154,6 +163,10 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("OPENAI_API_KEY", "Secrets", "secret", "OpenAI API key.", secret=True, hot_reload=True),
     _field("DEEPSEEK_API_KEY", "Secrets", "secret", "DeepSeek API key.", secret=True, hot_reload=True),
     _field("GEMINI_API_KEY", "Secrets", "secret", "Gemini API key.", secret=True, hot_reload=True),
+    _field("RAG_API_TYPE", "Simple RAG", "enum", "RAG API type/provider.", enum=("fake", "local", "local_vector", "chroma", "faiss", "qdrant")),
+    _field("RAG_BASE_URL", "Simple RAG", "url", "RAG API base URL."),
+    _field("RAG_INDEX", "Simple RAG", "string", "RAG collection, index, or vector store id."),
+    _field("RAG_API_KEY", "Simple RAG", "secret", "RAG API token.", secret=True, hot_reload=True),
     _field("RAG_PROVIDER", "RAG", "enum", "RAG provider.", default="local", enum=("fake", "local", "local_vector", "chroma", "faiss", "qdrant")),
     _field("RAG_CHUNK_SIZE", "RAG", "int", "RAG chunk size.", default="320", min_value=1),
     _field("RAG_EMBEDDING_DIMENSIONS", "RAG", "int", "RAG vector dimensions.", default="384", min_value=1),
@@ -166,13 +179,14 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("QDRANT_TIMEOUT_MS", "RAG", "int", "Qdrant timeout in milliseconds.", default="10000", min_value=1),
     _field("QDRANT_ENSURE_COLLECTION", "RAG", "bool", "Create Qdrant collection when missing.", default="false"),
     _field("QDRANT_API_KEY", "Secrets", "secret", "Qdrant API key.", secret=True, hot_reload=True),
+    _field("EMBEDDING_API_TYPE", "Simple Embedding", "enum", "Embedding API type/provider.", enum=("hash", "openai", "openai_compatible", "local_openai_compatible", "ollama")),
+    _field("EMBEDDING_BASE_URL", "Simple Embedding", "url", "Embedding API base URL."),
+    _field("EMBEDDING_MODEL", "Simple Embedding", "string", "Embedding model name."),
+    _field("EMBEDDING_API_KEY", "Simple Embedding", "secret", "Embedding API token.", secret=True, hot_reload=True),
     _field("EMBEDDING_PROVIDER", "Embedding", "enum", "Embedding provider.", default="hash", enum=("hash", "local_openai_compatible", "openai_compatible", "local", "ollama", "openai")),
-    _field("EMBEDDING_MODEL", "Embedding", "string", "Embedding model name."),
-    _field("EMBEDDING_BASE_URL", "Embedding", "url", "Embedding provider base URL."),
     _field("EMBEDDING_DIMENSIONS", "Embedding", "int", "Embedding vector dimensions.", default="384", min_value=1),
     _field("EMBEDDING_TIMEOUT_MS", "Embedding", "int", "Embedding timeout in milliseconds.", default="30000", min_value=1),
     _field("EMBEDDING_API_KEY_ENV", "Embedding", "string", "Environment variable name for embedding API key."),
-    _field("EMBEDDING_API_KEY", "Secrets", "secret", "Direct embedding API key fallback.", secret=True, hot_reload=True),
     _field("EMBEDDING_PATH", "Embedding", "path", "Embeddings API path override."),
     _field("AGENT_CONTEXT_PLANNER", "Agent", "enum", "Agent context planner mode.", default="deterministic", enum=("deterministic", "model")),
     _field("BACKEND_CONTEXT_PROVIDER", "Backend Context", "enum", "Backend context provider.", default="none", enum=("none", "fake")),
@@ -322,7 +336,7 @@ class EnvConfigEditor:
     def _effective_env(self, file_values: Mapping[str, str]) -> dict[str, str]:
         env = dict(self._base_env)
         env.update(file_values)
-        return env
+        return apply_provider_config_facade(env)
 
     def _candidate_env(
         self,
@@ -390,6 +404,8 @@ def _field_snapshot(
     if field.secret:
         return data
     data["value"] = value if value is not None else field.default
+    if value is not None and not has_file_value and not has_process_value:
+        data["source"] = "derived"
     return data
 
 
@@ -582,6 +598,9 @@ def _contains_inline_secret(value: Any) -> bool:
 def _check_dependencies(env: Mapping[str, str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
     errors: list[str] = []
     warnings: list[str] = []
+    _check_simple_llm_dependencies(env, errors)
+    _check_simple_embedding_dependencies(env, errors)
+    _check_simple_rag_dependencies(env, errors)
     session_provider = _normalized(env.get("SESSION_PROVIDER", "memory"))
     if session_provider in {"postgres", "postgresql"} and not env.get("DATABASE_URL"):
         errors.append("DATABASE_URL is required when SESSION_PROVIDER=postgres")
@@ -612,6 +631,81 @@ def _check_dependencies(env: Mapping[str, str]) -> tuple[tuple[str, ...], tuple[
     if rag_dimensions and embedding_dimensions and rag_dimensions != embedding_dimensions:
         warnings.append("RAG_EMBEDDING_DIMENSIONS and EMBEDDING_DIMENSIONS differ; vector collections may need rebuild")
     return tuple(errors), tuple(warnings)
+
+
+def _check_simple_llm_dependencies(
+    env: Mapping[str, str],
+    errors: list[str],
+) -> None:
+    if not _has_any(env, ("LLM_API_TYPE", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY")):
+        return
+    api_type = _normalized(env.get("LLM_API_TYPE", ""))
+    if not api_type:
+        errors.append("LLM_API_TYPE is required when using simple LLM config")
+        return
+    if api_type != "fake" and not env.get("LLM_MODEL"):
+        errors.append("LLM_MODEL is required when using simple LLM config")
+    if api_type in {"openai_compatible", "ollama"} and not env.get("LLM_BASE_URL"):
+        errors.append("LLM_BASE_URL is required for this LLM_API_TYPE")
+    if api_type == "openai" and not (env.get("LLM_API_KEY") or env.get("OPENAI_API_KEY")):
+        errors.append("LLM_API_KEY or OPENAI_API_KEY is required for LLM_API_TYPE=openai")
+    if api_type == "deepseek" and not (
+        env.get("LLM_API_KEY") or env.get("DEEPSEEK_API_KEY")
+    ):
+        errors.append("LLM_API_KEY or DEEPSEEK_API_KEY is required for LLM_API_TYPE=deepseek")
+    if api_type == "gemini" and not (
+        env.get("LLM_API_KEY") or env.get("GEMINI_API_KEY")
+    ):
+        errors.append("LLM_API_KEY or GEMINI_API_KEY is required for LLM_API_TYPE=gemini")
+
+
+def _check_simple_embedding_dependencies(
+    env: Mapping[str, str],
+    errors: list[str],
+) -> None:
+    if not _has_any(
+        env,
+        (
+            "EMBEDDING_API_TYPE",
+            "EMBEDDING_BASE_URL",
+            "EMBEDDING_MODEL",
+            "EMBEDDING_API_KEY",
+        ),
+    ):
+        return
+    api_type = _normalized(env.get("EMBEDDING_API_TYPE", ""))
+    if not api_type:
+        errors.append("EMBEDDING_API_TYPE is required when using simple embedding config")
+        return
+    if api_type in {"openai_compatible", "local_openai_compatible"} and not env.get(
+        "EMBEDDING_BASE_URL"
+    ):
+        errors.append("EMBEDDING_BASE_URL is required for this EMBEDDING_API_TYPE")
+    if api_type == "openai" and not (
+        env.get("EMBEDDING_API_KEY") or env.get("OPENAI_API_KEY")
+    ):
+        errors.append("EMBEDDING_API_KEY or OPENAI_API_KEY is required for EMBEDDING_API_TYPE=openai")
+
+
+def _check_simple_rag_dependencies(
+    env: Mapping[str, str],
+    errors: list[str],
+) -> None:
+    if not _has_any(env, ("RAG_API_TYPE", "RAG_BASE_URL", "RAG_INDEX", "RAG_API_KEY")):
+        return
+    api_type = _normalized(env.get("RAG_API_TYPE", ""))
+    if not api_type:
+        errors.append("RAG_API_TYPE is required when using simple RAG config")
+        return
+    if api_type in {"qdrant", "cloud_rag"}:
+        if not env.get("RAG_BASE_URL"):
+            errors.append("RAG_BASE_URL is required for RAG_API_TYPE=qdrant")
+        if not env.get("RAG_INDEX"):
+            errors.append("RAG_INDEX is required for RAG_API_TYPE=qdrant")
+
+
+def _has_any(env: Mapping[str, str], keys: tuple[str, ...]) -> bool:
+    return any(bool(env.get(key)) for key in keys)
 
 
 def _normalized(value: str) -> str:

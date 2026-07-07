@@ -42,18 +42,19 @@
 
 ## 开发阶段
 
-| 阶段    | 目标                  | 验收                                                                 |
-| ------- | --------------------- | -------------------------------------------------------------------- |
-| Phase A | 契约和骨架            | DTO、错误格式、persona schema 清楚                                   |
-| Phase B | 最小 Chat 闭环        | `GET /v1/personas` 和 `POST /v1/chat` 可本地调用                     |
-| Phase C | 本地可用性            | 本地模型、连续会话、debug trace 可用                                 |
-| Phase D | RAG 最小闭环          | 本地文档可导入、检索、返回 source                                    |
-| Phase E | Memory 最小闭环       | memory 可查询、读取、写入、删除                                      |
-| Phase F | Stream 和 HTTP 运行层 | 流式输出和真实 HTTP/SSE adapter 可调用                               |
-| Phase G | Provider Pack 产品化  | Ollama/OpenAI-compatible、DeepSeek、OpenAI、本地/云端 RAG 可替换     |
-| Phase H | Agent 编排 v1         | 能根据请求分析上下文需求，调度 session、memory、RAG 和业务后端上下文 |
-| Phase I | 前端 Demo             | 最简聊天界面可选择角色、发消息、展示 stream、source 和 memory 状态   |
-| Phase J | `.env` 编辑器         | 受信任页面可查看 `.env` 摘要、创建配置草稿、check 字段并保存配置     |
+| 阶段    | 目标                   | 验收                                                                           |
+| ------- | ---------------------- | ------------------------------------------------------------------------------ |
+| Phase A | 契约和骨架             | DTO、错误格式、persona schema 清楚                                             |
+| Phase B | 最小 Chat 闭环         | `GET /v1/personas` 和 `POST /v1/chat` 可本地调用                               |
+| Phase C | 本地可用性             | 本地模型、连续会话、debug trace 可用                                           |
+| Phase D | RAG 最小闭环           | 本地文档可导入、检索、返回 source                                              |
+| Phase E | Memory 最小闭环        | memory 可查询、读取、写入、删除                                                |
+| Phase F | Stream 和 HTTP 运行层  | 流式输出和真实 HTTP/SSE adapter 可调用                                         |
+| Phase G | Provider Pack 产品化   | Ollama/OpenAI-compatible、DeepSeek、OpenAI、本地/云端 RAG 可替换               |
+| Phase H | Agent 编排 v1          | 能根据请求分析上下文需求，调度 session、memory、RAG 和业务后端上下文           |
+| Phase I | 前端 Demo              | 最简聊天界面可选择角色、发消息、展示 stream、source 和 memory 状态             |
+| Phase J | `.env` 编辑器          | 受信任页面可查看 `.env` 摘要、创建配置草稿、check 字段并保存配置               |
+| Phase K | Compose 部署与配置收束 | Docker Compose 单容器、SQLite 默认、酒馆式 LLM/Embedding/RAG provider 配置可用 |
 
 ## 当前优先级
 
@@ -64,6 +65,7 @@
 5. 增加 AgentContextPlanner 和 ContextExecutor，让本项目能分析请求并决定要拉取哪些上下文。
 6. 做最简前端 demo，用 catalog 选择角色，用 chat/stream 展示回复和 sources。
 7. 做受信任 `.env` 编辑器，用独立 env config API 查看、选择、check 和保存配置草稿。
+8. 提供一个 Docker Compose 单容器封装，并把用户配置收束为 API type / provider、base URL、model/index 和 token。
 
 完成以上步骤后，项目进入“可被前端真实接入的 Roleplay API 中转服务”状态。
 
@@ -78,3 +80,5 @@
 - Agent 先做 deterministic planner，再考虑模型辅助 planner。
 - 前端 demo 先做最小聊天体验，不先做完整产品后台。
 - `.env` 编辑器只面向本地开发或受信任后台，不进入普通聊天 UI。
+- Linux 部署只做 Docker Compose 单容器封装，不先引入 Kubernetes、Helm、云数据库或多容器本地模型栈。
+- 配置预设只表示 provider/API type 选择器，不表示一整套部署方案。

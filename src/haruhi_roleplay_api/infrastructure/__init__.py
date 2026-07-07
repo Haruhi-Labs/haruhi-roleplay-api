@@ -27,6 +27,9 @@ from haruhi_roleplay_api.infrastructure.models import (
     ModelProviderSettings,
     build_model_router,
 )
+from haruhi_roleplay_api.infrastructure.provider_config_facade import (
+    apply_provider_config_facade,
+)
 from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     RagProviderSettings,
     build_rag_service,
@@ -64,4 +67,5 @@ __all__ = [
     "build_session_store",
     "build_session_store_from_env",
     "create_local_runtime",
+    "apply_provider_config_facade",
 ]

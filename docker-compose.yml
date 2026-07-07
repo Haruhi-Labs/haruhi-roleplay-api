@@ -1,0 +1,26 @@
+services:
+  roleplay-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: haruhi-roleplay-api:local
+    env_file:
+      - .env
+    environment:
+      ROLEPLAY_HOST: 0.0.0.0
+      ROLEPLAY_PORT: ${ROLEPLAY_PORT:-8000}
+      ROLEPLAY_CONFIG_FILE: /app/.data/runtime.env
+    ports:
+      - "${ROLEPLAY_PORT:-8000}:${ROLEPLAY_PORT:-8000}"
+    volumes:
+      - ./.data:/app/.data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import os, urllib.request; port=os.environ.get('ROLEPLAY_PORT','8000'); key=os.environ.get('ROLEPLAY_API_KEY'); headers={'Authorization':'Bearer '+key} if key else {}; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:'+port+'/health', headers=headers), timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
