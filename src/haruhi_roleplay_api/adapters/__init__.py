@@ -9,6 +9,7 @@ from haruhi_roleplay_api.adapters.embeddings import (
     OpenAIEmbeddingProvider,
 )
 from haruhi_roleplay_api.adapters.memory import InMemoryMemoryStore
+from haruhi_roleplay_api.adapters.memory_sqlite import SQLiteMemoryStore
 from haruhi_roleplay_api.adapters.models import (
     DeepSeekModelProvider,
     FakeModelProvider,
@@ -49,5 +50,6 @@ __all__ = [
     "PostgresSessionStore",
     "QdrantRagService",
     "SQLiteSessionStore",
+    "SQLiteMemoryStore",
 ]
 

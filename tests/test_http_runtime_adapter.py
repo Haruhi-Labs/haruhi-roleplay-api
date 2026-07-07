@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from haruhi_roleplay_api.infrastructure import (  # noqa: E402
     HttpRuntimeSettings,
+    HttpRuntimeStreamResponse,
     RoleplayHttpRuntime,
     RuntimeConfigStore,
 )
@@ -46,12 +47,14 @@ def auth_headers() -> dict[str, str]:
 def chat_body(
     *,
     rag: bool = False,
+    memory: bool = False,
+    memory_write: dict | None = None,
     stream: bool = False,
     session_id: str | None = None,
     continuous_session: bool = False,
     user_id: str = "user-1",
 ) -> dict:
-    return {
+    body = {
         "app_id": "web",
         "user_id": user_id,
         "session_id": session_id,
@@ -61,7 +64,7 @@ def chat_body(
         "language": "zh-CN",
         "capabilities": {
             "rag": rag,
-            "memory": False,
+            "memory": memory,
             "continuous_session": continuous_session,
             "safety_filter": True,
             "debug_trace": True,
@@ -71,6 +74,9 @@ def chat_body(
             "model": "fake-roleplay-model",
         },
     }
+    if memory_write is not None:
+        body["metadata"] = {"memory_write": memory_write}
+    return body
 
 
 def rag_document_body() -> dict:
@@ -161,17 +167,40 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
             headers={"content-type": "application/json"},
             body=json_body(chat_body(stream=True)),
         )
-        body = response.body.decode("utf-8")
+        self.assertIsInstance(response, HttpRuntimeStreamResponse)
+        events = tuple(response.events)
+        event_names = [event["event"] for event in events]
 
         self.assertEqual(response.status, 200)
         self.assertEqual(
             response.headers["Content-Type"],
             "text/event-stream; charset=utf-8",
         )
-        self.assertIn("event: start", body)
-        self.assertIn("event: delta", body)
-        self.assertIn("event: usage", body)
-        self.assertIn("event: done", body)
+        self.assertEqual(event_names[0], "start")
+        self.assertIn("delta", event_names)
+        self.assertIn("usage", event_names)
+        self.assertEqual(event_names[-1], "done")
+
+    def test_post_chat_stream_validation_error_returns_json_envelope(self) -> None:
+        invalid_body = chat_body(stream=True)
+        invalid_body.pop("character_id")
+
+        response = runtime().handle(
+            method="POST",
+            target="/v1/chat/stream",
+            headers={"content-type": "application/json"},
+            body=json_body(invalid_body),
+        )
+        body = json_response(response.body)
+
+        self.assertNotIsInstance(response, HttpRuntimeStreamResponse)
+        self.assertEqual(
+            response.headers["Content-Type"],
+            "application/json; charset=utf-8",
+        )
+        self.assertEqual(response.status, 400)
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "VALIDATION_ERROR")
 
     def test_rag_ingest_and_chat_share_local_runtime_state(self) -> None:
         app = runtime()
@@ -675,6 +704,54 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
 
         self.assertEqual(response.status, 404)
         self.assertEqual(body["error"]["code"], "SESSION_NOT_FOUND")
+
+    def test_sqlite_memory_provider_persists_across_runtime_instances(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = {
+                "ROLEPLAY_API_KEY": "secret",
+                "MEMORY_PROVIDER": "sqlite",
+                "MEMORY_SQLITE_PATH": str(Path(temp_dir) / "memories.sqlite3"),
+            }
+            first_app = runtime(env)
+            chat = first_app.handle(
+                method="POST",
+                target="/v1/chat",
+                headers=auth_headers(),
+                body=json_body(
+                    chat_body(
+                        memory=True,
+                        memory_write={
+                            "type": "user_preference",
+                            "content": "用户喜欢先制定社团活动计划",
+                            "reason": "用户明确表达稳定偏好",
+                            "confidence": 0.9,
+                        },
+                    )
+                ),
+            )
+
+            second_app = runtime(env)
+            listed = second_app.handle(
+                method="GET",
+                target=(
+                    "/v1/memory/user-1"
+                    "?app_id=web"
+                    "&character_id=haruhi"
+                    "&persona_mode=mid_late_haruhi"
+                ),
+                headers=auth_headers(),
+            )
+            chat_body_data = json_response(chat.body)
+            listed_body = json_response(listed.body)
+
+        self.assertEqual(chat.status, 200)
+        self.assertEqual(chat_body_data["data"]["memory"]["write_count"], 1)
+        self.assertEqual(listed.status, 200)
+        self.assertEqual(listed_body["data"]["count"], 1)
+        self.assertEqual(
+            listed_body["data"]["items"][0]["content"],
+            "用户喜欢先制定社团活动计划",
+        )
 
     def test_runtime_config_patch_can_select_model_backed_agent_planner_placeholder(
         self,

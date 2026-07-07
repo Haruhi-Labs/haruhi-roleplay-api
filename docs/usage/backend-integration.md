@@ -78,7 +78,7 @@
 
 当前 Memory 已支持管理查询、删除、chat 读取和显式候选写入。
 
-1. 后端注入 `InMemoryMemoryStore` 或未来的持久化 MemoryStore。
+1. 后端通过 `MEMORY_PROVIDER=memory|sqlite` 注入 `InMemoryMemoryStore` 或 `SQLiteMemoryStore`。
 2. 调用 `GET /v1/memory/{user_id}` 展示同一 app、用户、角色和 preset 下的记忆。
 3. 调用 `DELETE /v1/memory/{user_id}/{memory_id}` 删除指定记忆。
 4. Chat 请求中设置 `capabilities.memory=true`。

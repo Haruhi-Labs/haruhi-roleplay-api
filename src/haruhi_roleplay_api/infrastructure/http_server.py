@@ -10,7 +10,9 @@ from typing import ClassVar
 from haruhi_roleplay_api.infrastructure.http_runtime import (
     HttpRuntimeResponse,
     HttpRuntimeSettings,
+    HttpRuntimeStreamResponse,
     RoleplayHttpRuntime,
+    sse_event_bytes,
 )
 from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
 
@@ -108,8 +110,11 @@ def _settings_env(settings: HttpRuntimeSettings) -> dict[str, str]:
 
 def _write_response(
     handler: BaseHTTPRequestHandler,
-    response: HttpRuntimeResponse,
+    response: HttpRuntimeResponse | HttpRuntimeStreamResponse,
 ) -> None:
+    if isinstance(response, HttpRuntimeStreamResponse):
+        _write_stream_response(handler, response)
+        return
     handler.send_response(response.status)
     for key, value in response.headers.items():
         handler.send_header(key, value)
@@ -117,6 +122,19 @@ def _write_response(
     handler.end_headers()
     if response.body:
         handler.wfile.write(response.body)
+
+
+def _write_stream_response(
+    handler: BaseHTTPRequestHandler,
+    response: HttpRuntimeStreamResponse,
+) -> None:
+    handler.send_response(response.status)
+    for key, value in response.headers.items():
+        handler.send_header(key, value)
+    handler.end_headers()
+    for event in response.events:
+        handler.wfile.write(sse_event_bytes(event))
+        handler.wfile.flush()
 
 
 if __name__ == "__main__":

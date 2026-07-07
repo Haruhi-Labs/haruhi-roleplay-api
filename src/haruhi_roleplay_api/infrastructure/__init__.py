@@ -18,8 +18,14 @@ from haruhi_roleplay_api.infrastructure.embedding_provider_factory import (
 from haruhi_roleplay_api.infrastructure.http_runtime import (
     HttpRuntimeResponse,
     HttpRuntimeSettings,
+    HttpRuntimeStreamResponse,
     RoleplayHttpRuntime,
     create_local_runtime,
+)
+from haruhi_roleplay_api.infrastructure.memory_store_factory import (
+    MemoryStoreSettings,
+    build_memory_store,
+    build_memory_store_from_env,
 )
 from haruhi_roleplay_api.infrastructure.models import (
     ModelAliasConfig,
@@ -48,6 +54,8 @@ __all__ = [
     "BackendContextProviderSettings",
     "HttpRuntimeResponse",
     "HttpRuntimeSettings",
+    "HttpRuntimeStreamResponse",
+    "MemoryStoreSettings",
     "ModelAliasConfig",
     "ModelProviderConfig",
     "ModelProviderSettings",
@@ -61,6 +69,8 @@ __all__ = [
     "build_backend_context_provider_from_env",
     "build_embedding_provider",
     "build_embedding_provider_from_env",
+    "build_memory_store",
+    "build_memory_store_from_env",
     "build_model_router",
     "build_rag_service",
     "build_rag_service_from_env",

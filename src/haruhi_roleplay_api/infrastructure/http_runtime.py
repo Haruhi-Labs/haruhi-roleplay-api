@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -10,10 +11,9 @@ from urllib.parse import parse_qs, unquote, urlparse
 from uuid import uuid4
 
 from haruhi_roleplay_api.adapters import (
-    InMemoryMemoryStore,
     LocalPersonaRepository,
 )
-from haruhi_roleplay_api.api.chat import post_chat, post_chat_stream
+from haruhi_roleplay_api.api.chat import iter_chat_stream_events, post_chat
 from haruhi_roleplay_api.api.memory import delete_memory, get_memory
 from haruhi_roleplay_api.api.personas import get_personas
 from haruhi_roleplay_api.api.rag import post_rag_document, post_rag_search
@@ -38,6 +38,9 @@ from haruhi_roleplay_api.infrastructure.models import (
     ModelProviderSettings,
     build_model_router,
 )
+from haruhi_roleplay_api.infrastructure.memory_store_factory import (
+    build_memory_store_from_env,
+)
 from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     build_rag_service_from_env,
 )
@@ -46,7 +49,7 @@ from haruhi_roleplay_api.infrastructure.session_store_factory import (
     SessionStoreSettings,
     build_session_store,
 )
-from haruhi_roleplay_api.ports import AgentContextPlanner, SessionStore
+from haruhi_roleplay_api.ports import AgentContextPlanner, MemoryStore, SessionStore
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -54,6 +57,13 @@ class HttpRuntimeResponse:
     status: int
     headers: Mapping[str, str]
     body: bytes
+
+
+@dataclass(frozen=True, kw_only=True)
+class HttpRuntimeStreamResponse:
+    status: int
+    headers: Mapping[str, str]
+    events: Iterable[Mapping[str, Any]]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -84,7 +94,7 @@ class RoleplayHttpRuntime:
         model_router: object,
         session_store: SessionStore,
         session_recent_limit: int,
-        memory_store: InMemoryMemoryStore,
+        memory_store: MemoryStore,
         rag_service: object,
         backend_context_provider: object | None,
         agent_context_planner: AgentContextPlanner,
@@ -127,7 +137,7 @@ class RoleplayHttpRuntime:
             ),
             session_store=build_session_store(session_settings),
             session_recent_limit=session_settings.recentMessageLimit,
-            memory_store=InMemoryMemoryStore(),
+            memory_store=build_memory_store_from_env(runtime_env),
             rag_service=build_rag_service_from_env(runtime_env),
             backend_context_provider=build_backend_context_provider_from_env(
                 runtime_env
@@ -165,7 +175,7 @@ class RoleplayHttpRuntime:
         target: str,
         headers: Mapping[str, str],
         body: bytes = b"",
-    ) -> HttpRuntimeResponse:
+    ) -> HttpRuntimeResponse | HttpRuntimeStreamResponse:
         headers = _normalized_headers(headers)
         request_id = _request_id(headers)
         parsed = urlparse(target)
@@ -287,25 +297,39 @@ class RoleplayHttpRuntime:
         self,
         body: Mapping[str, Any],
         request_id: str,
-    ) -> HttpRuntimeResponse:
-        response = post_chat_stream(
-            body,
-            persona_repository=self._persona_repository,
-            prompt_builder=self._prompt_builder,
-            model_router=self._model_router,
-            session_store=self._session_store,
-            memory_store=self._memory_store,
-            rag_service=self._rag_service,
-            backend_context_provider=self._backend_context_provider,
-            agent_context_planner=self._agent_context_planner,
-            recent_message_limit=self._session_recent_limit,
-            request_id=request_id,
-            debug_trace_enabled=self._debug_trace_enabled,
-        )
-        if not response.get("ok", False):
-            return _json_response(response)
-        events = response.get("data", {}).get("events", [])
-        return HttpRuntimeResponse(
+    ) -> HttpRuntimeResponse | HttpRuntimeStreamResponse:
+        try:
+            event_iterator = iter(
+                iter_chat_stream_events(
+                    body,
+                    persona_repository=self._persona_repository,
+                    prompt_builder=self._prompt_builder,
+                    model_router=self._model_router,
+                    session_store=self._session_store,
+                    memory_store=self._memory_store,
+                    rag_service=self._rag_service,
+                    backend_context_provider=self._backend_context_provider,
+                    agent_context_planner=self._agent_context_planner,
+                    recent_message_limit=self._session_recent_limit,
+                    request_id=request_id,
+                    debug_trace_enabled=self._debug_trace_enabled,
+                )
+            )
+            first_event = next(event_iterator)
+        except StopIteration:
+            return _json_response(
+                error_response(
+                    AppError(
+                        code=ErrorCode.MODEL_PROVIDER_ERROR,
+                        message="Chat stream ended without events.",
+                    ),
+                    request_id,
+                )
+            )
+        except Exception as exc:
+            return _json_response(error_response(exc, request_id))
+
+        return HttpRuntimeStreamResponse(
             status=200,
             headers={
                 **_base_headers(),
@@ -313,7 +337,7 @@ class RoleplayHttpRuntime:
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
             },
-            body=_sse_body(events),
+            events=_stream_event_mappings(first_event, event_iterator),
         )
 
     def _env_config(
@@ -643,15 +667,30 @@ def _status_from_response(response: Mapping[str, Any]) -> int:
         return 500
 
 
-def _sse_body(events: list[Mapping[str, Any]]) -> bytes:
+def sse_event_bytes(event: Mapping[str, Any]) -> bytes:
     lines: list[str] = []
-    for event in events:
-        event_name = str(event.get("event", "message"))
-        data = event.get("data", {})
-        lines.append(f"event: {event_name}")
-        lines.append(f"data: {json.dumps(data, ensure_ascii=False)}")
-        lines.append("")
+    event_name = str(event.get("event", "message"))
+    data = event.get("data", {})
+    lines.append(f"event: {event_name}")
+    lines.append(f"data: {json.dumps(data, ensure_ascii=False)}")
+    lines.append("")
     return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def _stream_event_mappings(first_event: object, rest: Iterable[object]):
+    yield _chat_stream_event_to_mapping(first_event)
+    for event in rest:
+        yield _chat_stream_event_to_mapping(event)
+
+
+def _chat_stream_event_to_mapping(event: object) -> Mapping[str, Any]:
+    if hasattr(event, "to_mapping"):
+        data = event.to_mapping()
+        if isinstance(data, Mapping):
+            return data
+    if isinstance(event, Mapping):
+        return event
+    raise TypeError("stream event must be a mapping")
 
 
 def _int_from_env(

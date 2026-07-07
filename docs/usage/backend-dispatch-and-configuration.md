@@ -361,11 +361,23 @@ BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
 
 ### Memory
 
-| 配置                 | 示例   | 说明                                                            |
-| -------------------- | ------ | --------------------------------------------------------------- |
-| MEMORY_PROVIDER      | memory | memory provider；当前已实现 `memory`，持久化 adapter 为后续能力 |
-| MEMORY_READ_LIMIT    | 8      | 最多读取记忆数量                                                |
-| MEMORY_WRITE_ENABLED | true   | 是否允许显式候选写入                                            |
+| 配置                          | 示例                     | 说明                                                              |
+| ----------------------------- | ------------------------ | ----------------------------------------------------------------- |
+| MEMORY_PROVIDER               | memory                   | memory provider；当前已实现 `memory` / `sqlite`                   |
+| MEMORY_SQLITE_PATH            | .data/memories.sqlite3   | SQLite memory 文件路径，建议放在已忽略的 `.data/` 下              |
+| MEMORY_SQLITE_BUSY_TIMEOUT_MS | 5000                     | SQLite busy timeout                                               |
+| MEMORY_READ_LIMIT             | 8                        | 最多读取记忆数量；当前由服务端 `memory_read_limit` 参数控制       |
+| MEMORY_WRITE_ENABLED          | true                     | 是否允许显式候选写入；当前由 `capabilities.memory` 和 policy 控制 |
+
+当前实现状态：
+
+- 已实现 `MemoryStoreSettings` 和 `build_memory_store_from_env`。
+- HTTP runtime 已通过 memory store factory 装配，不再直接写死 `InMemoryMemoryStore`。
+- 已实现 `SQLiteMemoryStore`，使用标准库 `sqlite3`，不新增默认依赖。
+- `MEMORY_PROVIDER=sqlite` 会自动创建 schema。
+- `MEMORY_SQLITE_PATH` 的父目录会自动创建；默认 `.data/` 已加入 `.gitignore`，避免本地数据库误提交。
+- 使用同一个 SQLite 文件重新创建 runtime 后，可以继续读取、删除和写入已有 memory。
+- `MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH`、`MEMORY_SQLITE_BUSY_TIMEOUT_MS` 是有状态配置，只在启动装配时读取，runtime config 只展示、不热切换。
 
 ### RAG
 
@@ -951,7 +963,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | PROVIDER_PACK           | local                |
 | PERSONA_PROVIDER        | file                 |
 | SESSION_PROVIDER        | sqlite               |
-| MEMORY_PROVIDER         | memory               |
+| MEMORY_PROVIDER         | sqlite               |
 | RAG_PROVIDER            | local_vector         |
 | RAG_VECTOR_BACKEND      | memory               |
 | EMBEDDING_PROVIDER      | ollama               |
@@ -961,7 +973,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | ENABLE_DEBUG_TRACE      | true                 |
 | ENABLE_SAFETY_FILTER    | true                 |
 
-当前本地推荐可以使用 `SESSION_PROVIDER=sqlite` 保存连续会话；Memory 的本地持久化 adapter 尚未实现，当前推荐仍使用 `MEMORY_PROVIDER=memory`。
+当前本地推荐可以同时使用 `SESSION_PROVIDER=sqlite` 和 `MEMORY_PROVIDER=sqlite` 保存连续会话与长期记忆。
 
 ## 推荐测试配置
 
@@ -984,7 +996,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | PERSONA_PROVIDER        | postgres                           |
 | SESSION_PROVIDER        | postgres                           |
 | DATABASE_URL            | 部署平台 secret 注入               |
-| MEMORY_PROVIDER         | postgres                           |
+| MEMORY_PROVIDER         | sqlite                             |
 | CACHE_PROVIDER          | redis                              |
 | RAG_PROVIDER            | qdrant                             |
 | QDRANT_URL              | 生产 Qdrant 地址                   |
@@ -996,7 +1008,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 | ENABLE_DEBUG_TRACE      | false                              |
 | ENABLE_SAFETY_FILTER    | true                               |
 
-生产配置中的 PostgreSQL session adapter 已实现；persona / memory 的 PostgreSQL adapter 仍是目标形态，后续应按同样的 ports / adapters / infrastructure 边界逐步补齐。
+生产配置中的 PostgreSQL session adapter 已实现；Memory 当前支持 in-memory 和 SQLite，本项目的单容器部署推荐先使用 SQLite。Memory PostgreSQL adapter 仍是目标形态，后续应按同样的 ports / adapters / infrastructure 边界逐步补齐。
 
 ## 前端调用时的关键约束
 

@@ -825,3 +825,20 @@
 ### 下一步
 
 - 继续实现 `10.01` Docker Compose 封装，复用本次已经跑通的 simple provider 字段。
+
+## 2026-07-07：SQLite Memory Store
+
+### 完成
+
+- 新增 `SQLiteMemoryStore`，使用标准库 `sqlite3` 保存长期 memory。
+- 新增 `MemoryStoreSettings` 和 `build_memory_store_from_env`。
+- HTTP runtime 改为通过 memory store factory 装配，不再固定使用 `InMemoryMemoryStore`。
+- `.env.example`、`.env.compose.example`、runtime config、env config schema 和使用文档补充 `MEMORY_PROVIDER=sqlite`。
+
+### 验证
+
+- `uv run python -m unittest tests.test_sqlite_memory_store tests.test_memory_store_factory tests.test_memory_crud tests.test_memory_read_policy tests.test_memory_write_policy tests.test_http_runtime_adapter` 通过。
+
+### 下一步
+
+- 继续实现 `11.04`，用 session 切片补 memory candidate 来源；不要把 session summary 混进 `MemoryStore`。

@@ -83,6 +83,12 @@ SQLite session 默认写入：
 .data/sessions.sqlite3
 ```
 
+SQLite memory 默认写入：
+
+```text
+.data/memories.sqlite3
+```
+
 运行时配置面板保存的配置会写入容器内 `/app/.data/runtime.env`，因此也会落在宿主机 `./.data/runtime.env`。
 
 ## 停止

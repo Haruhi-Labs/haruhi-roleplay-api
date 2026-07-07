@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import Any, Mapping
 
 from haruhi_roleplay_api.api.responses import (
@@ -107,30 +108,23 @@ def post_chat_stream(
 ) -> ApiResponse:
     effective_request_id = _effective_request_id(body, request_id)
     try:
-        chat_input = ChatInput.from_mapping(
-            _chat_body_to_internal(
-                body,
-                effective_request_id,
-                force_stream=True,
-            )
-        )
         stream_events = tuple(
-            SendChatMessageUseCase(
-                RoleplayOrchestrator(
-                    persona_repository=persona_repository,
-                    prompt_builder=prompt_builder,
-                    model_router=model_router,
-                    session_store=session_store,
-                    memory_store=memory_store,
-                    memory_policy_engine=memory_policy_engine,
-                    rag_service=rag_service,
-                    backend_context_provider=backend_context_provider,
-                    agent_context_planner=agent_context_planner,
-                    recent_message_limit=recent_message_limit,
-                    memory_read_limit=memory_read_limit,
-                    debug_trace_enabled=debug_trace_enabled,
-                )
-            ).stream(chat_input)
+            iter_chat_stream_events(
+                body,
+                persona_repository=persona_repository,
+                prompt_builder=prompt_builder,
+                model_router=model_router,
+                request_id=effective_request_id,
+                session_store=session_store,
+                memory_store=memory_store,
+                memory_policy_engine=memory_policy_engine,
+                rag_service=rag_service,
+                backend_context_provider=backend_context_provider,
+                agent_context_planner=agent_context_planner,
+                recent_message_limit=recent_message_limit,
+                memory_read_limit=memory_read_limit,
+                debug_trace_enabled=debug_trace_enabled,
+            )
         )
     except Exception as exc:
         _log_chat_error(effective_request_id, exc)
@@ -143,6 +137,49 @@ def post_chat_stream(
         {"events": [_chat_stream_event_to_data(event) for event in stream_events]},
         effective_request_id,
     )
+
+
+def iter_chat_stream_events(
+    body: Mapping[str, Any],
+    *,
+    persona_repository: PersonaRepository,
+    prompt_builder: PromptBuilder,
+    model_router: ChatModelRouter,
+    request_id: RequestId | str,
+    session_store: SessionStore | None = None,
+    memory_store: MemoryStore | None = None,
+    memory_policy_engine: MemoryPolicyEngine | None = None,
+    rag_service: RagService | None = None,
+    backend_context_provider: BackendContextProvider | None = None,
+    agent_context_planner: AgentContextPlanner | None = None,
+    recent_message_limit: int = 12,
+    memory_read_limit: int = 5,
+    debug_trace_enabled: bool = True,
+) -> Iterable[ChatStreamEvent]:
+    effective_request_id = _effective_request_id(body, request_id)
+    chat_input = ChatInput.from_mapping(
+        _chat_body_to_internal(
+            body,
+            effective_request_id,
+            force_stream=True,
+        )
+    )
+    return SendChatMessageUseCase(
+        RoleplayOrchestrator(
+            persona_repository=persona_repository,
+            prompt_builder=prompt_builder,
+            model_router=model_router,
+            session_store=session_store,
+            memory_store=memory_store,
+            memory_policy_engine=memory_policy_engine,
+            rag_service=rag_service,
+            backend_context_provider=backend_context_provider,
+            agent_context_planner=agent_context_planner,
+            recent_message_limit=recent_message_limit,
+            memory_read_limit=memory_read_limit,
+            debug_trace_enabled=debug_trace_enabled,
+        )
+    ).stream(chat_input)
 
 
 def _effective_request_id(

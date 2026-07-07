@@ -51,6 +51,28 @@ class FakeStreamingHTTPResponse:
             yield f"data: {json.dumps(line, ensure_ascii=False)}\n\n".encode("utf-8")
 
 
+class LazyStreamingHTTPResponse(FakeStreamingHTTPResponse):
+    def __init__(self, lines: tuple[dict | str, ...]) -> None:
+        super().__init__(lines)
+        self.consumed = 0
+        self.closed = False
+
+    def __enter__(self) -> "LazyStreamingHTTPResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.closed = True
+        return None
+
+    def __iter__(self):
+        for line in self._lines:
+            self.consumed += 1
+            if line == "[DONE]":
+                yield b"data: [DONE]\n\n"
+                continue
+            yield f"data: {json.dumps(line, ensure_ascii=False)}\n\n".encode("utf-8")
+
+
 def model_messages() -> tuple[ModelMessage, ...]:
     return (
         ModelMessage(role="system", content="你正在进行角色扮演。"),
@@ -230,6 +252,47 @@ class CloudModelProviderTests(unittest.TestCase):
         self.assertEqual(done.provider, "deepseek")
         self.assertEqual(done.model, "haruhi-deepseek")
 
+    def test_deepseek_stream_yields_before_full_response_is_consumed(self) -> None:
+        response = LazyStreamingHTTPResponse(
+            (
+                {"choices": [{"delta": {"content": "云端"}}]},
+                {"choices": [{"delta": {"content": "流式"}}]},
+                "[DONE]",
+            )
+        )
+
+        with patch(
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
+            return_value=response,
+        ) as urlopen:
+            stream = build_model_router(settings()).stream(
+                model_messages(),
+                GenerationConfig(model="haruhi-deepseek"),
+            )
+            iterator = iter(stream)
+
+            self.assertEqual(urlopen.call_count, 0)
+
+            first = next(iterator)
+
+            self.assertEqual(urlopen.call_count, 1)
+            self.assertEqual(first.event, "delta")
+            self.assertEqual(first.delta, "云端")
+            self.assertEqual(response.consumed, 1)
+            self.assertFalse(response.closed)
+
+            remaining = tuple(iterator)
+
+        events = (first, *remaining)
+
+        self.assertEqual(response.consumed, 3)
+        self.assertTrue(response.closed)
+        self.assertEqual(
+            "".join(event.delta for event in events if event.event == "delta"),
+            "云端流式",
+        )
+        self.assertEqual(events[-1].event, "done")
+
     def test_openai_stream_uses_sse_delta_parser(self) -> None:
         with patch(
             "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
@@ -260,26 +323,34 @@ class CloudModelProviderTests(unittest.TestCase):
         self.assertEqual(done.model, "haruhi-openai")
 
     def test_gemini_stream_omits_unsupported_penalty_payload(self) -> None:
+        response = LazyStreamingHTTPResponse(
+            (
+                {"choices": [{"delta": {"content": "Gemini"}}]},
+                {"choices": [{"delta": {"content": "流式"}}]},
+                "[DONE]",
+            )
+        )
+
         with patch(
             "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
-            return_value=FakeStreamingHTTPResponse(
-                (
-                    {"choices": [{"delta": {"content": "Gemini"}}]},
-                    {"choices": [{"delta": {"content": "流式"}}]},
-                    "[DONE]",
-                )
-            ),
+            return_value=response,
         ) as urlopen:
-            events = tuple(
-                build_model_router(settings()).stream(
-                    model_messages(),
-                    GenerationConfig(
-                        model="haruhi-gemini",
-                        frequencyPenalty=0.7,
-                        presencePenalty=0.4,
-                    ),
-                )
+            stream = build_model_router(settings()).stream(
+                model_messages(),
+                GenerationConfig(
+                    model="haruhi-gemini",
+                    frequencyPenalty=0.7,
+                    presencePenalty=0.4,
+                ),
             )
+            iterator = iter(stream)
+            first = next(iterator)
+
+            self.assertEqual(first.event, "delta")
+            self.assertEqual(first.delta, "Gemini")
+            self.assertEqual(response.consumed, 1)
+
+            events = (first, *tuple(iterator))
 
         payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
         done = events[-1].response
@@ -287,6 +358,8 @@ class CloudModelProviderTests(unittest.TestCase):
         self.assertTrue(payload["stream"])
         self.assertNotIn("frequency_penalty", payload)
         self.assertNotIn("presence_penalty", payload)
+        self.assertEqual(response.consumed, 3)
+        self.assertTrue(response.closed)
         self.assertEqual(done.provider, "gemini")
         self.assertEqual(done.model, "haruhi-gemini")
 

@@ -205,11 +205,12 @@ secret 可以保存在 `.env` 或部署平台 secret 中。API 响应和 `/confi
 | Embedding       | `EMBEDDING_PROVIDER`、`EMBEDDING_MODEL`、`EMBEDDING_BASE_URL`、`EMBEDDING_DIMENSIONS` | 向量生成                 |
 | Simple Embedding | `EMBEDDING_API_TYPE`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_API_KEY`   | 单 embedding 后端入口     |
 | Session         | `SESSION_PROVIDER`、`SESSION_RECENT_LIMIT`、`SESSION_SQLITE_PATH`、`DATABASE_URL`     | 连续会话存储             |
+| Memory          | `MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH`、`MEMORY_SQLITE_BUSY_TIMEOUT_MS`             | 长期记忆存储             |
 | Agent           | `AGENT_CONTEXT_PLANNER`                                                               | 当前推荐 `deterministic` |
 | Backend Context | `BACKEND_CONTEXT_PROVIDER`、`BACKEND_CONTEXT_SOURCES`                                 | 当前只建议本地 fake 调试 |
 | Secrets         | `OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`、`DATABASE_URL`                | 只在服务端保存           |
 
-当前 runtime 中 Memory store 仍是 in-memory 装配，不建议添加 `MEMORY_PROVIDER` 配置。等持久化 memory adapter 实现后再单独纳入配置面。
+Memory 当前支持 `memory` 和 `sqlite` provider。SQLite 适合单机或 Docker Compose 本地部署；PostgreSQL memory provider 尚未实现。
 
 ## 后端字段字典
 
@@ -557,7 +558,7 @@ BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
 | `SESSION_POSTGRES_POOL_SIZE`     | restart required         | 预留连接池大小                                       | 当前 adapter 每次操作短连接，后续连接池使用 |
 | `DATABASE_URL`                   | secret, restart required | PostgreSQL 连接串                                    | `SESSION_PROVIDER=postgres` 必填            |
 
-memory session 示例：
+in-memory session 示例：
 
 ```env
 SESSION_PROVIDER=memory
@@ -587,6 +588,32 @@ SESSION_AUTO_CREATE_SCHEMA=true
 ```
 
 `SESSION_PROVIDER` 不能运行中热切换。它会改变有状态存储位置，必须重启后重新装配。
+
+### Memory
+
+用途：保存跨会话长期记忆。它不同于 session：session 保存最近对话消息，memory 保存经过 policy 允许的稳定事实或偏好。
+
+| 字段                            | 状态             | 含义                            | 什么时候用                         |
+| ------------------------------- | ---------------- | ------------------------------- | ---------------------------------- |
+| `MEMORY_PROVIDER`               | restart required | memory store；支持 `memory`、`sqlite` | 本地持久化长期记忆时用 `sqlite` |
+| `MEMORY_SQLITE_PATH`            | restart required | SQLite memory 数据库文件路径    | Docker Compose / 本地长期运行      |
+| `MEMORY_SQLITE_BUSY_TIMEOUT_MS` | restart required | SQLite busy timeout             | 并发写入时减少锁冲突错误           |
+
+in-memory 示例：
+
+```env
+MEMORY_PROVIDER=memory
+```
+
+SQLite 示例：
+
+```env
+MEMORY_PROVIDER=sqlite
+MEMORY_SQLITE_PATH=.data/memories.sqlite3
+MEMORY_SQLITE_BUSY_TIMEOUT_MS=5000
+```
+
+`MEMORY_PROVIDER` 不能运行中热切换。它会改变长期记忆的读写位置，必须重启后重新装配。
 
 ### Secrets
 

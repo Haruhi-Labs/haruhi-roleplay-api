@@ -115,6 +115,13 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 - 只展示不热切换：`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS`、`SESSION_POSTGRES_SCHEMA` 等有状态配置会出现在 runtime config 的 `restart_required_keys`，但不能通过 `PATCH /v1/runtime-config` 热切换。
 - 敏感边界：`DATABASE_URL` 只从服务端环境或 `.env` 读取，不进入 runtime config public snapshot、debug trace 或普通前端请求。
 
+当前 memory store 装配状态：
+
+- 默认配置：`MEMORY_PROVIDER=memory`。
+- 已实现：`MemoryStoreSettings` 和 `build_memory_store_from_env`，HTTP runtime 不再直接创建 `InMemoryMemoryStore`。
+- 本地持久化：`MEMORY_PROVIDER=sqlite` 已可用，使用标准库 `sqlite3` 和 `SQLiteMemoryStore` 保存长期 memory。
+- 只展示不热切换：`MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH`、`MEMORY_SQLITE_BUSY_TIMEOUT_MS` 是有状态配置，会出现在 runtime config 的 `restart_required_keys`，但不能通过 `PATCH /v1/runtime-config` 热切换。
+
 当前配置管理边界：
 
 - 普通聊天前端不访问 runtime config。

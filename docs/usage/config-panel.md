@@ -51,6 +51,7 @@ http://127.0.0.1:8000/config
 | Agent           | `AGENT_CONTEXT_PLANNER`                                                                                           | `deterministic` 可用；`model` 只显示预留状态     |
 | Backend Context | `BACKEND_CONTEXT_PROVIDER`、`BACKEND_CONTEXT_SOURCES`                                                             | 只用于受控调试                                   |
 | Session         | `SESSION_PROVIDER`、`SESSION_RECENT_LIMIT`、`SESSION_SQLITE_PATH`、`SESSION_POSTGRES_SCHEMA`、`DATABASE_URL` 状态 | session store 和 recent limit                    |
+| Memory          | `MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH`、`MEMORY_SQLITE_BUSY_TIMEOUT_MS`                                         | 长期 memory store                                |
 | Secrets         | `*_API_KEY`、`DATABASE_URL`、`REDIS_URL`                                                                          | 只显示 set/empty/missing，允许 set/replace/clear |
 | Diff / Check    | 草稿 diff 和校验结果                                                                                              | 保存前确认                                       |
 
