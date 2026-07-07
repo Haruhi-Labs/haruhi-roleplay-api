@@ -149,7 +149,12 @@ class CloudModelProviderTests(unittest.TestCase):
         ) as urlopen:
             response = build_model_router(settings()).generate(
                 model_messages(),
-                GenerationConfig(model="haruhi-gemini", maxTokens=128),
+                GenerationConfig(
+                    model="haruhi-gemini",
+                    maxTokens=128,
+                    frequencyPenalty=0.7,
+                    presencePenalty=0.4,
+                ),
             )
 
         request = urlopen.call_args.args[0]
@@ -162,6 +167,8 @@ class CloudModelProviderTests(unittest.TestCase):
         self.assertEqual(request.headers["Authorization"], "Bearer gemini-secret")
         self.assertEqual(payload["model"], "gemini-3.5-flash")
         self.assertEqual(payload["max_tokens"], 128)
+        self.assertNotIn("frequency_penalty", payload)
+        self.assertNotIn("presence_penalty", payload)
         self.assertEqual(response.provider, "gemini")
         self.assertEqual(response.model, "haruhi-gemini")
 
@@ -251,6 +258,37 @@ class CloudModelProviderTests(unittest.TestCase):
         )
         self.assertEqual(done.provider, "openai")
         self.assertEqual(done.model, "haruhi-openai")
+
+    def test_gemini_stream_omits_unsupported_penalty_payload(self) -> None:
+        with patch(
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
+            return_value=FakeStreamingHTTPResponse(
+                (
+                    {"choices": [{"delta": {"content": "Gemini"}}]},
+                    {"choices": [{"delta": {"content": "流式"}}]},
+                    "[DONE]",
+                )
+            ),
+        ) as urlopen:
+            events = tuple(
+                build_model_router(settings()).stream(
+                    model_messages(),
+                    GenerationConfig(
+                        model="haruhi-gemini",
+                        frequencyPenalty=0.7,
+                        presencePenalty=0.4,
+                    ),
+                )
+            )
+
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        done = events[-1].response
+
+        self.assertTrue(payload["stream"])
+        self.assertNotIn("frequency_penalty", payload)
+        self.assertNotIn("presence_penalty", payload)
+        self.assertEqual(done.provider, "gemini")
+        self.assertEqual(done.model, "haruhi-gemini")
 
     def test_cloud_provider_http_error_maps_to_app_error(self) -> None:
         http_error = urllib.error.HTTPError(

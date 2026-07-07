@@ -199,6 +199,7 @@ class ProviderConfigFacadeTests(unittest.TestCase):
             "Bearer embedding-secret",
         )
         self.assertEqual(payload["model"], "embed-test")
+        self.assertEqual(payload["dimensions"], 2)
         self.assertEqual(embedding, (0.1, 0.2))
 
     def test_rag_facade_maps_qdrant_fields_and_runs_search(self) -> None:

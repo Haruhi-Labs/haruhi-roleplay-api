@@ -65,6 +65,7 @@ class OpenAICompatibleEmbeddingProvider:
         payload = {
             "model": self._model,
             "input": text,
+            "dimensions": self._dimensions,
             "encoding_format": "float",
         }
         http_request = urllib.request.Request(

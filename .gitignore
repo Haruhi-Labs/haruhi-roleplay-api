@@ -8,4 +8,5 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!.env.compose.example
 AGENTS.md

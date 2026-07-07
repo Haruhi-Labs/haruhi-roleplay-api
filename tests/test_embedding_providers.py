@@ -119,6 +119,7 @@ class EmbeddingProviderTests(unittest.TestCase):
         self.assertEqual(request.headers["Authorization"], "Bearer openai-secret")
         self.assertEqual(payload["model"], "text-embedding-3-small")
         self.assertEqual(payload["input"], "今天有什么计划？")
+        self.assertEqual(payload["dimensions"], 3)
         self.assertEqual(provider.provider_name, "openai-embedding")
         self.assertEqual(embedding, (0.1, 0.2, 0.3))
 
@@ -144,6 +145,7 @@ class EmbeddingProviderTests(unittest.TestCase):
         self.assertEqual(request.full_url, "http://localhost:11434/v1/embeddings")
         self.assertNotIn("Authorization", request.headers)
         self.assertEqual(payload["model"], "nomic-embed-text")
+        self.assertEqual(payload["dimensions"], 3)
         self.assertEqual(provider.provider_name, "ollama-embedding")
         self.assertEqual(embedding, (0.5, 0.4, 0.3))
 
@@ -165,7 +167,9 @@ class EmbeddingProviderTests(unittest.TestCase):
             provider.embed("本地 embedding")
 
         request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
         self.assertEqual(request.full_url, "http://localhost:9999/v1/embeddings")
+        self.assertEqual(payload["dimensions"], 3)
 
     def test_openai_embedding_provider_requires_api_key(self) -> None:
         with self.assertRaises(AppError) as context:
