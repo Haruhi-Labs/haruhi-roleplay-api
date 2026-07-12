@@ -825,3 +825,25 @@
 ### 下一步
 
 - 继续实现 `10.01` Docker Compose 封装，复用本次已经跑通的 simple provider 字段。
+
+## 2026-07-13：Access Token Management And Quota Accounting
+
+### 完成
+
+- 新增 SQLite 服务令牌账本，令牌明文只在创建时返回，数据库只保存 SHA-256 哈希和安全前缀。
+- 新增令牌创建、列表、详情、额度调整、吊销和逐令牌日志管理 API。
+- 保留 `ROLEPLAY_API_KEY` 作为 bootstrap 管理密钥，服务令牌只能访问业务 API。
+- 校验服务令牌状态和过期时间，并对已吊销或无效令牌返回统一鉴权错误。
+- 逐令牌记录请求 ID、方法、路径、状态、耗时和错误码，不保存请求正文或密钥。
+- 从普通聊天和 SSE usage 事件核算 prompt、completion、total tokens，并原子累计到账本。
+- 额度耗尽时拒绝后续聊天，管理员可调整额度或设为不限额。
+- 增加 `.env`、Compose、配置面板 schema、接口参考和接入文档。
+
+### 验证
+
+- `PYTHONPATH=src python -m unittest discover -s tests` 通过。
+- 覆盖令牌明文不落库、过期、吊销、管理权限隔离、请求日志、普通/SSE 用量核算和额度恢复。
+
+### 下一步
+
+- 如果需要严格的并发硬上限，可在模型调用前增加额度预留和请求结束后的差额结算；当前按 Provider 返回的实际 usage 完成后结算。
