@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from haruhi_roleplay_api.domain import AccessToken, IssuedAccessToken
+from haruhi_roleplay_api.domain import (
+    AccessToken,
+    AccessTokenRequestLog,
+    IssuedAccessToken,
+)
 from haruhi_roleplay_api.ports import AccessTokenStore
 
 
@@ -46,3 +50,16 @@ class RevokeAccessToken:
 
     def execute(self, token_id: str) -> AccessToken:
         return self._store.revoke_token(token_id)
+
+
+class ListAccessTokenRequestLogs:
+    def __init__(self, store: AccessTokenStore) -> None:
+        self._store = store
+
+    def execute(
+        self,
+        token_id: str,
+        *,
+        limit: int,
+    ) -> tuple[AccessTokenRequestLog, ...]:
+        return self._store.list_request_logs(token_id, limit=limit)

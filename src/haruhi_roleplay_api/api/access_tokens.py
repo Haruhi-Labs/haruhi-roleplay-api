@@ -9,6 +9,7 @@ from haruhi_roleplay_api.application.access_tokens import (
     CreateAccessToken,
     GetAccessToken,
     ListAccessTokens,
+    ListAccessTokenRequestLogs,
     RevokeAccessToken,
 )
 from haruhi_roleplay_api.domain import DTOValidationError, RequestId
@@ -78,6 +79,28 @@ def delete_access_token(
     except Exception as exc:
         return error_response(exc, request_id)
     return success_response(item.to_mapping(), request_id)
+
+
+def get_access_token_logs(
+    token_id: str,
+    query: Mapping[str, Any],
+    *,
+    store: AccessTokenStore,
+    request_id: RequestId | str,
+) -> ApiResponse:
+    try:
+        limit = _optional_positive_int(query.get("limit")) or 50
+        items = ListAccessTokenRequestLogs(store).execute(token_id, limit=limit)
+    except Exception as exc:
+        return error_response(exc, request_id)
+    return success_response(
+        {
+            "token_id": token_id,
+            "count": len(items),
+            "items": [item.to_mapping() for item in items],
+        },
+        request_id,
+    )
 
 
 def _required_text(value: Any, field_name: str) -> str:

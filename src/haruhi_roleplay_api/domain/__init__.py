@@ -2,6 +2,7 @@
 
 from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
+    AccessTokenRequestLog,
     AccessTokenStatus,
     IssuedAccessToken,
 )
@@ -79,6 +80,7 @@ from haruhi_roleplay_api.domain.model import (
 
 __all__ = [
     "AccessToken",
+    "AccessTokenRequestLog",
     "AccessTokenStatus",
     "AppId",
     "BackendContextFact",

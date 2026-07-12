@@ -112,6 +112,72 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             "VALIDATION_ERROR",
         )
 
+    def test_service_token_can_call_business_api_and_has_request_log(self) -> None:
+        created = response_json(
+            self.request(
+                "POST",
+                "/v1/access-tokens",
+                body={"name": "公开网关", "quota_tokens": 5000},
+            ).body
+        )["data"]
+        service_headers = {"Authorization": f"Bearer {created['token']}"}
+
+        response = self.request(
+            "GET",
+            "/v1/personas",
+            headers=service_headers,
+        )
+
+        self.assertEqual(response.status, 200)
+        logs = response_json(
+            self.request(
+                "GET",
+                f"/v1/access-tokens/{created['token_id']}/logs",
+            ).body
+        )["data"]
+        self.assertEqual(logs["count"], 1)
+        self.assertEqual(logs["items"][0]["path"], "/v1/personas")
+        self.assertEqual(logs["items"][0]["status_code"], 200)
+
+    def test_service_token_cannot_call_management_api(self) -> None:
+        created = response_json(
+            self.request(
+                "POST",
+                "/v1/access-tokens",
+                body={"name": "业务服务", "quota_tokens": 5000},
+            ).body
+        )["data"]
+
+        response = self.request(
+            "GET",
+            "/v1/access-tokens",
+            headers={"X-API-Key": created["token"]},
+        )
+
+        self.assertEqual(response.status, 403)
+        self.assertEqual(
+            response_json(response.body)["error"]["code"],
+            "AUTH_PERMISSION_DENIED",
+        )
+
+    def test_revoked_service_token_is_rejected(self) -> None:
+        created = response_json(
+            self.request(
+                "POST",
+                "/v1/access-tokens",
+                body={"name": "临时服务", "quota_tokens": 5000},
+            ).body
+        )["data"]
+        self.request("DELETE", f"/v1/access-tokens/{created['token_id']}")
+
+        response = self.request(
+            "GET",
+            "/v1/personas",
+            headers={"Authorization": f"Bearer {created['token']}"},
+        )
+
+        self.assertEqual(response.status, 401)
+
 
 if __name__ == "__main__":
     unittest.main()

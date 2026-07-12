@@ -80,6 +80,61 @@ class IssuedAccessToken:
         _require_non_empty(self.secret, "issuedAccessToken.secret")
 
 
+@dataclass(frozen=True, kw_only=True)
+class AccessTokenRequestLog:
+    logId: str
+    tokenId: str
+    requestId: str
+    method: str
+    path: str
+    statusCode: int
+    durationMs: int
+    promptTokens: int
+    completionTokens: int
+    totalTokens: int
+    createdAt: str
+    errorCode: str | None = None
+
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("logId", self.logId),
+            ("tokenId", self.tokenId),
+            ("requestId", self.requestId),
+            ("method", self.method),
+            ("path", self.path),
+            ("createdAt", self.createdAt),
+        ):
+            _require_non_empty(value, f"accessTokenRequestLog.{field_name}")
+        if not 100 <= self.statusCode <= 599:
+            raise DTOValidationError(
+                "accessTokenRequestLog.statusCode must be a valid HTTP status"
+            )
+        if self.durationMs < 0:
+            raise DTOValidationError("accessTokenRequestLog.durationMs must be >= 0")
+        if min(self.promptTokens, self.completionTokens, self.totalTokens) < 0:
+            raise DTOValidationError("accessTokenRequestLog token usage must be >= 0")
+        if self.totalTokens != self.promptTokens + self.completionTokens:
+            raise DTOValidationError(
+                "accessTokenRequestLog.totalTokens must equal promptTokens + completionTokens"
+            )
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "log_id": self.logId,
+            "token_id": self.tokenId,
+            "request_id": self.requestId,
+            "method": self.method,
+            "path": self.path,
+            "status_code": self.statusCode,
+            "duration_ms": self.durationMs,
+            "prompt_tokens": self.promptTokens,
+            "completion_tokens": self.completionTokens,
+            "total_tokens": self.totalTokens,
+            "error_code": self.errorCode,
+            "created_at": self.createdAt,
+        }
+
+
 def _require_non_empty(value: str | None, field_name: str) -> str:
     if value is None or not isinstance(value, str) or not value.strip():
         raise DTOValidationError(f"{field_name} must be a non-empty string")

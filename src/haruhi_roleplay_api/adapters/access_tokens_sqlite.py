@@ -15,6 +15,7 @@ from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import DTOValidationError
 from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
+    AccessTokenRequestLog,
     AccessTokenStatus,
     IssuedAccessToken,
 )
@@ -128,6 +129,95 @@ class SQLiteAccessTokenStore:
             )
         return self.get_token(token_id)
 
+    def record_request(
+        self,
+        *,
+        token_id: str,
+        request_id: str,
+        method: str,
+        path: str,
+        status_code: int,
+        duration_ms: int,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        error_code: str | None = None,
+    ) -> AccessTokenRequestLog:
+        self.get_token(token_id)
+        log = AccessTokenRequestLog(
+            logId=f"log-{uuid4().hex}",
+            tokenId=token_id,
+            requestId=_required_text(request_id, "request_id"),
+            method=_required_text(method, "method").upper(),
+            path=_required_text(path, "path"),
+            statusCode=int(status_code),
+            durationMs=int(duration_ms),
+            promptTokens=int(prompt_tokens),
+            completionTokens=int(completion_tokens),
+            totalTokens=int(prompt_tokens) + int(completion_tokens),
+            errorCode=error_code,
+            createdAt=_now(),
+        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO access_token_request_logs (
+                    log_id,
+                    token_id,
+                    request_id,
+                    method,
+                    path,
+                    status_code,
+                    duration_ms,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    error_code,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    log.logId,
+                    log.tokenId,
+                    log.requestId,
+                    log.method,
+                    log.path,
+                    log.statusCode,
+                    log.durationMs,
+                    log.promptTokens,
+                    log.completionTokens,
+                    log.totalTokens,
+                    log.errorCode,
+                    log.createdAt,
+                ),
+            )
+            connection.execute(
+                "UPDATE access_tokens SET last_used_at = ? WHERE token_id = ?",
+                (log.createdAt, token_id),
+            )
+        return log
+
+    def list_request_logs(
+        self,
+        token_id: str,
+        *,
+        limit: int = 50,
+    ) -> tuple[AccessTokenRequestLog, ...]:
+        self.get_token(token_id)
+        clean_limit = _bounded_limit(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM access_token_request_logs
+                WHERE token_id = ?
+                ORDER BY created_at DESC, log_id DESC
+                LIMIT ?
+                """,
+                (token_id, clean_limit),
+            ).fetchall()
+        return tuple(_request_log_from_row(row) for row in rows)
+
     def _initialize_schema(self) -> None:
         if self._path != ":memory:":
             Path(self._path).parent.mkdir(parents=True, exist_ok=True)
@@ -141,6 +231,7 @@ class SQLiteAccessTokenStore:
             timeout=self._busy_timeout_ms / 1000,
         )
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
         try:
             yield connection
@@ -171,6 +262,25 @@ CREATE TABLE IF NOT EXISTS access_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_access_tokens_status
 ON access_tokens (status);
+
+CREATE TABLE IF NOT EXISTS access_token_request_logs (
+    log_id TEXT PRIMARY KEY,
+    token_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,
+    status_code INTEGER NOT NULL,
+    duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
+    prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0),
+    completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK (completion_tokens >= 0),
+    total_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_tokens >= 0),
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (token_id) REFERENCES access_tokens(token_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_token_logs_token_created
+ON access_token_request_logs (token_id, created_at DESC);
 """
 
 
@@ -188,6 +298,23 @@ def _token_from_row(row: sqlite3.Row) -> AccessToken:
         expiresAt=(str(row["expires_at"]) if row["expires_at"] is not None else None),
         revokedAt=(str(row["revoked_at"]) if row["revoked_at"] is not None else None),
         lastUsedAt=(str(row["last_used_at"]) if row["last_used_at"] is not None else None),
+    )
+
+
+def _request_log_from_row(row: sqlite3.Row) -> AccessTokenRequestLog:
+    return AccessTokenRequestLog(
+        logId=str(row["log_id"]),
+        tokenId=str(row["token_id"]),
+        requestId=str(row["request_id"]),
+        method=str(row["method"]),
+        path=str(row["path"]),
+        statusCode=int(row["status_code"]),
+        durationMs=int(row["duration_ms"]),
+        promptTokens=int(row["prompt_tokens"]),
+        completionTokens=int(row["completion_tokens"]),
+        totalTokens=int(row["total_tokens"]),
+        errorCode=(str(row["error_code"]) if row["error_code"] is not None else None),
+        createdAt=str(row["created_at"]),
     )
 
 
@@ -216,6 +343,18 @@ def _optional_positive_int(value: int | None, field_name: str) -> int | None:
     if parsed <= 0:
         raise DTOValidationError(f"{field_name} must be a positive integer")
     return parsed
+
+
+def _bounded_limit(value: int) -> int:
+    if isinstance(value, bool):
+        raise DTOValidationError("limit must be a positive integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise DTOValidationError("limit must be a positive integer") from exc
+    if parsed <= 0:
+        raise DTOValidationError("limit must be a positive integer")
+    return min(parsed, 200)
 
 
 def _optional_future_timestamp(value: str | None) -> str | None:

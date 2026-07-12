@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import hmac
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Mapping
 from urllib.parse import parse_qs, unquote, urlparse
 from uuid import uuid4
@@ -17,6 +20,7 @@ from haruhi_roleplay_api.adapters import (
 from haruhi_roleplay_api.api.access_tokens import (
     delete_access_token,
     get_access_token,
+    get_access_token_logs,
     get_access_tokens,
     post_access_token,
 )
@@ -54,6 +58,9 @@ from haruhi_roleplay_api.infrastructure.session_store_factory import (
     build_session_store,
 )
 from haruhi_roleplay_api.ports import AccessTokenStore, AgentContextPlanner, SessionStore
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -178,6 +185,43 @@ class RoleplayHttpRuntime:
         headers: Mapping[str, str],
         body: bytes = b"",
     ) -> HttpRuntimeResponse:
+        normalized_headers = _normalized_headers(headers)
+        request_id = _request_id(normalized_headers)
+        normalized_headers["x-request-id"] = request_id
+        access_token = self._access_token_from_headers(normalized_headers)
+        started_at = perf_counter()
+        response = self._handle_request(
+            method=method,
+            target=target,
+            headers=normalized_headers,
+            body=body,
+        )
+        if access_token is not None:
+            try:
+                self._access_token_store.record_request(
+                    token_id=access_token.tokenId,
+                    request_id=request_id,
+                    method=method,
+                    path=urlparse(target).path,
+                    status_code=response.status,
+                    duration_ms=max(int((perf_counter() - started_at) * 1000), 0),
+                    error_code=_response_error_code(response),
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "access token request log failed token_id=%s",
+                    access_token.tokenId,
+                )
+        return response
+
+    def _handle_request(
+        self,
+        *,
+        method: str,
+        target: str,
+        headers: Mapping[str, str],
+        body: bytes = b"",
+    ) -> HttpRuntimeResponse:
         headers = _normalized_headers(headers)
         request_id = _request_id(headers)
         parsed = urlparse(target)
@@ -218,6 +262,7 @@ class RoleplayHttpRuntime:
             return self._access_tokens(
                 method,
                 path_parts,
+                query,
                 json_body,
                 headers,
                 request_id,
@@ -409,6 +454,7 @@ class RoleplayHttpRuntime:
         self,
         method: str,
         path_parts: list[str],
+        query: Mapping[str, Any],
         body: Mapping[str, Any],
         headers: Mapping[str, str],
         request_id: str,
@@ -442,6 +488,19 @@ class RoleplayHttpRuntime:
             return _json_response(
                 get_access_token(
                     path_parts[2],
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if (
+            method == "GET"
+            and len(path_parts) == 4
+            and path_parts[3] == "logs"
+        ):
+            return _json_response(
+                get_access_token_logs(
+                    path_parts[2],
+                    query,
                     store=self._access_token_store,
                     request_id=request_id,
                 )
@@ -578,14 +637,21 @@ class RoleplayHttpRuntime:
     def _is_authorized(self, headers: Mapping[str, str]) -> bool:
         if not self._api_key:
             return True
-        authorization = headers.get("authorization", "")
-        api_key = headers.get("x-api-key", "")
-        return authorization == f"Bearer {self._api_key}" or api_key == self._api_key
+        credential = _credential(headers)
+        return _secret_equals(credential, self._api_key) or (
+            self._access_token_from_headers(headers) is not None
+        )
 
     def _is_config_authorized(self, headers: Mapping[str, str]) -> bool:
         if not self._api_key:
             return False
-        return self._is_authorized(headers)
+        return _secret_equals(_credential(headers), self._api_key)
+
+    def _access_token_from_headers(self, headers: Mapping[str, str]):
+        credential = _credential(headers)
+        if credential is None or not credential.startswith("hrt_"):
+            return None
+        return self._access_token_store.authenticate(credential)
 
 
 def create_local_runtime(env: Mapping[str, str]) -> RoleplayHttpRuntime:
@@ -612,6 +678,38 @@ def _request_id(headers: Mapping[str, str]) -> str:
 
 def _normalized_headers(headers: Mapping[str, str]) -> dict[str, str]:
     return {key.lower(): value for key, value in headers.items()}
+
+
+def _credential(headers: Mapping[str, str]) -> str | None:
+    authorization = headers.get("authorization", "")
+    if authorization.startswith("Bearer "):
+        value = authorization.removeprefix("Bearer ").strip()
+        return value or None
+    value = headers.get("x-api-key", "").strip()
+    return value or None
+
+
+def _secret_equals(candidate: str | None, expected: str) -> bool:
+    if candidate is None:
+        return False
+    return hmac.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _response_error_code(response: HttpRuntimeResponse) -> str | None:
+    content_type = response.headers.get("Content-Type", "")
+    if "application/json" not in content_type:
+        return None
+    try:
+        data = json.loads(response.body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, Mapping) or data.get("ok", False):
+        return None
+    error = data.get("error")
+    if not isinstance(error, Mapping):
+        return None
+    code = error.get("code")
+    return str(code) if code is not None else None
 
 
 def _path_parts(path: str) -> list[str]:

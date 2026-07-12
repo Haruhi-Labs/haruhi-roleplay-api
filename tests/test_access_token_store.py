@@ -91,6 +91,36 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, ErrorCode.ACCESS_TOKEN_NOT_FOUND)
 
+    def test_request_logs_are_isolated_by_token(self) -> None:
+        first = self.store.create_token(name="服务一", quota_tokens=100)
+        second = self.store.create_token(name="服务二", quota_tokens=100)
+        self.store.record_request(
+            token_id=first.token.tokenId,
+            request_id="req-1",
+            method="get",
+            path="/v1/personas",
+            status_code=200,
+            duration_ms=12,
+        )
+        self.store.record_request(
+            token_id=second.token.tokenId,
+            request_id="req-2",
+            method="POST",
+            path="/v1/chat",
+            status_code=400,
+            duration_ms=8,
+            error_code="VALIDATION_ERROR",
+        )
+
+        logs = self.store.list_request_logs(first.token.tokenId)
+
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].requestId, "req-1")
+        self.assertEqual(logs[0].method, "GET")
+        self.assertEqual(logs[0].path, "/v1/personas")
+        self.assertNotIn("secret", logs[0].to_mapping())
+        self.assertIsNotNone(self.store.get_token(first.token.tokenId).lastUsedAt)
+
 
 if __name__ == "__main__":
     unittest.main()

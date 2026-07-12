@@ -3,6 +3,7 @@
 from haruhi_roleplay_api.api.access_tokens import (
     delete_access_token,
     get_access_token,
+    get_access_token_logs,
     get_access_tokens,
     post_access_token,
 )
@@ -15,6 +16,7 @@ from haruhi_roleplay_api.api.sessions import post_session
 __all__ = [
     "delete_access_token",
     "get_access_token",
+    "get_access_token_logs",
     "get_access_tokens",
     "get_personas",
     "delete_memory",

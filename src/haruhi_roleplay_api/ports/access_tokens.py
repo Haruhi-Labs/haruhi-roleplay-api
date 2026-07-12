@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from haruhi_roleplay_api.domain.access_token import AccessToken, IssuedAccessToken
+from haruhi_roleplay_api.domain.access_token import (
+    AccessToken,
+    AccessTokenRequestLog,
+    IssuedAccessToken,
+)
 
 
 class AccessTokenStore(Protocol):
@@ -28,3 +32,26 @@ class AccessTokenStore(Protocol):
 
     def revoke_token(self, token_id: str) -> AccessToken:
         """吊销令牌。"""
+
+    def record_request(
+        self,
+        *,
+        token_id: str,
+        request_id: str,
+        method: str,
+        path: str,
+        status_code: int,
+        duration_ms: int,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        error_code: str | None = None,
+    ) -> AccessTokenRequestLog:
+        """记录一次令牌请求，不保存请求正文或令牌明文。"""
+
+    def list_request_logs(
+        self,
+        token_id: str,
+        *,
+        limit: int = 50,
+    ) -> tuple[AccessTokenRequestLog, ...]:
+        """按时间倒序读取令牌请求日志。"""
