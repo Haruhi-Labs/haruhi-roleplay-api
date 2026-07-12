@@ -656,21 +656,23 @@ class RoleplayHttpRuntime:
     def _is_authorized(self, headers: Mapping[str, str]) -> bool:
         if not self._api_key:
             return True
-        credential = _credential(headers)
-        return _secret_equals(credential, self._api_key) or (
+        return _has_matching_secret(headers, self._api_key) or (
             self._access_token_from_headers(headers) is not None
         )
 
     def _is_config_authorized(self, headers: Mapping[str, str]) -> bool:
         if not self._api_key:
             return False
-        return _secret_equals(_credential(headers), self._api_key)
+        return _has_matching_secret(headers, self._api_key)
 
     def _access_token_from_headers(self, headers: Mapping[str, str]):
-        credential = _credential(headers)
-        if credential is None or not credential.startswith("hrt_"):
-            return None
-        return self._access_token_store.authenticate(credential)
+        for credential in _credentials(headers):
+            if not credential.startswith("hrt_"):
+                continue
+            token = self._access_token_store.authenticate(credential)
+            if token is not None:
+                return token
+        return None
 
 
 def create_local_runtime(env: Mapping[str, str]) -> RoleplayHttpRuntime:
@@ -699,13 +701,21 @@ def _normalized_headers(headers: Mapping[str, str]) -> dict[str, str]:
     return {key.lower(): value for key, value in headers.items()}
 
 
-def _credential(headers: Mapping[str, str]) -> str | None:
+def _credentials(headers: Mapping[str, str]) -> tuple[str, ...]:
+    values: list[str] = []
     authorization = headers.get("authorization", "")
     if authorization.startswith("Bearer "):
         value = authorization.removeprefix("Bearer ").strip()
-        return value or None
+        if value:
+            values.append(value)
     value = headers.get("x-api-key", "").strip()
-    return value or None
+    if value and value not in values:
+        values.append(value)
+    return tuple(values)
+
+
+def _has_matching_secret(headers: Mapping[str, str], expected: str) -> bool:
+    return any(_secret_equals(candidate, expected) for candidate in _credentials(headers))
 
 
 def _secret_equals(candidate: str | None, expected: str) -> bool:

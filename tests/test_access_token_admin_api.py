@@ -119,6 +119,18 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             "AUTH_INVALID_API_KEY",
         )
 
+    def test_either_supported_header_can_carry_valid_admin_key(self) -> None:
+        response = self.request(
+            "GET",
+            "/v1/access-tokens",
+            headers={
+                "Authorization": "Bearer wrong",
+                "X-API-Key": "admin-secret",
+            },
+        )
+
+        self.assertEqual(response.status, 200)
+
     def test_invalid_quota_returns_validation_error(self) -> None:
         response = self.request(
             "POST",
