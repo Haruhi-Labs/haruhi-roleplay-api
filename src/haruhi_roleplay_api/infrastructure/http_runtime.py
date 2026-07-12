@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import json
+import hmac
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Mapping
 from urllib.parse import parse_qs, unquote, urlparse
 from uuid import uuid4
 
 from haruhi_roleplay_api.adapters import (
     LocalPersonaRepository,
+    SQLiteAccessTokenStore,
+)
+from haruhi_roleplay_api.api.access_tokens import (
+    delete_access_token,
+    get_access_token,
+    get_access_token_logs,
+    get_access_tokens,
+    patch_access_token,
+    post_access_token,
 )
 from haruhi_roleplay_api.api.chat import iter_chat_stream_events, post_chat
 from haruhi_roleplay_api.api.memory import delete_memory, get_memory
@@ -49,7 +61,15 @@ from haruhi_roleplay_api.infrastructure.session_store_factory import (
     SessionStoreSettings,
     build_session_store,
 )
-from haruhi_roleplay_api.ports import AgentContextPlanner, MemoryStore, SessionStore
+from haruhi_roleplay_api.ports import (
+    AccessTokenStore,
+    AgentContextPlanner,
+    MemoryStore,
+    SessionStore,
+)
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -100,6 +120,7 @@ class RoleplayHttpRuntime:
         agent_context_planner: AgentContextPlanner,
         runtime_config_store: RuntimeConfigStore,
         env_config_editor: EnvConfigEditor,
+        access_token_store: AccessTokenStore,
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
     ) -> None:
@@ -114,6 +135,7 @@ class RoleplayHttpRuntime:
         self._agent_context_planner = agent_context_planner
         self._runtime_config_store = runtime_config_store
         self._env_config_editor = env_config_editor
+        self._access_token_store = access_token_store
         self._api_key = api_key
         self._debug_trace_enabled = debug_trace_enabled
 
@@ -148,6 +170,9 @@ class RoleplayHttpRuntime:
                 base_env=env,
                 config_path=config_store.config_path,
             ),
+            access_token_store=SQLiteAccessTokenStore(
+                path=_access_token_path(project_root, runtime_env)
+            ),
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
         )
@@ -169,6 +194,59 @@ class RoleplayHttpRuntime:
         )
 
     def handle(
+        self,
+        *,
+        method: str,
+        target: str,
+        headers: Mapping[str, str],
+        body: bytes = b"",
+    ) -> HttpRuntimeResponse | HttpRuntimeStreamResponse:
+        normalized_headers = _normalized_headers(headers)
+        request_id = _request_id(normalized_headers)
+        normalized_headers["x-request-id"] = request_id
+        access_token = self._access_token_from_headers(normalized_headers)
+        started_at = perf_counter()
+        parsed_path = urlparse(target).path
+        try:
+            if access_token is not None and _consumes_model_tokens(method, parsed_path):
+                self._access_token_store.ensure_quota_available(access_token.tokenId)
+            response = self._handle_request(
+                method=method,
+                target=target,
+                headers=normalized_headers,
+                body=body,
+            )
+        except AppError as exc:
+            response = _json_response(error_response(exc, request_id))
+        if access_token is None:
+            return response
+        if isinstance(response, HttpRuntimeStreamResponse):
+            return HttpRuntimeStreamResponse(
+                status=response.status,
+                headers=response.headers,
+                events=self._audited_stream_events(
+                    response.events,
+                    token_id=access_token.tokenId,
+                    request_id=request_id,
+                    method=method,
+                    path=parsed_path,
+                    status_code=response.status,
+                    started_at=started_at,
+                ),
+            )
+        self._record_access_token_request(
+            token_id=access_token.tokenId,
+            request_id=request_id,
+            method=method,
+            path=parsed_path,
+            status_code=response.status,
+            started_at=started_at,
+            usage=_response_token_usage(response),
+            error_code=_response_error_code(response),
+        )
+        return response
+
+    def _handle_request(
         self,
         *,
         method: str,
@@ -212,6 +290,15 @@ class RoleplayHttpRuntime:
             )
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "env-config"]:
             return self._env_config(method, path_parts, json_body, headers, request_id)
+        if len(path_parts) >= 2 and path_parts[:2] == ["v1", "access-tokens"]:
+            return self._access_tokens(
+                method,
+                path_parts,
+                query,
+                json_body,
+                headers,
+                request_id,
+            )
         if path_parts == ["v1", "runtime-config"]:
             return self._runtime_config(method, json_body, headers, request_id)
         if method == "POST" and path_parts == ["v1", "sessions"]:
@@ -340,6 +427,76 @@ class RoleplayHttpRuntime:
             events=_stream_event_mappings(first_event, event_iterator),
         )
 
+    def _audited_stream_events(
+        self,
+        events: Iterable[Mapping[str, Any]],
+        *,
+        token_id: str,
+        request_id: str,
+        method: str,
+        path: str,
+        status_code: int,
+        started_at: float,
+    ) -> Iterable[Mapping[str, Any]]:
+        usage = (0, 0)
+        error_code: str | None = None
+        try:
+            for event in events:
+                if event.get("event") == "usage":
+                    data = event.get("data")
+                    if isinstance(data, Mapping):
+                        usage = _usage_pair(data)
+                elif event.get("event") == "error":
+                    data = event.get("data")
+                    if isinstance(data, Mapping) and data.get("code") is not None:
+                        error_code = str(data["code"])
+                yield event
+        except Exception as exc:
+            error_code = app_error_from_exception(exc).code.value
+            raise
+        finally:
+            self._record_access_token_request(
+                token_id=token_id,
+                request_id=request_id,
+                method=method,
+                path=path,
+                status_code=status_code,
+                started_at=started_at,
+                usage=usage,
+                error_code=error_code,
+            )
+
+    def _record_access_token_request(
+        self,
+        *,
+        token_id: str,
+        request_id: str,
+        method: str,
+        path: str,
+        status_code: int,
+        started_at: float,
+        usage: tuple[int, int],
+        error_code: str | None,
+    ) -> None:
+        try:
+            prompt_tokens, completion_tokens = usage
+            self._access_token_store.record_request(
+                token_id=token_id,
+                request_id=request_id,
+                method=method,
+                path=path,
+                status_code=status_code,
+                duration_ms=max(int((perf_counter() - started_at) * 1000), 0),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                error_code=error_code,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "access token request log failed token_id=%s",
+                token_id,
+            )
+
     def _env_config(
         self,
         method: str,
@@ -397,6 +554,90 @@ class RoleplayHttpRuntime:
                 )
         except Exception as exc:
             return _json_response(error_response(exc, request_id))
+        return _json_response(
+            {
+                "ok": False,
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Route was not found.",
+                },
+                "request_id": request_id,
+            },
+            status=404,
+        )
+
+    def _access_tokens(
+        self,
+        method: str,
+        path_parts: list[str],
+        query: Mapping[str, Any],
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        request_id: str,
+    ) -> HttpRuntimeResponse:
+        if not self._is_config_authorized(headers):
+            return _json_response(
+                error_response(
+                    AppError(
+                        code=ErrorCode.AUTH_PERMISSION_DENIED,
+                        message="Access token management requires ROLEPLAY_API_KEY.",
+                    ),
+                    request_id,
+                )
+            )
+        if method == "POST" and path_parts == ["v1", "access-tokens"]:
+            return _json_response(
+                post_access_token(
+                    body,
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if method == "GET" and path_parts == ["v1", "access-tokens"]:
+            return _json_response(
+                get_access_tokens(
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if method == "GET" and len(path_parts) == 3:
+            return _json_response(
+                get_access_token(
+                    path_parts[2],
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if (
+            method == "GET"
+            and len(path_parts) == 4
+            and path_parts[3] == "logs"
+        ):
+            return _json_response(
+                get_access_token_logs(
+                    path_parts[2],
+                    query,
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if method == "DELETE" and len(path_parts) == 3:
+            return _json_response(
+                delete_access_token(
+                    path_parts[2],
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if method == "PATCH" and len(path_parts) == 3:
+            return _json_response(
+                patch_access_token(
+                    path_parts[2],
+                    body,
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
         return _json_response(
             {
                 "ok": False,
@@ -521,14 +762,23 @@ class RoleplayHttpRuntime:
     def _is_authorized(self, headers: Mapping[str, str]) -> bool:
         if not self._api_key:
             return True
-        authorization = headers.get("authorization", "")
-        api_key = headers.get("x-api-key", "")
-        return authorization == f"Bearer {self._api_key}" or api_key == self._api_key
+        return _has_matching_secret(headers, self._api_key) or (
+            self._access_token_from_headers(headers) is not None
+        )
 
     def _is_config_authorized(self, headers: Mapping[str, str]) -> bool:
         if not self._api_key:
             return False
-        return self._is_authorized(headers)
+        return _has_matching_secret(headers, self._api_key)
+
+    def _access_token_from_headers(self, headers: Mapping[str, str]):
+        for credential in _credentials(headers):
+            if not credential.startswith("hrt_"):
+                continue
+            token = self._access_token_store.authenticate(credential)
+            if token is not None:
+                return token
+        return None
 
 
 def create_local_runtime(env: Mapping[str, str]) -> RoleplayHttpRuntime:
@@ -537,6 +787,13 @@ def create_local_runtime(env: Mapping[str, str]) -> RoleplayHttpRuntime:
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _access_token_path(project_root: Path, env: Mapping[str, str]) -> Path:
+    configured = Path(env.get("ACCESS_TOKEN_SQLITE_PATH", ".data/access-tokens.sqlite3"))
+    if configured.is_absolute():
+        return configured
+    return project_root / configured
 
 
 def _request_id(headers: Mapping[str, str]) -> str:
@@ -548,6 +805,76 @@ def _request_id(headers: Mapping[str, str]) -> str:
 
 def _normalized_headers(headers: Mapping[str, str]) -> dict[str, str]:
     return {key.lower(): value for key, value in headers.items()}
+
+
+def _credentials(headers: Mapping[str, str]) -> tuple[str, ...]:
+    values: list[str] = []
+    authorization = headers.get("authorization", "")
+    if authorization.startswith("Bearer "):
+        value = authorization.removeprefix("Bearer ").strip()
+        if value:
+            values.append(value)
+    value = headers.get("x-api-key", "").strip()
+    if value and value not in values:
+        values.append(value)
+    return tuple(values)
+
+
+def _has_matching_secret(headers: Mapping[str, str], expected: str) -> bool:
+    return any(_secret_equals(candidate, expected) for candidate in _credentials(headers))
+
+
+def _secret_equals(candidate: str | None, expected: str) -> bool:
+    if candidate is None:
+        return False
+    return hmac.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _response_error_code(response: HttpRuntimeResponse) -> str | None:
+    content_type = response.headers.get("Content-Type", "")
+    if "application/json" not in content_type:
+        return None
+    try:
+        data = json.loads(response.body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, Mapping) or data.get("ok", False):
+        return None
+    error = data.get("error")
+    if not isinstance(error, Mapping):
+        return None
+    code = error.get("code")
+    return str(code) if code is not None else None
+
+
+def _consumes_model_tokens(method: str, path: str) -> bool:
+    return method.upper() == "POST" and path in {"/v1/chat", "/v1/chat/stream"}
+
+
+def _response_token_usage(response: HttpRuntimeResponse) -> tuple[int, int]:
+    content_type = response.headers.get("Content-Type", "")
+    if "application/json" in content_type:
+        try:
+            payload = json.loads(response.body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return (0, 0)
+        if isinstance(payload, Mapping):
+            data = payload.get("data")
+            if isinstance(data, Mapping):
+                usage = data.get("usage")
+                if isinstance(usage, Mapping):
+                    return _usage_pair(usage)
+        return (0, 0)
+    return (0, 0)
+
+
+def _usage_pair(usage: Mapping[str, Any]) -> tuple[int, int]:
+    try:
+        prompt_tokens = max(int(usage.get("prompt_tokens", 0)), 0)
+        completion_tokens = max(int(usage.get("completion_tokens", 0)), 0)
+    except (TypeError, ValueError):
+        return (0, 0)
+    return (prompt_tokens, completion_tokens)
 
 
 def _path_parts(path: str) -> list[str]:

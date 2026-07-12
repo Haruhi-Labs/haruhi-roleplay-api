@@ -146,6 +146,7 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("ROLEPLAY_PORT", "HTTP", "int", "HTTP bind port.", default="8000", min_value=1, max_value=65535),
     _field("ROLEPLAY_API_KEY", "HTTP", "secret", "Trusted admin API key.", secret=True, hot_reload=True),
     _field("ENABLE_DEBUG_TRACE", "HTTP", "bool", "Return safe debug trace summaries.", default="true"),
+    _field("ACCESS_TOKEN_SQLITE_PATH", "Access Token", "path", "SQLite access token ledger path.", default=".data/access-tokens.sqlite3"),
     _field("LLM_API_TYPE", "Simple LLM", "enum", "LLM API type/provider.", enum=("fake", "openai", "openai_compatible", "ollama", "deepseek", "gemini")),
     _field("LLM_BASE_URL", "Simple LLM", "url", "LLM API base URL."),
     _field("LLM_MODEL", "Simple LLM", "string", "LLM model name."),

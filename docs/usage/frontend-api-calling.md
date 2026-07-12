@@ -16,7 +16,7 @@ Frontend -> Your Business Backend -> Haruhi Roleplay API
 http://127.0.0.1:8000/demo
 ```
 
-普通用户前端不应该持有 `ROLEPLAY_API_KEY`。只有本地 demo、受信任管理后台或业务后端可以携带 API key 调用本服务。
+普通用户前端不应该持有 `ROLEPLAY_API_KEY`。`ROLEPLAY_API_KEY` 只用于受信任管理面；业务后端应使用 `/v1/access-tokens` 签发的独立服务令牌调用本服务。完整流程见 `docs/usage/access-token-management.md`。
 
 ## 快速启动
 
@@ -37,13 +37,13 @@ uv run python -m haruhi_roleplay_api.infrastructure.http_server
 API base: http://127.0.0.1:8000
 ```
 
-如果 `.env` 中设置了：
+如果 `.env` 中设置了管理密钥：
 
 ```env
 ROLEPLAY_API_KEY=dev-secret
 ```
 
-调用 API 时需要 header：
+管理接口使用该密钥；业务接口推荐使用签发的 `hrt_...` 服务令牌。两者都使用相同 Header 形状：
 
 ```http
 Authorization: Bearer dev-secret
@@ -62,8 +62,8 @@ X-API-Key: dev-secret
 | Header                                     | 必填                                | 说明                |
 | ------------------------------------------ | ----------------------------------- | ------------------- |
 | `Content-Type: application/json`           | POST/PATCH 必填                     | JSON 请求体         |
-| `Authorization: Bearer <ROLEPLAY_API_KEY>` | 启用 API key 时必填                 | 鉴权                |
-| `X-API-Key: <ROLEPLAY_API_KEY>`            | 启用 API key 时可替代 Authorization | 鉴权                |
+| `Authorization: Bearer <token>` | 启用鉴权时必填                 | 管理密钥或服务令牌鉴权 |
+| `X-API-Key: <token>`            | 可替代 Authorization           | 管理密钥或服务令牌鉴权 |
 | `X-Request-Id`                             | 否                                  | 调用方生成的追踪 ID |
 
 ### 响应 envelope

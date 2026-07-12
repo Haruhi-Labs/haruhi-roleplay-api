@@ -198,6 +198,7 @@ secret 可以保存在 `.env` 或部署平台 secret 中。API 响应和 `/confi
 | 分组            | 常用字段                                                                              | 说明                     |
 | --------------- | ------------------------------------------------------------------------------------- | ------------------------ |
 | HTTP            | `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`ROLEPLAY_API_KEY`                                  | 服务监听和管理鉴权       |
+| Access Token    | `ACCESS_TOKEN_SQLITE_PATH`                                                            | 服务令牌、额度、用量和日志持久化 |
 | Model           | `MODEL_PROVIDER_REGISTRY`、`MODEL_PROVIDER`、`MODEL_NAME`、`MODEL_ALIAS`              | 模型 provider 和模型别名 |
 | Simple LLM      | `LLM_API_TYPE`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`                            | 单模型后端的酒馆式入口   |
 | RAG             | `RAG_PROVIDER`、`RAG_CHUNK_SIZE`、`RAG_VECTOR_BACKEND`、`CHROMA_*`、`QDRANT_*`        | 文档导入、检索和向量库   |
@@ -230,7 +231,7 @@ Memory 当前支持 `memory` 和 `sqlite` provider。SQLite 适合单机或 Dock
 | `ROLEPLAY_CONFIG_FILE` | 启动读取           | 指定 `.env` 文件路径；不在 `/config` schema 中，但 runtime 会读取 | 多环境、本地临时配置文件           |
 | `ROLEPLAY_HOST`        | restart required   | HTTP bind host                                                    | 需要局域网访问时可设为 `0.0.0.0`   |
 | `ROLEPLAY_PORT`        | restart required   | HTTP bind port                                                    | 本地端口冲突或多实例运行           |
-| `ROLEPLAY_API_KEY`     | secret, hot reload | 管理接口和受保护 API 的 API key                                   | 本地 demo、`/config`、业务后端调用 |
+| `ROLEPLAY_API_KEY`     | secret, hot reload | Bootstrap 管理密钥                                                 | `/config`、配置 API、服务令牌签发 |
 | `ENABLE_DEBUG_TRACE`   | hot reload         | 是否允许返回安全裁剪后的 debug trace                              | 本地调试打开，生产环境建议关闭     |
 
 示例：
@@ -250,6 +251,16 @@ http://127.0.0.1:8010/config
 ```
 
 如果修改 `ROLEPLAY_HOST` 或 `ROLEPLAY_PORT`，必须重启服务。端口不是热更新字段，因为 HTTP socket 在启动时已经绑定。
+
+生产中的业务后端应使用管理 API 签发的独立 `hrt_...` 服务令牌，不应共享 `ROLEPLAY_API_KEY`。令牌签发、吊销、额度和日志说明见 `docs/usage/access-token-management.md`。
+
+### Access Token
+
+| 字段 | 状态 | 含义 |
+| --- | --- | --- |
+| `ACCESS_TOKEN_SQLITE_PATH` | restart required | SQLite 令牌账本路径，默认 `.data/access-tokens.sqlite3` |
+
+该账本保存令牌哈希、状态、过期时间、额度、累计模型 Token 用量和逐令牌请求日志。修改路径需要重启；令牌额度通过 `/v1/access-tokens` 管理 API 设置，不放在 `.env` 中。
 
 ### Simple Provider Facade
 

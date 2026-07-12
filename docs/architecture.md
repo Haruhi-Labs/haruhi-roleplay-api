@@ -8,6 +8,8 @@
 
 前端 -> 业务后端 -> Roleplay API HTTP Adapter -> Orchestrator/Agent -> Ports -> Adapters -> Provider
 
+HTTP Adapter 在进入 Orchestrator 前完成 `ROLEPLAY_API_KEY` 或服务 Access Token 鉴权与聊天额度预检。普通 JSON 响应返回前结算用量；SSE 响应由惰性事件包装器在流消费完成后结算，避免鉴权和审计逻辑破坏端到端流式输出。
+
 前端只选择业务参数：
 
 - `character_id`
@@ -51,6 +53,7 @@
 | MemoryStore                 | 长期记忆存取                                                       |
 | BackendContextProvider      | 从业务后端或其它数据库读取受控上下文                               |
 | SafetyGuard                 | 输入、输出和越界检查                                               |
+| AccessTokenStore            | 服务令牌校验、额度核算和逐令牌审计日志                             |
 
 角色字段的含义见 `character-schema.md`。其中 `ToneConfig`、`IdentityConfig`、`KnowledgeBoundary` 会被 Orchestrator 读取，并由 PromptBuilder 融合进模型上下文。
 

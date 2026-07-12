@@ -1,5 +1,6 @@
 """External system adapters."""
 
+from haruhi_roleplay_api.adapters.access_tokens_sqlite import SQLiteAccessTokenStore
 from haruhi_roleplay_api.adapters.backend_context import FakeBackendContextProvider
 from haruhi_roleplay_api.adapters.embeddings import (
     HashEmbeddingProvider,
@@ -49,7 +50,7 @@ __all__ = [
     "OpenAICompatibleModelProvider",
     "PostgresSessionStore",
     "QdrantRagService",
+    "SQLiteAccessTokenStore",
     "SQLiteSessionStore",
     "SQLiteMemoryStore",
 ]
-

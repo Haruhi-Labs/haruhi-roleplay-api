@@ -12,6 +12,8 @@ from haruhi_roleplay_api.domain import DTOValidationError
 class ErrorCode(StrEnum):
     AUTH_INVALID_API_KEY = "AUTH_INVALID_API_KEY"
     AUTH_PERMISSION_DENIED = "AUTH_PERMISSION_DENIED"
+    ACCESS_TOKEN_NOT_FOUND = "ACCESS_TOKEN_NOT_FOUND"
+    ACCESS_TOKEN_QUOTA_EXCEEDED = "ACCESS_TOKEN_QUOTA_EXCEEDED"
     RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
     VALIDATION_ERROR = "VALIDATION_ERROR"
     PERSONA_NOT_FOUND = "PERSONA_NOT_FOUND"
@@ -34,6 +36,8 @@ class ErrorCode(StrEnum):
 ERROR_STATUS: Mapping[ErrorCode, int] = {
     ErrorCode.AUTH_INVALID_API_KEY: 401,
     ErrorCode.AUTH_PERMISSION_DENIED: 403,
+    ErrorCode.ACCESS_TOKEN_NOT_FOUND: 404,
+    ErrorCode.ACCESS_TOKEN_QUOTA_EXCEEDED: 429,
     ErrorCode.RATE_LIMIT_EXCEEDED: 429,
     ErrorCode.VALIDATION_ERROR: 400,
     ErrorCode.PERSONA_NOT_FOUND: 404,
@@ -56,6 +60,8 @@ ERROR_STATUS: Mapping[ErrorCode, int] = {
 DEFAULT_MESSAGES: Mapping[ErrorCode, str] = {
     ErrorCode.AUTH_INVALID_API_KEY: "Invalid API key.",
     ErrorCode.AUTH_PERMISSION_DENIED: "Permission denied.",
+    ErrorCode.ACCESS_TOKEN_NOT_FOUND: "Access token was not found.",
+    ErrorCode.ACCESS_TOKEN_QUOTA_EXCEEDED: "Access token quota has been exhausted.",
     ErrorCode.RATE_LIMIT_EXCEEDED: "Rate limit exceeded.",
     ErrorCode.VALIDATION_ERROR: "Request validation failed.",
     ErrorCode.PERSONA_NOT_FOUND: "Character was not found.",

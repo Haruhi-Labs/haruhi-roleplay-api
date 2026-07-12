@@ -36,10 +36,13 @@
 10. `usage/config-panel.md`
    查看受信任全量 `.env` 编辑器的使用边界和设计规则。
 
-11. `usage/interface-reference.md`
+11. `usage/access-token-management.md`
+    查看服务令牌签发、鉴权、额度核算、吊销和逐令牌日志。
+
+12. `usage/interface-reference.md`
    查看更完整的接口字段说明。
 
-12. `devlog.md`
+13. `devlog.md`
    查看开发记录。
 
 ## 目录说明
