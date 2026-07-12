@@ -12,6 +12,13 @@ from uuid import uuid4
 from haruhi_roleplay_api.adapters import (
     InMemoryMemoryStore,
     LocalPersonaRepository,
+    SQLiteAccessTokenStore,
+)
+from haruhi_roleplay_api.api.access_tokens import (
+    delete_access_token,
+    get_access_token,
+    get_access_tokens,
+    post_access_token,
 )
 from haruhi_roleplay_api.api.chat import post_chat, post_chat_stream
 from haruhi_roleplay_api.api.memory import delete_memory, get_memory
@@ -46,7 +53,7 @@ from haruhi_roleplay_api.infrastructure.session_store_factory import (
     SessionStoreSettings,
     build_session_store,
 )
-from haruhi_roleplay_api.ports import AgentContextPlanner, SessionStore
+from haruhi_roleplay_api.ports import AccessTokenStore, AgentContextPlanner, SessionStore
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -90,6 +97,7 @@ class RoleplayHttpRuntime:
         agent_context_planner: AgentContextPlanner,
         runtime_config_store: RuntimeConfigStore,
         env_config_editor: EnvConfigEditor,
+        access_token_store: AccessTokenStore,
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
     ) -> None:
@@ -104,6 +112,7 @@ class RoleplayHttpRuntime:
         self._agent_context_planner = agent_context_planner
         self._runtime_config_store = runtime_config_store
         self._env_config_editor = env_config_editor
+        self._access_token_store = access_token_store
         self._api_key = api_key
         self._debug_trace_enabled = debug_trace_enabled
 
@@ -137,6 +146,9 @@ class RoleplayHttpRuntime:
             env_config_editor=EnvConfigEditor(
                 base_env=env,
                 config_path=config_store.config_path,
+            ),
+            access_token_store=SQLiteAccessTokenStore(
+                path=_access_token_path(project_root, runtime_env)
             ),
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
@@ -202,6 +214,14 @@ class RoleplayHttpRuntime:
             )
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "env-config"]:
             return self._env_config(method, path_parts, json_body, headers, request_id)
+        if len(path_parts) >= 2 and path_parts[:2] == ["v1", "access-tokens"]:
+            return self._access_tokens(
+                method,
+                path_parts,
+                json_body,
+                headers,
+                request_id,
+            )
         if path_parts == ["v1", "runtime-config"]:
             return self._runtime_config(method, json_body, headers, request_id)
         if method == "POST" and path_parts == ["v1", "sessions"]:
@@ -385,6 +405,67 @@ class RoleplayHttpRuntime:
             status=404,
         )
 
+    def _access_tokens(
+        self,
+        method: str,
+        path_parts: list[str],
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        request_id: str,
+    ) -> HttpRuntimeResponse:
+        if not self._is_config_authorized(headers):
+            return _json_response(
+                error_response(
+                    AppError(
+                        code=ErrorCode.AUTH_PERMISSION_DENIED,
+                        message="Access token management requires ROLEPLAY_API_KEY.",
+                    ),
+                    request_id,
+                )
+            )
+        if method == "POST" and path_parts == ["v1", "access-tokens"]:
+            return _json_response(
+                post_access_token(
+                    body,
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if method == "GET" and path_parts == ["v1", "access-tokens"]:
+            return _json_response(
+                get_access_tokens(
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if method == "GET" and len(path_parts) == 3:
+            return _json_response(
+                get_access_token(
+                    path_parts[2],
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if method == "DELETE" and len(path_parts) == 3:
+            return _json_response(
+                delete_access_token(
+                    path_parts[2],
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        return _json_response(
+            {
+                "ok": False,
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Route was not found.",
+                },
+                "request_id": request_id,
+            },
+            status=404,
+        )
+
     def _reload_runtime_after_env_config(
         self,
         hot_reload_keys: list[str],
@@ -513,6 +594,13 @@ def create_local_runtime(env: Mapping[str, str]) -> RoleplayHttpRuntime:
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _access_token_path(project_root: Path, env: Mapping[str, str]) -> Path:
+    configured = Path(env.get("ACCESS_TOKEN_SQLITE_PATH", ".data/access-tokens.sqlite3"))
+    if configured.is_absolute():
+        return configured
+    return project_root / configured
 
 
 def _request_id(headers: Mapping[str, str]) -> str:
