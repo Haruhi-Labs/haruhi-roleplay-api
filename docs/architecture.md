@@ -51,6 +51,7 @@
 | MemoryStore                 | 长期记忆存取                                                       |
 | BackendContextProvider      | 从业务后端或其它数据库读取受控上下文                               |
 | SafetyGuard                 | 输入、输出和越界检查                                               |
+| AccessTokenStore            | 服务令牌校验、额度核算和逐令牌审计日志                             |
 
 角色字段的含义见 `character-schema.md`。其中 `ToneConfig`、`IdentityConfig`、`KnowledgeBoundary` 会被 Orchestrator 读取，并由 PromptBuilder 融合进模型上下文。
 

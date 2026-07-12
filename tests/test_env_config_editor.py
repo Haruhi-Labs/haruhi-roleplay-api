@@ -25,6 +25,7 @@ class EnvConfigEditorTests(unittest.TestCase):
         roleplay_key = ENV_CONFIG_FIELD_BY_KEY["ROLEPLAY_API_KEY"]
         roleplay_port = ENV_CONFIG_FIELD_BY_KEY["ROLEPLAY_PORT"]
         session_provider = ENV_CONFIG_FIELD_BY_KEY["SESSION_PROVIDER"]
+        access_token_path = ENV_CONFIG_FIELD_BY_KEY["ACCESS_TOKEN_SQLITE_PATH"]
         model_provider = ENV_CONFIG_FIELD_BY_KEY["MODEL_PROVIDER"]
 
         self.assertTrue(roleplay_key.secret)
@@ -32,6 +33,8 @@ class EnvConfigEditorTests(unittest.TestCase):
         self.assertTrue(roleplay_port.restartRequired)
         self.assertFalse(roleplay_port.hotReload)
         self.assertTrue(session_provider.restartRequired)
+        self.assertTrue(access_token_path.restartRequired)
+        self.assertFalse(access_token_path.hotReload)
         self.assertEqual(model_provider.valueType, "enum")
         self.assertIn("fake", model_provider.enum)
 

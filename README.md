@@ -6,5 +6,6 @@
 
 - [前端调用完整文档](docs/usage/frontend-api-calling.md)
 - [后端配置文档](docs/usage/backend-config.md)
+- [访问令牌管理](docs/usage/access-token-management.md)
 - [前端接入边界说明](docs/usage/frontend-integration.md)
 - [接口参考](docs/usage/interface-reference.md)
