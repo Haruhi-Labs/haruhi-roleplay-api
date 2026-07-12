@@ -52,6 +52,19 @@ class RevokeAccessToken:
         return self._store.revoke_token(token_id)
 
 
+class UpdateAccessTokenQuota:
+    def __init__(self, store: AccessTokenStore) -> None:
+        self._store = store
+
+    def execute(
+        self,
+        token_id: str,
+        *,
+        quota_tokens: int | None,
+    ) -> AccessToken:
+        return self._store.update_quota(token_id, quota_tokens=quota_tokens)
+
+
 class ListAccessTokenRequestLogs:
     def __init__(self, store: AccessTokenStore) -> None:
         self._store = store

@@ -5,6 +5,7 @@ from haruhi_roleplay_api.api.access_tokens import (
     get_access_token,
     get_access_token_logs,
     get_access_tokens,
+    patch_access_token,
     post_access_token,
 )
 from haruhi_roleplay_api.api.chat import post_chat, post_chat_stream
@@ -18,6 +19,7 @@ __all__ = [
     "get_access_token",
     "get_access_token_logs",
     "get_access_tokens",
+    "patch_access_token",
     "get_personas",
     "delete_memory",
     "get_memory",

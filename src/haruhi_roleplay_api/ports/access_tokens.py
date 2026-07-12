@@ -33,6 +33,17 @@ class AccessTokenStore(Protocol):
     def revoke_token(self, token_id: str) -> AccessToken:
         """吊销令牌。"""
 
+    def update_quota(
+        self,
+        token_id: str,
+        *,
+        quota_tokens: int | None,
+    ) -> AccessToken:
+        """修改总 Token 额度；None 表示不限额。"""
+
+    def ensure_quota_available(self, token_id: str) -> AccessToken:
+        """确认令牌仍有模型 Token 额度，否则抛出稳定错误。"""
+
     def record_request(
         self,
         *,

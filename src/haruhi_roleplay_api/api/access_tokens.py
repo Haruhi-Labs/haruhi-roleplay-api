@@ -11,6 +11,7 @@ from haruhi_roleplay_api.application.access_tokens import (
     ListAccessTokens,
     ListAccessTokenRequestLogs,
     RevokeAccessToken,
+    UpdateAccessTokenQuota,
 )
 from haruhi_roleplay_api.domain import DTOValidationError, RequestId
 from haruhi_roleplay_api.ports import AccessTokenStore
@@ -76,6 +77,29 @@ def delete_access_token(
 ) -> ApiResponse:
     try:
         item = RevokeAccessToken(store).execute(token_id)
+    except Exception as exc:
+        return error_response(exc, request_id)
+    return success_response(item.to_mapping(), request_id)
+
+
+def patch_access_token(
+    token_id: str,
+    body: Mapping[str, Any],
+    *,
+    store: AccessTokenStore,
+    request_id: RequestId | str,
+) -> ApiResponse:
+    try:
+        if "quota_tokens" not in body:
+            raise DTOValidationError("quota_tokens is required")
+        raw_quota = body.get("quota_tokens")
+        quota_tokens = (
+            None if raw_quota is None else _optional_positive_int(raw_quota)
+        )
+        item = UpdateAccessTokenQuota(store).execute(
+            token_id,
+            quota_tokens=quota_tokens,
+        )
     except Exception as exc:
         return error_response(exc, request_id)
     return success_response(item.to_mapping(), request_id)

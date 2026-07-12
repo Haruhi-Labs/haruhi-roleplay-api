@@ -19,6 +19,26 @@ def response_json(body: bytes) -> dict:
     return json.loads(body.decode("utf-8"))
 
 
+def chat_body(*, stream: bool = False) -> dict:
+    return {
+        "app_id": "service-app",
+        "user_id": "user-1",
+        "character_id": "haruhi",
+        "persona_mode": "mid_late_haruhi",
+        "message": "今天安排什么活动？",
+        "language": "zh-CN",
+        "capabilities": {
+            "rag": False,
+            "memory": False,
+            "continuous_session": False,
+            "safety_filter": True,
+            "debug_trace": False,
+            "stream": stream,
+        },
+        "generation": {"model": "fake-roleplay-model"},
+    }
+
+
 class AccessTokenAdminApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -177,6 +197,97 @@ class AccessTokenAdminApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status, 401)
+
+    def test_chat_usage_is_charged_and_exhausted_quota_returns_429(self) -> None:
+        created = response_json(
+            self.request(
+                "POST",
+                "/v1/access-tokens",
+                body={"name": "限额服务", "quota_tokens": 1},
+            ).body
+        )["data"]
+        service_headers = {"Authorization": f"Bearer {created['token']}"}
+
+        first = self.request(
+            "POST",
+            "/v1/chat",
+            body=chat_body(),
+            headers=service_headers,
+        )
+        first_data = response_json(first.body)["data"]
+        second = self.request(
+            "POST",
+            "/v1/chat",
+            body=chat_body(),
+            headers=service_headers,
+        )
+
+        self.assertEqual(first.status, 200)
+        self.assertGreater(first_data["usage"]["total_tokens"], 0)
+        self.assertEqual(second.status, 429)
+        self.assertEqual(
+            response_json(second.body)["error"]["code"],
+            "ACCESS_TOKEN_QUOTA_EXCEEDED",
+        )
+
+        token = response_json(
+            self.request(
+                "GET",
+                f"/v1/access-tokens/{created['token_id']}",
+            ).body
+        )["data"]
+        self.assertEqual(token["total_tokens"], first_data["usage"]["total_tokens"])
+        self.assertEqual(token["remaining_tokens"], 0)
+
+        logs = response_json(
+            self.request(
+                "GET",
+                f"/v1/access-tokens/{created['token_id']}/logs",
+            ).body
+        )["data"]["items"]
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(logs[0]["error_code"], "ACCESS_TOKEN_QUOTA_EXCEEDED")
+        self.assertEqual(logs[1]["total_tokens"], token["total_tokens"])
+
+    def test_admin_can_change_quota_and_restore_chat_access(self) -> None:
+        created = response_json(
+            self.request(
+                "POST",
+                "/v1/access-tokens",
+                body={"name": "可调额度服务", "quota_tokens": 1},
+            ).body
+        )["data"]
+        service_headers = {"X-API-Key": created["token"]}
+        self.request(
+            "POST",
+            "/v1/chat",
+            body=chat_body(),
+            headers=service_headers,
+        )
+
+        updated = response_json(
+            self.request(
+                "PATCH",
+                f"/v1/access-tokens/{created['token_id']}",
+                body={"quota_tokens": 10000},
+            ).body
+        )["data"]
+        response = self.request(
+            "POST",
+            "/v1/chat/stream",
+            body=chat_body(stream=True),
+            headers=service_headers,
+        )
+
+        self.assertEqual(updated["quota_tokens"], 10000)
+        self.assertEqual(response.status, 200)
+        token = response_json(
+            self.request(
+                "GET",
+                f"/v1/access-tokens/{created['token_id']}",
+            ).body
+        )["data"]
+        self.assertGreater(token["total_tokens"], updated["total_tokens"])
 
 
 if __name__ == "__main__":

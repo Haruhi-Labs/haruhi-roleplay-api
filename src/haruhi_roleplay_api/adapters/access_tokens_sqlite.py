@@ -129,6 +129,27 @@ class SQLiteAccessTokenStore:
             )
         return self.get_token(token_id)
 
+    def update_quota(
+        self,
+        token_id: str,
+        *,
+        quota_tokens: int | None,
+    ) -> AccessToken:
+        self.get_token(token_id)
+        clean_quota = _optional_positive_int(quota_tokens, "quota_tokens")
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE access_tokens SET quota_tokens = ? WHERE token_id = ?",
+                (clean_quota, token_id),
+            )
+        return self.get_token(token_id)
+
+    def ensure_quota_available(self, token_id: str) -> AccessToken:
+        token = self.get_token(token_id)
+        if token.quotaTokens is not None and token.totalTokens >= token.quotaTokens:
+            raise AppError(code=ErrorCode.ACCESS_TOKEN_QUOTA_EXCEEDED)
+        return token
+
     def record_request(
         self,
         *,
@@ -192,8 +213,22 @@ class SQLiteAccessTokenStore:
                 ),
             )
             connection.execute(
-                "UPDATE access_tokens SET last_used_at = ? WHERE token_id = ?",
-                (log.createdAt, token_id),
+                """
+                UPDATE access_tokens
+                SET
+                    prompt_tokens = prompt_tokens + ?,
+                    completion_tokens = completion_tokens + ?,
+                    total_tokens = total_tokens + ?,
+                    last_used_at = ?
+                WHERE token_id = ?
+                """,
+                (
+                    log.promptTokens,
+                    log.completionTokens,
+                    log.totalTokens,
+                    log.createdAt,
+                    token_id,
+                ),
             )
         return log
 

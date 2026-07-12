@@ -121,6 +121,45 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
         self.assertNotIn("secret", logs[0].to_mapping())
         self.assertIsNotNone(self.store.get_token(first.token.tokenId).lastUsedAt)
 
+    def test_model_usage_is_accumulated_and_quota_is_enforced(self) -> None:
+        issued = self.store.create_token(name="有限服务", quota_tokens=10)
+        self.store.record_request(
+            token_id=issued.token.tokenId,
+            request_id="req-usage",
+            method="POST",
+            path="/v1/chat",
+            status_code=200,
+            duration_ms=20,
+            prompt_tokens=7,
+            completion_tokens=3,
+        )
+
+        token = self.store.get_token(issued.token.tokenId)
+        self.assertEqual(token.promptTokens, 7)
+        self.assertEqual(token.completionTokens, 3)
+        self.assertEqual(token.totalTokens, 10)
+        self.assertEqual(token.remainingTokens, 0)
+        with self.assertRaises(AppError) as context:
+            self.store.ensure_quota_available(issued.token.tokenId)
+        self.assertEqual(
+            context.exception.code,
+            ErrorCode.ACCESS_TOKEN_QUOTA_EXCEEDED,
+        )
+
+        updated = self.store.update_quota(
+            issued.token.tokenId,
+            quota_tokens=20,
+        )
+        self.assertEqual(updated.remainingTokens, 10)
+        self.store.ensure_quota_available(issued.token.tokenId)
+
+        unlimited = self.store.update_quota(
+            issued.token.tokenId,
+            quota_tokens=None,
+        )
+        self.assertIsNone(unlimited.quotaTokens)
+        self.assertIsNone(unlimited.remainingTokens)
+
 
 if __name__ == "__main__":
     unittest.main()

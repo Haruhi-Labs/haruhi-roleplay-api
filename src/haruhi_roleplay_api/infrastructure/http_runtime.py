@@ -22,6 +22,7 @@ from haruhi_roleplay_api.api.access_tokens import (
     get_access_token,
     get_access_token_logs,
     get_access_tokens,
+    patch_access_token,
     post_access_token,
 )
 from haruhi_roleplay_api.api.chat import post_chat, post_chat_stream
@@ -190,21 +191,30 @@ class RoleplayHttpRuntime:
         normalized_headers["x-request-id"] = request_id
         access_token = self._access_token_from_headers(normalized_headers)
         started_at = perf_counter()
-        response = self._handle_request(
-            method=method,
-            target=target,
-            headers=normalized_headers,
-            body=body,
-        )
+        parsed_path = urlparse(target).path
+        try:
+            if access_token is not None and _consumes_model_tokens(method, parsed_path):
+                self._access_token_store.ensure_quota_available(access_token.tokenId)
+            response = self._handle_request(
+                method=method,
+                target=target,
+                headers=normalized_headers,
+                body=body,
+            )
+        except AppError as exc:
+            response = _json_response(error_response(exc, request_id))
         if access_token is not None:
             try:
+                prompt_tokens, completion_tokens = _response_token_usage(response)
                 self._access_token_store.record_request(
                     token_id=access_token.tokenId,
                     request_id=request_id,
                     method=method,
-                    path=urlparse(target).path,
+                    path=parsed_path,
                     status_code=response.status,
                     duration_ms=max(int((perf_counter() - started_at) * 1000), 0),
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
                     error_code=_response_error_code(response),
                 )
             except Exception:
@@ -513,6 +523,15 @@ class RoleplayHttpRuntime:
                     request_id=request_id,
                 )
             )
+        if method == "PATCH" and len(path_parts) == 3:
+            return _json_response(
+                patch_access_token(
+                    path_parts[2],
+                    body,
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
         return _json_response(
             {
                 "ok": False,
@@ -710,6 +729,48 @@ def _response_error_code(response: HttpRuntimeResponse) -> str | None:
         return None
     code = error.get("code")
     return str(code) if code is not None else None
+
+
+def _consumes_model_tokens(method: str, path: str) -> bool:
+    return method.upper() == "POST" and path in {"/v1/chat", "/v1/chat/stream"}
+
+
+def _response_token_usage(response: HttpRuntimeResponse) -> tuple[int, int]:
+    content_type = response.headers.get("Content-Type", "")
+    if "application/json" in content_type:
+        try:
+            payload = json.loads(response.body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return (0, 0)
+        if isinstance(payload, Mapping):
+            data = payload.get("data")
+            if isinstance(data, Mapping):
+                usage = data.get("usage")
+                if isinstance(usage, Mapping):
+                    return _usage_pair(usage)
+        return (0, 0)
+    if "text/event-stream" in content_type:
+        for line in response.body.decode("utf-8", errors="replace").splitlines():
+            if not line.startswith("data: "):
+                continue
+            try:
+                data = json.loads(line.removeprefix("data: "))
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, Mapping) and (
+                "prompt_tokens" in data or "completion_tokens" in data
+            ):
+                return _usage_pair(data)
+    return (0, 0)
+
+
+def _usage_pair(usage: Mapping[str, Any]) -> tuple[int, int]:
+    try:
+        prompt_tokens = max(int(usage.get("prompt_tokens", 0)), 0)
+        completion_tokens = max(int(usage.get("completion_tokens", 0)), 0)
+    except (TypeError, ValueError):
+        return (0, 0)
+    return (prompt_tokens, completion_tokens)
 
 
 def _path_parts(path: str) -> list[str]:
