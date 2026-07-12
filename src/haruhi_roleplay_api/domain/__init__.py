@@ -1,5 +1,11 @@
 """Domain DTOs and value objects."""
 
+from haruhi_roleplay_api.domain.access_token import (
+    AccessToken,
+    AccessTokenStatus,
+    IssuedAccessToken,
+)
+
 from haruhi_roleplay_api.domain.chat import (
     AppId,
     CapabilityConfig,
@@ -72,6 +78,8 @@ from haruhi_roleplay_api.domain.model import (
 )
 
 __all__ = [
+    "AccessToken",
+    "AccessTokenStatus",
     "AppId",
     "BackendContextFact",
     "BackendContextRequest",
@@ -86,6 +94,7 @@ __all__ = [
     "DTOValidationError",
     "GenerationConfig",
     "IdentityConfig",
+    "IssuedAccessToken",
     "KnowledgeBoundary",
     "MemoryDeleteCommand",
     "MemoryId",

@@ -1,5 +1,6 @@
 """Application ports."""
 
+from haruhi_roleplay_api.ports.access_tokens import AccessTokenStore
 from haruhi_roleplay_api.ports.agent import AgentContextPlanner
 from haruhi_roleplay_api.ports.backend_context import BackendContextProvider
 from haruhi_roleplay_api.ports.embeddings import TextEmbeddingProvider
@@ -12,6 +13,7 @@ from haruhi_roleplay_api.ports.rag import RagIngestService, RagService
 from haruhi_roleplay_api.ports.sessions import SessionStore
 
 __all__ = [
+    "AccessTokenStore",
     "ChatModelRouter",
     "ChatModelProvider",
     "MemoryPolicyEngine",
@@ -25,4 +27,3 @@ __all__ = [
     "SessionStore",
     "TextEmbeddingProvider",
 ]
-
