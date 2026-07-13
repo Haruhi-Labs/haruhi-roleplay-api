@@ -158,6 +158,44 @@ class CloudModelProviderTests(unittest.TestCase):
         self.assertEqual(response.provider, "deepseek")
         self.assertEqual(response.model, "haruhi-deepseek")
         self.assertEqual(response.reply, "DeepSeek 回复")
+        self.assertEqual(response.usage.promptTokens, 11)
+        self.assertEqual(response.usage.completionTokens, 3)
+
+    def test_openai_compatible_fallback_estimates_prompt_and_completion(self) -> None:
+        with patch(
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
+            return_value=FakeHTTPResponse(
+                {"choices": [{"message": {"content": "没有 usage 的回复"}}]}
+            ),
+        ):
+            response = build_model_router(settings()).generate(
+                model_messages(),
+                GenerationConfig(model="haruhi-openai"),
+            )
+
+        self.assertGreater(response.usage.promptTokens, 0)
+        self.assertGreater(response.usage.completionTokens, 0)
+
+    def test_openai_compatible_invalid_usage_values_are_zeroed(self) -> None:
+        with patch(
+            "haruhi_roleplay_api.adapters.models.openai_compatible.urllib.request.urlopen",
+            return_value=FakeHTTPResponse(
+                {
+                    "choices": [{"message": {"content": "无效 usage 回复"}}],
+                    "usage": {
+                        "prompt_tokens": -5,
+                        "completion_tokens": "invalid",
+                    },
+                }
+            ),
+        ):
+            response = build_model_router(settings()).generate(
+                model_messages(),
+                GenerationConfig(model="haruhi-openai"),
+            )
+
+        self.assertEqual(response.usage.promptTokens, 0)
+        self.assertEqual(response.usage.completionTokens, 0)
 
     def test_gemini_alias_uses_official_openai_compatible_endpoint(self) -> None:
         with patch(
@@ -251,6 +289,8 @@ class CloudModelProviderTests(unittest.TestCase):
         )
         self.assertEqual(done.provider, "deepseek")
         self.assertEqual(done.model, "haruhi-deepseek")
+        self.assertGreater(done.usage.promptTokens, 0)
+        self.assertGreater(done.usage.completionTokens, 0)
 
     def test_deepseek_stream_yields_before_full_response_is_consumed(self) -> None:
         response = LazyStreamingHTTPResponse(

@@ -7,6 +7,7 @@ import unittest
 from contextlib import closing
 from pathlib import Path
 
+from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.infrastructure import (
     HttpRuntimeStreamResponse,
     RoleplayHttpRuntime,
@@ -42,6 +43,16 @@ def chat_body(*, stream: bool = False) -> dict:
         },
         "generation": {"model": "fake-roleplay-model"},
     }
+
+
+class FailingStreamingRouter:
+    def stream(self, messages, generation=None):
+        del messages, generation
+        yield from ()
+        raise AppError(
+            code=ErrorCode.MODEL_PROVIDER_ERROR,
+            message="stream provider failed",
+        )
 
 
 class AccessTokenAdminApiTests(unittest.TestCase):
@@ -366,6 +377,33 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             ).body
         )["data"]
         self.assertGreater(token["total_tokens"], updated["total_tokens"])
+
+    def test_stream_provider_error_code_is_recorded_from_nested_event(self) -> None:
+        created = self.issue_service_token()
+        self.runtime._model_router = FailingStreamingRouter()
+
+        response = self.request(
+            "POST",
+            "/v1/chat/stream",
+            body=chat_body(stream=True),
+            headers={"Authorization": f"Bearer {created['token']}"},
+        )
+
+        self.assertIsInstance(response, HttpRuntimeStreamResponse)
+        events = tuple(response.events)
+        self.assertEqual(events[-1]["event"], "error")
+        self.assertEqual(
+            events[-1]["data"]["error"]["code"],
+            "MODEL_PROVIDER_ERROR",
+        )
+
+        logs = response_json(
+            self.request(
+                "GET",
+                f"/v1/access-tokens/{created['token_id']}/logs",
+            ).body
+        )["data"]["items"]
+        self.assertEqual(logs[0]["error_code"], "MODEL_PROVIDER_ERROR")
 
     def test_service_token_rejects_cross_app_body_routes_and_audits_denials(self) -> None:
         created = self.issue_service_token()

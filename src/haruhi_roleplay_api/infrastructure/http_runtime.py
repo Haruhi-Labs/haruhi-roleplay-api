@@ -479,8 +479,15 @@ class RoleplayHttpRuntime:
                         usage = _usage_pair(data)
                 elif event.get("event") == "error":
                     data = event.get("data")
-                    if isinstance(data, Mapping) and data.get("code") is not None:
-                        error_code = str(data["code"])
+                    if isinstance(data, Mapping):
+                        nested_error = data.get("error")
+                        if (
+                            isinstance(nested_error, Mapping)
+                            and nested_error.get("code") is not None
+                        ):
+                            error_code = str(nested_error["code"])
+                        elif data.get("code") is not None:
+                            error_code = str(data["code"])
                 yield event
         except Exception as exc:
             error_code = app_error_from_exception(exc).code.value
@@ -925,12 +932,13 @@ def _response_token_usage(response: HttpRuntimeResponse) -> tuple[int, int]:
 
 
 def _usage_pair(usage: Mapping[str, Any]) -> tuple[int, int]:
-    try:
-        prompt_tokens = max(int(usage.get("prompt_tokens", 0)), 0)
-        completion_tokens = max(int(usage.get("completion_tokens", 0)), 0)
-    except (TypeError, ValueError):
-        return (0, 0)
-    return (prompt_tokens, completion_tokens)
+    values: list[int] = []
+    for key in ("prompt_tokens", "completion_tokens"):
+        try:
+            values.append(max(int(usage.get(key, 0)), 0))
+        except (TypeError, ValueError):
+            values.append(0)
+    return (values[0], values[1])
 
 
 def _path_parts(path: str) -> list[str]:

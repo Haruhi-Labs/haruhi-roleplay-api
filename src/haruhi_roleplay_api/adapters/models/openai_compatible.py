@@ -180,7 +180,7 @@ def _stream_response_events(
     error_label: str,
 ) -> Iterable[ModelStreamEvent]:
     deltas: list[str] = []
-    usage: ModelUsage | None = None
+    usage_data: Mapping[str, Any] | None = None
 
     for line in _iter_sse_lines(response):
         if line == "[DONE]":
@@ -191,7 +191,7 @@ def _stream_response_events(
             deltas.append(delta)
             yield ModelStreamEvent(event="delta", delta=delta)
         if isinstance(data.get("usage"), Mapping):
-            usage = _usage_from_mapping(data["usage"], fallback_completion="")
+            usage_data = data["usage"]
 
     reply = "".join(deltas)
     if not reply.strip():
@@ -200,11 +200,12 @@ def _stream_response_events(
             message=f"{error_label} response was invalid.",
         )
 
-    final_usage = usage or ModelUsage(
-        promptTokens=sum(
+    final_usage = _usage_from_mapping(
+        usage_data,
+        fallback_prompt=sum(
             _fake_token_count(message.content) for message in request.messages
         ),
-        completionTokens=_fake_token_count(reply),
+        fallback_completion=reply,
     )
     yield ModelStreamEvent(
         event="done",
@@ -262,7 +263,13 @@ def _response_from_mapping(
         ) from exc
 
     usage_data = data.get("usage", {})
-    usage = _usage_from_mapping(usage_data, fallback_completion=reply)
+    usage = _usage_from_mapping(
+        usage_data,
+        fallback_prompt=sum(
+            _fake_token_count(message.content) for message in request.messages
+        ),
+        fallback_completion=reply,
+    )
     return ModelResponse(
         reply=reply,
         provider=provider_name,
@@ -278,14 +285,25 @@ def _response_from_mapping(
 def _usage_from_mapping(
     data: Any,
     *,
+    fallback_prompt: int,
     fallback_completion: str,
 ) -> ModelUsage:
     usage_data = data if isinstance(data, Mapping) else {}
+    values: dict[str, int] = {}
+    for key, fallback in (
+        ("prompt_tokens", fallback_prompt),
+        ("completion_tokens", _fake_token_count(fallback_completion)),
+    ):
+        if key not in usage_data:
+            values[key] = fallback
+            continue
+        try:
+            values[key] = max(int(usage_data[key]), 0)
+        except (TypeError, ValueError):
+            values[key] = 0
     return ModelUsage(
-        promptTokens=int(usage_data.get("prompt_tokens", 0)),
-        completionTokens=int(
-            usage_data.get("completion_tokens", _fake_token_count(fallback_completion))
-        ),
+        promptTokens=values["prompt_tokens"],
+        completionTokens=values["completion_tokens"],
     )
 
 

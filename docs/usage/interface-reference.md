@@ -374,6 +374,8 @@ item 字段：
 
 令牌详情中的用量字段包括 `quota_tokens`、`prompt_tokens`、`completion_tokens`、`total_tokens` 和 `remaining_tokens`。额度耗尽后的聊天请求返回 HTTP 429 和 `ACCESS_TOKEN_QUOTA_EXCEEDED`。
 
+模型 provider 返回 usage 时使用真实值；OpenAI-compatible 响应缺少 usage 字段时，服务按消息和回复长度进行 fallback 估算。负数或不可解析的单个 usage 字段按 `0` 处理。流式 provider 失败时，请求日志记录 SSE `data.error.code`，不会记录消息或回复正文。
+
 ## Runtime Config: GET /v1/runtime-config
 
 用途：读取当前运行时后端配置摘要，供受信任的管理前端或后台面板展示。

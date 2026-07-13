@@ -982,3 +982,20 @@
 ### 下一步
 
 - 实现 12.10 Access Token 计量正确性。
+
+## 2026-07-13：Access Token Accounting Correctness
+
+### 完成
+
+- SSE 审计从 `data.error.code` 读取 provider 错误码，并兼容原顶层 `code`。
+- OpenAI-compatible 响应缺少 usage 时同时估算 prompt 和 completion。
+- provider usage 的负数或不可解析字段按单字段归零，已返回的有效真实值仍优先。
+
+### 验证
+
+- 云/本地模型 provider、Access Token 管理和 HTTP runtime 定向测试 70 项通过。
+- 完整测试集 255 项通过。
+
+### 下一步
+
+- 实现 12.17 Production HTTP Gate；12.11 至 12.16 扩展能力继续延期。

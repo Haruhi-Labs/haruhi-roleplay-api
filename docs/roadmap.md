@@ -65,9 +65,10 @@ Phase A 到 K 的主要能力已经实现。当前项目已进入“可被前端
 3. HTTP body、消息、RAG 文档、`top_k` 和 `max_tokens` 资源上限已完成。
 4. 后端简单配置面已收束；单 provider 用户默认只看到 LLM、Embedding、RAG、HTTP 和 SQLite Storage essentials。
 5. 普通聊天前端契约已化简；默认不再传 provider alias 或完整 generation。
-6. 下一步修复 Access Token 计量正确性；配置事务性仅在启用在线配置写入时继续实现。
+6. Access Token 计量正确性已完成：SSE 错误码可审计，缺失 usage 时会估算 prompt 和 completion。
+7. 下一步只实现生产 HTTP 门禁；角色扩展、SafetyGuard、真实 backend context 和 model-backed planner 继续延期。
 
-额外角色、SafetyGuard、真实 backend context adapter 和 model-backed planner 在上述 P0 边界完成后逐卡实现。
+额外角色、SafetyGuard、真实 backend context adapter 和 model-backed planner 不属于当前最小生产交付，继续延期到用户明确要求扩大范围之后。
 
 ## 交付原则
 

@@ -332,6 +332,8 @@ memory item 字段：
 
 不匹配或 legacy unscoped token 统一返回 `AUTH_PERMISSION_DENIED`，不暴露目标资源是否存在。管理密钥仍可跨 app 调用；额外 Header 不能声明或覆盖 app scope。
 
+聊天用量优先采用模型 provider 返回的 `prompt_tokens` 和 `completion_tokens`。OpenAI-compatible provider 未返回某个 usage 字段时，服务使用消息或回复长度进行轻量估算；估算不是 tokenizer 精确结果。provider 返回负数或不可解析字段时，该字段按 `0` 记账。SSE provider 错误从 `data.error.code` 写入请求日志，日志不保存 prompt 或回复正文。
+
 ## 错误码
 
 | 错误码                 | 说明               |

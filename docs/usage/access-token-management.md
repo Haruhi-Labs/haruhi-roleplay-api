@@ -157,6 +157,8 @@ Content-Type: application/json
 
 日志按时间倒序返回，`limit` 默认为 50，最大为 200。每条日志包含令牌 ID、请求 ID、HTTP 方法、路径、状态码、耗时、错误码和模型 Token 用量。日志不保存 Header、令牌明文、请求正文、用户消息或模型回复。
 
+Token 用量优先使用模型 provider 返回的真实 usage。OpenAI-compatible provider 未返回某个 usage 字段时，服务会根据输入消息或回复长度进行轻量估算；该值用于额度保护，不等同于厂商 tokenizer 的账单精度。负数或不可解析字段按 `0` 处理。SSE 流中出现 provider 错误时，审计日志会记录 `data.error.code`。
+
 ## 运维建议
 
 - 为每个调用服务和 `app_id` 创建独立令牌，不要跨应用共享。
