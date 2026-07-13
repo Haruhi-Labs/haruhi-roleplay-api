@@ -313,6 +313,19 @@ character 字段：
 
 检索始终强制匹配请求的 `app_id`，该条件不能通过 `filters` 放宽。返回 chunk 的 source 摘要包含 `app_id`，便于后台联调确认 scope；普通聊天前端不应允许用户编辑它。
 
+## 后台 RAG 管理
+
+后台 RAG 接口只接受管理员密钥或安全后台会话：
+
+| Endpoint | 用途 |
+| --- | --- |
+| `GET /v1/admin/rag/documents?app_id=...` | 从实际检索后端按应用列出文档、元数据、chunk 数和内容预览 |
+| `POST /v1/admin/rag/documents` | 使用与业务导入相同的 schema 校验并写入当前 Provider |
+| `POST /v1/admin/rag/search` | 使用与业务检索相同的应用隔离规则执行后台检索测试 |
+| `DELETE /v1/admin/rag/documents/{document_id}?app_id=...` | 按 `app_id + document_id` 删除实际检索后端中的全部 chunks |
+
+管理接口不是旁路元数据账本。本地文本、本地向量、FAISS、Chroma 和 Qdrant Provider 都直接列举及删除真实检索数据；删除时必须显式提供 `app_id`，避免同名文档跨应用误删。Qdrant 使用 payload filter 删除，FAISS 会用剩余向量重建索引。
+
 ## Memory: GET /v1/memory/{user_id}
 
 用途：查询用户记忆。

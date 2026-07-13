@@ -13,6 +13,7 @@ from haruhi_roleplay_api.adapters.embeddings import HashEmbeddingProvider
 from haruhi_roleplay_api.adapters.rag import (
     _chunk_text,
     _matches_filters,
+    _managed_documents,
     _metadata_with_title,
     _scoped_chunk_id,
 )
@@ -25,6 +26,7 @@ from haruhi_roleplay_api.domain import (
     RagDocumentMetadata,
     RagIngestInput,
     RagIngestResult,
+    RagManagedDocument,
     RagRetrieveInput,
     RagRetrieveOutput,
 )
@@ -48,6 +50,12 @@ class VectorStore(Protocol):
         retrieve_input: RagRetrieveInput,
     ) -> tuple[VectorSearchHit, ...]:
         """Search and return candidate hits."""
+
+    def list_chunks(self, *, app_id: str | None = None) -> tuple[RagChunk, ...]:
+        """List stored chunks for management."""
+
+    def delete_document(self, *, app_id: str, document_id: str) -> int:
+        """Delete one app-scoped document."""
 
 
 class InMemoryVectorStore:
@@ -84,6 +92,28 @@ class InMemoryVectorStore:
             if hit.score > 0
         )
 
+    def list_chunks(self, *, app_id: str | None = None) -> tuple[RagChunk, ...]:
+        return tuple(
+            chunk
+            for chunk, _ in self._records
+            if app_id is None or str(chunk.metadata.appId) == app_id
+        )
+
+    def delete_document(self, *, app_id: str, document_id: str) -> int:
+        before = len(self._records)
+        self._records = [
+            record
+            for record in self._records
+            if not (
+                str(record[0].metadata.appId) == app_id
+                and str(record[0].documentId) == document_id
+            )
+        ]
+        removed = before - len(self._records)
+        if removed == 0:
+            raise AppError(code=ErrorCode.RAG_DOCUMENT_NOT_FOUND)
+        return removed
+
 
 class FaissVectorStore:
     """Optional local Faiss vector store.
@@ -97,6 +127,7 @@ class FaissVectorStore:
         self._faiss = faiss
         self._index = faiss.IndexFlatIP(dimensions)
         self._chunks: list[RagChunk] = []
+        self._vectors: list[tuple[float, ...]] = []
 
     def upsert(
         self,
@@ -104,6 +135,7 @@ class FaissVectorStore:
         vectors: tuple[tuple[float, ...], ...],
     ) -> None:
         self._chunks.extend(chunks)
+        self._vectors.extend(vectors)
         self._index.add(_float32_matrix(vectors))
 
     def search(
@@ -126,6 +158,32 @@ class FaissVectorStore:
             if float(score) > 0 and _matches_filters(chunk, retrieve_input):
                 hits.append(VectorSearchHit(chunk=chunk, score=float(score)))
         return tuple(hits)
+
+    def list_chunks(self, *, app_id: str | None = None) -> tuple[RagChunk, ...]:
+        return tuple(
+            chunk
+            for chunk in self._chunks
+            if app_id is None or str(chunk.metadata.appId) == app_id
+        )
+
+    def delete_document(self, *, app_id: str, document_id: str) -> int:
+        kept = [
+            (chunk, vector)
+            for chunk, vector in zip(self._chunks, self._vectors, strict=True)
+            if not (
+                str(chunk.metadata.appId) == app_id
+                and str(chunk.documentId) == document_id
+            )
+        ]
+        removed = len(self._chunks) - len(kept)
+        if removed == 0:
+            raise AppError(code=ErrorCode.RAG_DOCUMENT_NOT_FOUND)
+        self._chunks = [chunk for chunk, _ in kept]
+        self._vectors = [vector for _, vector in kept]
+        self._index.reset()
+        if self._vectors:
+            self._index.add(_float32_matrix(tuple(self._vectors)))
+        return removed
 
 
 class ChromaVectorStore:
@@ -191,6 +249,35 @@ class ChromaVectorStore:
                     )
                 )
         return tuple(hit for hit in hits if hit.score > 0)
+
+    def list_chunks(self, *, app_id: str | None = None) -> tuple[RagChunk, ...]:
+        arguments: dict[str, Any] = {"include": ["documents", "metadatas"]}
+        if app_id is not None:
+            arguments["where"] = {"app_id": app_id}
+        result = self._collection.get(**arguments)
+        return tuple(
+            _chunk_from_payload(str(chunk_id), str(document), metadata)
+            for chunk_id, document, metadata in zip(
+                result.get("ids", []),
+                result.get("documents", []),
+                result.get("metadatas", []),
+                strict=False,
+            )
+        )
+
+    def delete_document(self, *, app_id: str, document_id: str) -> int:
+        where = {
+            "$and": [
+                {"app_id": app_id},
+                {"document_id": document_id},
+            ]
+        }
+        result = self._collection.get(where=where, include=[])
+        ids = list(result.get("ids", []))
+        if not ids:
+            raise AppError(code=ErrorCode.RAG_DOCUMENT_NOT_FOUND)
+        self._collection.delete(ids=ids)
+        return len(ids)
 
 
 class LocalVectorRagService:
@@ -267,6 +354,23 @@ class LocalVectorRagService:
             rawHitCount=len(hits),
             filteredHitCount=len(chunks),
             rerankApplied=False,
+        )
+
+    def list_documents(
+        self,
+        *,
+        app_id: str | None = None,
+    ) -> tuple[RagManagedDocument, ...]:
+        return _managed_documents(
+            self._vector_store.list_chunks(app_id=app_id),
+            provider=self.provider_name,
+            app_id=app_id,
+        )
+
+    def delete_document(self, *, app_id: str, document_id: str) -> int:
+        return self._vector_store.delete_document(
+            app_id=app_id,
+            document_id=document_id,
         )
 
 

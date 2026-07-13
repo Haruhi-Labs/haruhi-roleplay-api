@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from uuid import uuid4
 
+from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
     AppId,
     CharacterId,
@@ -14,6 +15,7 @@ from haruhi_roleplay_api.domain import (
     RagDocumentMetadata,
     RagIngestInput,
     RagIngestResult,
+    RagManagedDocument,
     RagRetrieveInput,
     RagRetrieveOutput,
     PersonaModeId,
@@ -40,6 +42,28 @@ class FakeRagService:
             filteredHitCount=len(filtered),
             rerankApplied=False,
         )
+
+    def list_documents(
+        self,
+        *,
+        app_id: str | None = None,
+    ) -> tuple[RagManagedDocument, ...]:
+        return _managed_documents(self._chunks, provider=self.provider_name, app_id=app_id)
+
+    def delete_document(self, *, app_id: str, document_id: str) -> int:
+        removed = tuple(
+            chunk
+            for chunk in self._chunks
+            if str(chunk.metadata.appId) == app_id
+            and str(chunk.documentId) == document_id
+        )
+        if not removed:
+            raise AppError(code=ErrorCode.RAG_DOCUMENT_NOT_FOUND)
+        removed_ids = {str(chunk.chunkId) for chunk in removed}
+        self._chunks = tuple(
+            chunk for chunk in self._chunks if str(chunk.chunkId) not in removed_ids
+        )
+        return len(removed)
 
 
 class LocalRagService:
@@ -103,6 +127,32 @@ class LocalRagService:
             filteredHitCount=len(metadata_filtered),
             rerankApplied=False,
         )
+
+    def list_documents(
+        self,
+        *,
+        app_id: str | None = None,
+    ) -> tuple[RagManagedDocument, ...]:
+        return _managed_documents(
+            tuple(self._chunks),
+            provider=self.provider_name,
+            app_id=app_id,
+        )
+
+    def delete_document(self, *, app_id: str, document_id: str) -> int:
+        removed = [
+            chunk
+            for chunk in self._chunks
+            if str(chunk.metadata.appId) == app_id
+            and str(chunk.documentId) == document_id
+        ]
+        if not removed:
+            raise AppError(code=ErrorCode.RAG_DOCUMENT_NOT_FOUND)
+        removed_ids = {str(chunk.chunkId) for chunk in removed}
+        self._chunks = [
+            chunk for chunk in self._chunks if str(chunk.chunkId) not in removed_ids
+        ]
+        return len(removed)
 
 
 def _matches_filters(chunk: RagChunk, retrieve_input: RagRetrieveInput) -> bool:
@@ -204,6 +254,47 @@ def _simple_score(query: str, chunk: RagChunk) -> float:
 
 def _query_terms(query: str) -> tuple[str, ...]:
     return tuple(term for term in query.lower().split() if term)
+
+
+def _managed_documents(
+    chunks: tuple[RagChunk, ...],
+    *,
+    provider: str,
+    app_id: str | None = None,
+) -> tuple[RagManagedDocument, ...]:
+    grouped: dict[tuple[str, str], list[RagChunk]] = {}
+    for chunk in chunks:
+        chunk_app_id = str(chunk.metadata.appId or "")
+        if app_id is not None and chunk_app_id != app_id:
+            continue
+        grouped.setdefault((chunk_app_id, str(chunk.documentId)), []).append(chunk)
+    documents: list[RagManagedDocument] = []
+    for (_, document_id), document_chunks in grouped.items():
+        first = document_chunks[0]
+        preview = " ".join(chunk.content for chunk in document_chunks)[:240]
+        documents.append(
+            RagManagedDocument(
+                documentId=RagDocumentId(document_id),
+                appId=first.metadata.appId,
+                title=str(first.metadata.extra.get("title") or document_id),
+                characterId=first.metadata.characterId,
+                personaMode=first.metadata.personaMode,
+                timeline=first.metadata.timeline,
+                sourceType=first.metadata.sourceType,
+                language=first.metadata.language,
+                spoilerLevel=first.metadata.spoilerLevel,
+                trustLevel=first.metadata.trustLevel,
+                chunkCount=len(document_chunks),
+                contentPreview=preview,
+                provider=provider,
+            )
+        )
+    return tuple(
+        sorted(
+            documents,
+            key=lambda item: (str(item.appId or ""), item.title, str(item.documentId)),
+        )
+    )
 
 
 def _default_chunks() -> tuple[RagChunk, ...]:

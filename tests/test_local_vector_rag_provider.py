@@ -157,6 +157,21 @@ class LocalVectorRagProviderTests(unittest.TestCase):
         self.assertTrue(all(chunk.metadata.appId == "app-b" for chunk in app_b.chunks))
         self.assertNotEqual(app_a.chunks[0].chunkId, app_b.chunks[0].chunkId)
 
+    def test_local_vector_admin_lists_and_deletes_real_chunks(self) -> None:
+        service = LocalVectorRagService(chunk_size=24)
+        result = service.ingest(ingest_input(app_id="managed-app"))
+
+        documents = service.list_documents(app_id="managed-app")
+        removed = service.delete_document(
+            app_id="managed-app",
+            document_id=str(result.documentId),
+        )
+
+        self.assertEqual(len(documents), 1)
+        self.assertEqual(documents[0].title, "本地向量资料")
+        self.assertEqual(removed, result.chunkCount)
+        self.assertEqual(service.list_documents(app_id="managed-app"), ())
+
     def test_chroma_payload_and_query_include_app_scope(self) -> None:
         collection = FakeChromaCollection()
         store = object.__new__(ChromaVectorStore)

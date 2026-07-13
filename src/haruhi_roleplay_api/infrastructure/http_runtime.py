@@ -41,6 +41,10 @@ from haruhi_roleplay_api.api.admin_personas import (
     post_admin_persona,
     post_admin_persona_preset,
 )
+from haruhi_roleplay_api.api.admin_rag import (
+    delete_admin_rag_document,
+    get_admin_rag_documents,
+)
 from haruhi_roleplay_api.api.chat import iter_chat_stream_events, post_chat
 from haruhi_roleplay_api.api.memory import delete_memory, get_memory
 from haruhi_roleplay_api.api.personas import get_personas
@@ -455,6 +459,15 @@ class RoleplayHttpRuntime:
                 headers,
                 request_id,
             )
+        if path_parts[:3] == ["v1", "admin", "rag"]:
+            return self._admin_rag(
+                method,
+                path_parts,
+                query,
+                json_body,
+                headers,
+                request_id,
+            )
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "env-config"]:
             return self._env_config(method, path_parts, json_body, headers, request_id)
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "access-tokens"]:
@@ -608,6 +621,48 @@ class RoleplayHttpRuntime:
                 route[0],
                 route[2],
                 repository=self._persona_repository,
+                request_id=request_id,
+            )
+        else:
+            return _not_found_response(request_id)
+        return _json_response(response)
+
+    def _admin_rag(
+        self,
+        method: str,
+        path_parts: list[str],
+        query: Mapping[str, Any],
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        request_id: str,
+    ) -> HttpRuntimeResponse:
+        if not self._is_config_authorized(headers, method=method):
+            return _admin_permission_denied_response(request_id)
+        route = path_parts[3:]
+        if method == "GET" and route == ["documents"]:
+            response = get_admin_rag_documents(
+                query,
+                service=self._rag_service,
+                request_id=request_id,
+            )
+        elif method == "POST" and route == ["documents"]:
+            response = post_rag_document(
+                body,
+                persona_repository=self._persona_repository,
+                rag_ingest_service=self._rag_service,
+                request_id=request_id,
+            )
+        elif method == "DELETE" and len(route) == 2 and route[0] == "documents":
+            response = delete_admin_rag_document(
+                route[1],
+                query,
+                service=self._rag_service,
+                request_id=request_id,
+            )
+        elif method == "POST" and route == ["search"]:
+            response = post_rag_search(
+                body,
+                rag_service=self._rag_service,
                 request_id=request_id,
             )
         else:

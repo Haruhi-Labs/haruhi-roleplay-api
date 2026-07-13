@@ -12,6 +12,7 @@ from uuid import NAMESPACE_URL, uuid5
 from haruhi_roleplay_api.adapters.rag import (
     _chunk_text,
     _matches_filters,
+    _managed_documents,
     _metadata_with_title,
     _scoped_chunk_id,
 )
@@ -25,6 +26,7 @@ from haruhi_roleplay_api.domain import (
     RagDocumentMetadata,
     RagIngestInput,
     RagIngestResult,
+    RagManagedDocument,
     RagRetrieveInput,
     RagRetrieveOutput,
 )
@@ -156,6 +158,66 @@ class QdrantRagService:
             filteredHitCount=len(filtered),
             rerankApplied=False,
         )
+
+    def list_documents(
+        self,
+        *,
+        app_id: str | None = None,
+    ) -> tuple[RagManagedDocument, ...]:
+        payload: dict[str, Any] = {
+            "limit": 1000,
+            "with_payload": True,
+            "with_vector": False,
+        }
+        if app_id is not None:
+            payload["filter"] = {
+                "must": [{"key": "app_id", "match": {"value": app_id}}]
+            }
+        response = self._request_json(
+            "POST",
+            f"/collections/{self._collection}/points/scroll",
+            payload,
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        result = response.get("result", {})
+        points = result.get("points", []) if isinstance(result, Mapping) else []
+        if not isinstance(points, list):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message="Qdrant RAG management response was invalid.",
+            )
+        chunks = tuple(_chunk_from_qdrant_hit(point) for point in points)
+        return _managed_documents(
+            chunks,
+            provider=self.provider_name,
+            app_id=app_id,
+        )
+
+    def delete_document(self, *, app_id: str, document_id: str) -> int:
+        documents = self.list_documents(app_id=app_id)
+        document = next(
+            (item for item in documents if str(item.documentId) == document_id),
+            None,
+        )
+        if document is None:
+            raise AppError(code=ErrorCode.RAG_DOCUMENT_NOT_FOUND)
+        self._request_json(
+            "POST",
+            f"/collections/{self._collection}/points/delete?wait=true",
+            {
+                "filter": {
+                    "must": [
+                        {"key": "app_id", "match": {"value": app_id}},
+                        {
+                            "key": "document_id",
+                            "match": {"value": document_id},
+                        },
+                    ]
+                }
+            },
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        return document.chunkCount
 
     def _create_collection_if_needed(self) -> None:
         self._request_json(

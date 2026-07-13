@@ -266,6 +266,42 @@ class RagChunk:
 
 
 @dataclass(frozen=True, kw_only=True)
+class RagManagedDocument:
+    documentId: RagDocumentId
+    appId: AppId | None
+    title: str
+    characterId: CharacterId
+    personaMode: PersonaModeId | None
+    timeline: str
+    sourceType: str
+    language: str
+    spoilerLevel: int
+    trustLevel: str | None
+    chunkCount: int
+    contentPreview: str
+    provider: str
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "document_id": str(self.documentId),
+            "app_id": str(self.appId) if self.appId is not None else None,
+            "title": self.title,
+            "character_id": str(self.characterId),
+            "persona_mode": (
+                str(self.personaMode) if self.personaMode is not None else None
+            ),
+            "timeline": self.timeline,
+            "source_type": self.sourceType,
+            "language": self.language,
+            "spoiler_level": self.spoilerLevel,
+            "trust_level": self.trustLevel,
+            "chunk_count": self.chunkCount,
+            "content_preview": self.contentPreview,
+            "provider": self.provider,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
 class RagRetrieveInput:
     appId: AppId
     userId: UserId
