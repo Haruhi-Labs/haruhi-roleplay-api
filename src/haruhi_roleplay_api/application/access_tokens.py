@@ -17,11 +17,13 @@ class CreateAccessToken:
     def execute(
         self,
         *,
+        app_id: str,
         name: str,
         quota_tokens: int | None,
         expires_at: str | None,
     ) -> IssuedAccessToken:
         return self._store.create_token(
+            app_id=app_id,
             name=name,
             quota_tokens=quota_tokens,
             expires_at=expires_at,

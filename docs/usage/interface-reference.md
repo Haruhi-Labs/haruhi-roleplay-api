@@ -339,7 +339,7 @@ item 字段：
 
 | Endpoint | 请求 | 用途 |
 | --- | --- | --- |
-| `POST /v1/access-tokens` | `name`、可选 `quota_tokens`、`expires_at` | 创建并一次性返回令牌明文 |
+| `POST /v1/access-tokens` | `app_id`、`name`、可选 `quota_tokens`、`expires_at` | 创建绑定单一 app 的令牌并一次性返回明文 |
 | `GET /v1/access-tokens` | 无 | 列举令牌摘要和累计用量 |
 | `GET /v1/access-tokens/{token_id}` | 无 | 查询令牌详情 |
 | `PATCH /v1/access-tokens/{token_id}` | `quota_tokens`，可为 `null` | 调整额度或设为不限额 |
@@ -347,6 +347,8 @@ item 字段：
 | `GET /v1/access-tokens/{token_id}/logs` | 查询参数 `limit`，默认 50、最大 200 | 查询逐令牌请求日志 |
 
 创建响应中的 `token` 只出现一次；后续响应只返回不可用于鉴权的 `prefix`。业务 API 接受 `Authorization: Bearer hrt_...` 或 `X-API-Key: hrt_...`。
+
+创建、列表、详情、额度调整和吊销响应都会返回 `app_id`。新令牌的 `app_id` 必须是非空字符串且创建后不可修改；旧 SQLite 账本迁移出的未绑定令牌返回 `app_id=null`。当前只建立 scope 数据，业务请求强制校验由后续卡片实现。
 
 令牌详情中的用量字段包括 `quota_tokens`、`prompt_tokens`、`completion_tokens`、`total_tokens` 和 `remaining_tokens`。额度耗尽后的聊天请求返回 HTTP 429 和 `ACCESS_TOKEN_QUOTA_EXCEEDED`。
 

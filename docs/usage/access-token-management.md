@@ -5,7 +5,7 @@
 本服务把凭证分成两类：
 
 - `ROLEPLAY_API_KEY`：部署时设置的管理密钥，用于创建、查询、调整和吊销服务令牌，也用于配置管理。
-- 服务令牌：通过管理 API 创建，格式以 `hrt_` 开头，供其它后端服务调用角色、会话、聊天、RAG 和 Memory API。
+- 服务令牌：通过管理 API 创建，格式以 `hrt_` 开头，并绑定单一 `app_id`，供对应业务后端调用角色、会话、聊天、RAG 和 Memory API。
 
 服务令牌不能调用 `/v1/access-tokens`、`/v1/runtime-config` 或 `/v1/env-config/*`。普通用户前端不应持有管理密钥或服务令牌，推荐链路仍然是：
 
@@ -30,13 +30,14 @@ ACCESS_TOKEN_SQLITE_PATH=.data/access-tokens.sqlite3
 curl -X POST http://127.0.0.1:8000/v1/access-tokens \
   -H 'Authorization: Bearer replace-with-strong-admin-secret' \
   -H 'Content-Type: application/json' \
-  -d '{"name":"order-service","quota_tokens":100000}'
+  -d '{"app_id":"order-app","name":"order-service","quota_tokens":100000}'
 ```
 
 请求字段：
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
+| `app_id` | 是 | 令牌绑定的唯一业务应用 ID，创建后不可修改 |
 | `name` | 是 | 令牌用途或服务名称 |
 | `quota_tokens` | 否 | 模型 Token 总额度；省略表示不限额 |
 | `expires_at` | 否 | 带时区的 ISO-8601 过期时间 |
@@ -48,6 +49,7 @@ curl -X POST http://127.0.0.1:8000/v1/access-tokens \
   "ok": true,
   "data": {
     "token_id": "tok-...",
+    "app_id": "order-app",
     "name": "order-service",
     "prefix": "hrt_...",
     "token": "hrt_完整令牌只在这里出现",
@@ -80,6 +82,17 @@ X-API-Key: hrt_replace_with_issued_token
 ```
 
 服务端会校验令牌哈希、状态和过期时间。未知、已吊销或已过期令牌返回 `401 AUTH_INVALID_API_KEY`。
+
+当前 12.02 只把 `app_id` 持久化并返回给管理 API，尚未把它与业务请求 body 中的 `app_id` 强制比较。请求级 scope 拦截由 12.03 实现；在此之前，调用方仍应发送与令牌 `app_id` 相同的值。
+
+## 旧数据库迁移
+
+服务启动时会检查 `access_tokens` 表。旧表缺少 `app_id` 时会原地增加 nullable 列，不重建表，因此令牌哈希、状态、额度、累计用量和请求日志都会保留。
+
+- 迁移前的令牌返回 `"app_id": null`，表示 legacy unscoped。
+- 12.02 不改变鉴权行为，legacy unscoped token 仍可使用，避免升级时中断现有服务。
+- 所有新令牌都必须提供非空 `app_id`，不能再创建 unscoped token。
+- 12.03 接入强制 scope 前，应为旧调用方签发绑定 app 的新令牌并吊销旧令牌。
 
 ## 额度和用量
 
@@ -127,9 +140,9 @@ Content-Type: application/json
 
 | 接口 | 用途 |
 | --- | --- |
-| `POST /v1/access-tokens` | 创建令牌并一次性返回明文 |
-| `GET /v1/access-tokens` | 列举安全摘要和累计用量 |
-| `GET /v1/access-tokens/{token_id}` | 查询一个令牌 |
+| `POST /v1/access-tokens` | 创建绑定 `app_id` 的令牌并一次性返回明文 |
+| `GET /v1/access-tokens` | 列举 app scope、安全摘要和累计用量 |
+| `GET /v1/access-tokens/{token_id}` | 查询 app scope 和令牌详情 |
 | `PATCH /v1/access-tokens/{token_id}` | 调整额度 |
 | `DELETE /v1/access-tokens/{token_id}` | 吊销令牌 |
 | `GET /v1/access-tokens/{token_id}/logs?limit=50` | 查询逐令牌请求日志 |
@@ -138,7 +151,7 @@ Content-Type: application/json
 
 ## 运维建议
 
-- 为每个调用服务创建独立令牌，不要跨服务共享。
+- 为每个调用服务和 `app_id` 创建独立令牌，不要跨应用共享。
 - 使用清晰的 `name` 标明环境和服务，例如 `prod-order-service`。
 - 定期查询用量和日志，发现异常后立即吊销。
 - 令牌泄露时创建新令牌、更新调用方 Secret，再吊销旧令牌。

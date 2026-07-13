@@ -294,6 +294,16 @@ memory item 字段：
 
 删除只会影响同一个 `app_id`、`user_id`、`character_id`、`persona_mode` 下的记忆。上下文不匹配或记忆不存在时统一返回 `MEMORY_NOT_FOUND`，避免暴露其它用户或角色的记忆是否存在。
 
+## Access Token
+
+### POST /v1/access-tokens
+
+使用 `ROLEPLAY_API_KEY` 创建服务令牌。请求必须包含非空 `app_id` 和 `name`，可选 `quota_tokens`、`expires_at`。一个令牌只绑定一个 `app_id`，创建后不可修改。
+
+创建、列表、详情、额度调整和吊销响应中的安全摘要都包含 `app_id`。令牌明文 `token` 只在创建响应出现一次，SQLite 只保存哈希和安全前缀。
+
+旧 SQLite 账本会原地增加 nullable `app_id` 列；旧令牌返回 `app_id=null`，且在本阶段继续通过鉴权。当前契约只建立 scope 数据，尚不强制比较业务请求 `app_id`。
+
 ## 错误码
 
 | 错误码                 | 说明               |

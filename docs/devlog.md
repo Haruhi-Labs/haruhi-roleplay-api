@@ -864,3 +864,22 @@
 ### 下一步
 
 - 如果需要严格的并发硬上限，可在模型调用前增加额度预留和请求结束后的差额结算；当前按 Provider 返回的实际 usage 完成后结算。
+
+## 2026-07-13：Access Token App Scope
+
+### 完成
+
+- 为 `AccessToken`、store port、创建用例和管理 API 增加单一 `app_id` scope。
+- 新建令牌必须绑定非空 `app_id`，创建、列表、详情、额度调整和吊销响应均返回 scope。
+- SQLite 新库持久化 `app_id`；旧库启动时原地增加 nullable 列，不重建 token 或日志表。
+- 迁移前旧令牌以 `app_id=null` 表示 legacy unscoped，本阶段保持原鉴权行为。
+
+### 验证
+
+- Access Token store/admin API 共 19 项定向测试通过。
+- 完整测试集共 229 项通过。
+- 覆盖新库 scope 持久化、缺失 scope 校验、secret 不落库和旧库用量/日志无损迁移。
+
+### 下一步
+
+- 实现 12.03，在业务 HTTP 请求中比较服务令牌 scope 与请求 `app_id`；上线前替换并吊销 legacy unscoped token。

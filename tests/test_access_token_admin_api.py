@@ -83,18 +83,24 @@ class AccessTokenAdminApiTests(unittest.TestCase):
         created_response = self.request(
             "POST",
             "/v1/access-tokens",
-            body={"name": "订单服务", "quota_tokens": 5000},
+            body={
+                "app_id": "order-app",
+                "name": "订单服务",
+                "quota_tokens": 5000,
+            },
         )
         created = response_json(created_response.body)["data"]
 
         self.assertEqual(created_response.status, 200)
         self.assertTrue(created["token"].startswith("hrt_"))
+        self.assertEqual(created["app_id"], "order-app")
         self.assertEqual(created["quota_tokens"], 5000)
 
         listed = response_json(
             self.request("GET", "/v1/access-tokens").body
         )["data"]
         self.assertEqual(listed["count"], 1)
+        self.assertEqual(listed["items"][0]["app_id"], "order-app")
         self.assertNotIn("token", listed["items"][0])
 
         token_id = created["token_id"]
@@ -102,6 +108,7 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             self.request("GET", f"/v1/access-tokens/{token_id}").body
         )["data"]
         self.assertEqual(fetched["token_id"], token_id)
+        self.assertEqual(fetched["app_id"], "order-app")
         self.assertNotIn("token", fetched)
 
         revoked = response_json(
@@ -138,7 +145,20 @@ class AccessTokenAdminApiTests(unittest.TestCase):
         response = self.request(
             "POST",
             "/v1/access-tokens",
-            body={"name": "服务", "quota_tokens": 0},
+            body={"app_id": "service-app", "name": "服务", "quota_tokens": 0},
+        )
+
+        self.assertEqual(response.status, 400)
+        self.assertEqual(
+            response_json(response.body)["error"]["code"],
+            "VALIDATION_ERROR",
+        )
+
+    def test_create_requires_app_id(self) -> None:
+        response = self.request(
+            "POST",
+            "/v1/access-tokens",
+            body={"name": "无作用域服务", "quota_tokens": 100},
         )
 
         self.assertEqual(response.status, 400)
@@ -152,7 +172,11 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             self.request(
                 "POST",
                 "/v1/access-tokens",
-                body={"name": "公开网关", "quota_tokens": 5000},
+                body={
+                    "app_id": "service-app",
+                    "name": "公开网关",
+                    "quota_tokens": 5000,
+                },
             ).body
         )["data"]
         service_headers = {"Authorization": f"Bearer {created['token']}"}
@@ -179,7 +203,11 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             self.request(
                 "POST",
                 "/v1/access-tokens",
-                body={"name": "业务服务", "quota_tokens": 5000},
+                body={
+                    "app_id": "service-app",
+                    "name": "业务服务",
+                    "quota_tokens": 5000,
+                },
             ).body
         )["data"]
 
@@ -200,7 +228,11 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             self.request(
                 "POST",
                 "/v1/access-tokens",
-                body={"name": "临时服务", "quota_tokens": 5000},
+                body={
+                    "app_id": "service-app",
+                    "name": "临时服务",
+                    "quota_tokens": 5000,
+                },
             ).body
         )["data"]
         self.request("DELETE", f"/v1/access-tokens/{created['token_id']}")
@@ -218,7 +250,11 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             self.request(
                 "POST",
                 "/v1/access-tokens",
-                body={"name": "限额服务", "quota_tokens": 1},
+                body={
+                    "app_id": "service-app",
+                    "name": "限额服务",
+                    "quota_tokens": 1,
+                },
             ).body
         )["data"]
         service_headers = {"Authorization": f"Bearer {created['token']}"}
@@ -269,7 +305,11 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             self.request(
                 "POST",
                 "/v1/access-tokens",
-                body={"name": "可调额度服务", "quota_tokens": 1},
+                body={
+                    "app_id": "service-app",
+                    "name": "可调额度服务",
+                    "quota_tokens": 1,
+                },
             ).body
         )["data"]
         service_headers = {"X-API-Key": created["token"]}

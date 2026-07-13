@@ -25,6 +25,7 @@ def post_access_token(
 ) -> ApiResponse:
     try:
         issued = CreateAccessToken(store).execute(
+            app_id=_required_text(body.get("app_id"), "app_id"),
             name=_required_text(body.get("name"), "name"),
             quota_tokens=_optional_positive_int(body.get("quota_tokens")),
             expires_at=_optional_text(body.get("expires_at"), "expires_at"),

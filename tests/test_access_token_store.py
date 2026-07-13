@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import tempfile
 import unittest
@@ -22,9 +23,14 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_create_returns_secret_once_and_persists_only_hash(self) -> None:
-        issued = self.store.create_token(name="订单服务", quota_tokens=1000)
+        issued = self.store.create_token(
+            app_id="order-app",
+            name="订单服务",
+            quota_tokens=1000,
+        )
 
         self.assertTrue(issued.secret.startswith("hrt_"))
+        self.assertEqual(issued.token.appId, "order-app")
         self.assertEqual(issued.token.name, "订单服务")
         self.assertEqual(issued.token.quotaTokens, 1000)
         self.assertEqual(issued.token.remainingTokens, 1000)
@@ -32,15 +38,20 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
 
         with closing(sqlite3.connect(self.path)) as connection, connection:
             row = connection.execute(
-                "SELECT secret_hash, token_prefix FROM access_tokens"
+                "SELECT app_id, secret_hash, token_prefix FROM access_tokens"
             ).fetchone()
         self.assertIsNotNone(row)
-        self.assertNotEqual(row[0], issued.secret)
-        self.assertEqual(row[1], issued.secret[:12])
+        self.assertEqual(row[0], "order-app")
+        self.assertNotEqual(row[1], issued.secret)
+        self.assertEqual(row[2], issued.secret[:12])
         self.assertNotIn(issued.secret, self.path.read_bytes().decode("latin-1"))
 
     def test_list_and_get_never_return_secret(self) -> None:
-        issued = self.store.create_token(name="前端网关", quota_tokens=None)
+        issued = self.store.create_token(
+            app_id="web-app",
+            name="前端网关",
+            quota_tokens=None,
+        )
 
         listed = self.store.list_tokens()
 
@@ -49,7 +60,11 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
         self.assertEqual(self.store.get_token(issued.token.tokenId), issued.token)
 
     def test_revoke_invalidates_secret(self) -> None:
-        issued = self.store.create_token(name="旧服务", quota_tokens=50)
+        issued = self.store.create_token(
+            app_id="legacy-app",
+            name="旧服务",
+            quota_tokens=50,
+        )
 
         revoked = self.store.revoke_token(issued.token.tokenId)
 
@@ -59,6 +74,7 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
     def test_expired_token_cannot_authenticate(self) -> None:
         expires_at = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
         issued = self.store.create_token(
+            app_id="short-lived-app",
             name="短期任务",
             quota_tokens=50,
             expires_at=expires_at,
@@ -76,11 +92,14 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
 
     def test_invalid_create_input_is_rejected(self) -> None:
         with self.assertRaises(DTOValidationError):
-            self.store.create_token(name="", quota_tokens=100)
+            self.store.create_token(app_id="app", name="", quota_tokens=100)
         with self.assertRaises(DTOValidationError):
-            self.store.create_token(name="服务", quota_tokens=0)
+            self.store.create_token(app_id="", name="服务", quota_tokens=100)
+        with self.assertRaises(DTOValidationError):
+            self.store.create_token(app_id="app", name="服务", quota_tokens=0)
         with self.assertRaises(DTOValidationError):
             self.store.create_token(
+                app_id="app",
                 name="服务",
                 quota_tokens=100,
                 expires_at="2020-01-01T00:00:00+00:00",
@@ -93,8 +112,16 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
         self.assertEqual(context.exception.code, ErrorCode.ACCESS_TOKEN_NOT_FOUND)
 
     def test_request_logs_are_isolated_by_token(self) -> None:
-        first = self.store.create_token(name="服务一", quota_tokens=100)
-        second = self.store.create_token(name="服务二", quota_tokens=100)
+        first = self.store.create_token(
+            app_id="app-one",
+            name="服务一",
+            quota_tokens=100,
+        )
+        second = self.store.create_token(
+            app_id="app-two",
+            name="服务二",
+            quota_tokens=100,
+        )
         self.store.record_request(
             token_id=first.token.tokenId,
             request_id="req-1",
@@ -123,7 +150,11 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
         self.assertIsNotNone(self.store.get_token(first.token.tokenId).lastUsedAt)
 
     def test_model_usage_is_accumulated_and_quota_is_enforced(self) -> None:
-        issued = self.store.create_token(name="有限服务", quota_tokens=10)
+        issued = self.store.create_token(
+            app_id="limited-app",
+            name="有限服务",
+            quota_tokens=10,
+        )
         self.store.record_request(
             token_id=issued.token.tokenId,
             request_id="req-usage",
@@ -160,6 +191,86 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
         )
         self.assertIsNone(unlimited.quotaTokens)
         self.assertIsNone(unlimited.remainingTokens)
+
+    def test_legacy_database_migration_preserves_token_usage_and_logs(self) -> None:
+        self.temp_dir.cleanup()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp_dir.name) / "legacy-access-tokens.sqlite3"
+        secret = "hrt_legacy_secret"
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.executescript(
+                """
+                CREATE TABLE access_tokens (
+                    token_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    token_prefix TEXT NOT NULL,
+                    secret_hash TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL,
+                    quota_tokens INTEGER,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT,
+                    revoked_at TEXT,
+                    last_used_at TEXT
+                );
+                CREATE TABLE access_token_request_logs (
+                    log_id TEXT PRIMARY KEY,
+                    token_id TEXT NOT NULL,
+                    request_id TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    status_code INTEGER NOT NULL,
+                    duration_ms INTEGER NOT NULL,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    error_code TEXT,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO access_tokens VALUES (
+                    ?, ?, ?, ?, 'active', 100, 7, 3, 10, ?, NULL, NULL, ?
+                )
+                """,
+                (
+                    "tok-legacy",
+                    "旧网关",
+                    secret[:12],
+                    hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+                    "2026-01-01T00:00:00+00:00",
+                    "2026-01-01T00:01:00+00:00",
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO access_token_request_logs VALUES (
+                    'log-legacy', 'tok-legacy', 'req-legacy', 'POST', '/v1/chat',
+                    200, 12, 7, 3, 10, NULL, '2026-01-01T00:01:00+00:00'
+                )
+                """
+            )
+
+        migrated = SQLiteAccessTokenStore(path=self.path)
+
+        token = migrated.get_token("tok-legacy")
+        self.assertIsNone(token.appId)
+        self.assertEqual(token.totalTokens, 10)
+        self.assertEqual(migrated.authenticate(secret), token)
+        logs = migrated.list_request_logs("tok-legacy")
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].requestId, "req-legacy")
+        reopened = SQLiteAccessTokenStore(path=self.path)
+        self.assertEqual(reopened.get_token("tok-legacy"), token)
+        with closing(sqlite3.connect(self.path)) as connection:
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(access_tokens)")
+            }
+        self.assertIn("app_id", columns)
 
 
 if __name__ == "__main__":

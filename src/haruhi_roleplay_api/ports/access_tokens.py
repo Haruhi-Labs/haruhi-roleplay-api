@@ -15,11 +15,12 @@ class AccessTokenStore(Protocol):
     def create_token(
         self,
         *,
+        app_id: str,
         name: str,
         quota_tokens: int | None,
         expires_at: str | None = None,
     ) -> IssuedAccessToken:
-        """创建令牌，明文密钥只能通过本次返回。"""
+        """创建绑定单一 app 的令牌，明文密钥只能通过本次返回。"""
 
     def authenticate(self, secret: str) -> AccessToken | None:
         """校验令牌；无效、已吊销或过期时返回 None。"""
