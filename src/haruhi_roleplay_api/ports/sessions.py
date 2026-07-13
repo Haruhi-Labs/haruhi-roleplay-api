@@ -9,6 +9,8 @@ from haruhi_roleplay_api.domain import (
     CharacterId,
     PersonaModeId,
     Session,
+    SessionAdminPage,
+    SessionAdminQuery,
     SessionId,
     SessionMessage,
     UserId,
@@ -47,3 +49,8 @@ class SessionStore(Protocol):
     ) -> SessionMessage:
         """Append one user or assistant message."""
 
+    def admin_list_sessions(self, query: SessionAdminQuery) -> SessionAdminPage:
+        """Return a filtered, paginated session management view."""
+
+    def admin_close_session(self, session_id: SessionId | str) -> Session:
+        """Close one session under administrator authority."""

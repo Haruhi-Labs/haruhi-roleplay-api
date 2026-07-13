@@ -175,7 +175,18 @@ start -> source* -> delta* -> error
 | status     | active   |
 | created_at | 创建时间 |
 
-当前 HTTP runtime 不提供 session 查询或关闭接口。调用方只需保存创建结果中的 `session_id`；session 过期和清理由已配置的 `SessionStore` 负责。
+业务调用方只需保存创建结果中的 `session_id`；session 过期和清理由已配置的 `SessionStore` 负责。受信任后台可使用下面的独立管理接口盘点或提前关闭会话。
+
+## 后台 Session 管理
+
+后台会话接口只接受管理员密钥或安全后台会话，不接受业务服务令牌：
+
+| Endpoint | 用途 |
+| --- | --- |
+| `GET /v1/admin/sessions` | 分页列出运行会话，可按 `app_id`、`user_id`、`character_id` 和 `status` 过滤 |
+| `DELETE /v1/admin/sessions/{session_id}` | 把指定会话标记为 `closed`，阻止后续连续会话读取和写入 |
+
+列表默认返回 100 条、最大 200 条，响应只包含作用域、状态、消息数量和时间信息，不返回用户或角色消息正文。关闭操作可重复执行；不存在的会话返回 `SESSION_NOT_FOUND`。
 
 ## Persona: GET /v1/personas
 

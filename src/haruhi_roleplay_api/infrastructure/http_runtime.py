@@ -50,6 +50,10 @@ from haruhi_roleplay_api.api.admin_rag import (
     delete_admin_rag_document,
     get_admin_rag_documents,
 )
+from haruhi_roleplay_api.api.admin_sessions import (
+    delete_admin_session,
+    get_admin_sessions,
+)
 from haruhi_roleplay_api.api.chat import iter_chat_stream_events, post_chat
 from haruhi_roleplay_api.api.memory import delete_memory, get_memory
 from haruhi_roleplay_api.api.personas import get_personas
@@ -482,6 +486,14 @@ class RoleplayHttpRuntime:
                 headers,
                 request_id,
             )
+        if path_parts[:3] == ["v1", "admin", "sessions"]:
+            return self._admin_runtime_sessions(
+                method,
+                path_parts,
+                query,
+                headers,
+                request_id,
+            )
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "env-config"]:
             return self._env_config(method, path_parts, json_body, headers, request_id)
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "access-tokens"]:
@@ -711,6 +723,33 @@ class RoleplayHttpRuntime:
             response = delete_admin_memory(
                 route[0],
                 memory_store=self._memory_store,
+                request_id=request_id,
+            )
+        else:
+            return _not_found_response(request_id)
+        return _json_response(response)
+
+    def _admin_runtime_sessions(
+        self,
+        method: str,
+        path_parts: list[str],
+        query: Mapping[str, Any],
+        headers: Mapping[str, str],
+        request_id: str,
+    ) -> HttpRuntimeResponse:
+        if not self._is_config_authorized(headers, method=method):
+            return _admin_permission_denied_response(request_id)
+        route = path_parts[3:]
+        if method == "GET" and not route:
+            response = get_admin_sessions(
+                query,
+                session_store=self._session_store,
+                request_id=request_id,
+            )
+        elif method == "DELETE" and len(route) == 1:
+            response = delete_admin_session(
+                route[0],
+                session_store=self._session_store,
                 request_id=request_id,
             )
         else:

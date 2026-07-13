@@ -16,6 +16,8 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
     CharacterId,
     DTOValidationError,
     PersonaModeId,
+    SessionAdminQuery,
+    SessionStatus,
     UserId,
 )
 
@@ -158,6 +160,29 @@ class PostgresSessionStoreTests(unittest.TestCase):
 
         self.assertEqual(len(recent), 1)
         self.assertEqual(recent[0].content, "云端消息")
+
+    def test_admin_can_filter_count_and_close_sessions(self) -> None:
+        store = create_store(FakePostgresDatabase())
+        session = store.create_session(
+            app_id=AppId("web"),
+            user_id=UserId("user-1"),
+            character_id=CharacterId("haruhi"),
+            persona_mode=PersonaModeId("mid_late_haruhi"),
+        )
+        store.append_message(
+            session_id=session.sessionId,
+            role="user",
+            content="云端消息",
+        )
+
+        page = store.admin_list_sessions(
+            SessionAdminQuery(appId="web", status=SessionStatus.ACTIVE)
+        )
+        closed = store.admin_close_session(session.sessionId)
+
+        self.assertEqual(page.total, 1)
+        self.assertEqual(page.items[0].messageCount, 1)
+        self.assertEqual(closed.status, SessionStatus.CLOSED)
 
     def test_missing_session_returns_stable_error(self) -> None:
         store = create_store(FakePostgresDatabase())

@@ -73,6 +73,9 @@ from haruhi_roleplay_api.domain.rag import (
 from haruhi_roleplay_api.domain.session import (
     MessageId,
     Session,
+    SessionAdminItem,
+    SessionAdminPage,
+    SessionAdminQuery,
     SessionMessage,
     SessionStatus,
 )
@@ -143,6 +146,9 @@ __all__ = [
     "RagRetrieveOutput",
     "RequestId",
     "Session",
+    "SessionAdminItem",
+    "SessionAdminPage",
+    "SessionAdminQuery",
     "SessionId",
     "SessionMessage",
     "SessionStatus",
