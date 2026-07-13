@@ -4,6 +4,7 @@
 
 本文是后端配置的最小入口。单模型、单 embedding、单 RAG 场景只需要阅读本文，不需要理解 `MODEL_PROVIDER_REGISTRY`。
 
+- 第一次运行请先按 `quickstart.md` 完成从 `.env` 到前端第一条回复的闭环。
 - Docker Compose 启动见 `docker-compose.md`。
 - 所有高级字段和装配关系见 `backend-dispatch-and-configuration.md`。
 - 管理页面和 `.env` 写回规则见 `config-panel.md`。
@@ -72,10 +73,12 @@ http://127.0.0.1:8000/config
 
 ```bash
 cp .env.compose.example .env
+# 生成强管理密钥，并把输出写入 .env 的 ROLEPLAY_API_KEY
+python -c "import secrets; print(secrets.token_urlsafe(32))"
 docker compose up -d --build
 ```
 
-Compose 只启动本服务，不额外启动模型、Qdrant 或 PostgreSQL。
+Compose 只启动本服务，不额外启动模型、Qdrant 或 PostgreSQL。容器内绑定 `0.0.0.0`，因此启动前必须替换模板中的占位管理密钥。
 
 ## 简单 Provider 配置
 
@@ -87,10 +90,11 @@ Compose 只启动本服务，不额外启动模型、Qdrant 或 PostgreSQL。
 | --- | --- |
 | fake LLM | `LLM_API_TYPE` |
 | Ollama LLM | `LLM_API_TYPE`、`LLM_BASE_URL`、`LLM_MODEL` |
-| OpenAI / DeepSeek / Gemini | `LLM_API_TYPE`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY` |
+| OpenAI / DeepSeek / Gemini | `LLM_API_TYPE`、`LLM_MODEL`、`LLM_API_KEY`；`LLM_BASE_URL` 仅覆盖内置地址时填写 |
 | hash embedding | `EMBEDDING_API_TYPE`、`EMBEDDING_DIMENSIONS` |
 | Ollama embedding | API type、base URL、model、dimensions |
-| 云端 embedding | API type、base URL、model、token、dimensions |
+| OpenAI embedding | API type、model、token、dimensions；base URL 可选 |
+| OpenAI-compatible embedding | API type、base URL、model、token、dimensions |
 | local text RAG | `RAG_API_TYPE` |
 | Chroma | `RAG_API_TYPE`、`RAG_INDEX` |
 | Qdrant | `RAG_API_TYPE`、`RAG_BASE_URL`、`RAG_INDEX`、`RAG_API_KEY` |
@@ -105,6 +109,8 @@ Compose 只启动本服务，不额外启动模型、Qdrant 或 PostgreSQL。
 | `LLM_BASE_URL` | 视类型 | API base URL；标准 provider 可使用内置默认值 |
 | `LLM_MODEL` | 是 | provider 侧模型名称，同时作为默认聊天模型别名 |
 | `LLM_API_KEY` | 云端必填 | API 令牌，只保存在 `.env` 或部署 secret |
+
+OpenAI、DeepSeek 和 Gemini 使用各自 adapter 的内置 base URL。只有通过代理、私有网关或兼容服务时才填写 `LLM_BASE_URL`；`openai_compatible` 和 `ollama` 没有可推断的服务地址，必须填写。
 
 OpenAI 示例：
 
@@ -143,6 +149,8 @@ LLM_MODEL=qwen2.5:7b
 | `EMBEDDING_MODEL` | 真实模型必填 | provider 侧 embedding 模型名称 |
 | `EMBEDDING_API_KEY` | 云端必填 | API 令牌 |
 | `EMBEDDING_DIMENSIONS` | 向量服务必填 | 请求和校验使用的向量维度，必须与向量库 collection 一致 |
+
+`openai` embedding 有内置 base URL；`openai_compatible` 必须填写 `EMBEDDING_BASE_URL`。`hash` 不调用外部服务，适合本地结构测试，不等同于可用于语义检索的生产 embedding。
 
 OpenAI-compatible 示例：
 
@@ -196,7 +204,10 @@ ACCESS_TOKEN_SQLITE_PATH=.data/access-tokens.sqlite3
 - `SESSION_RECENT_LIMIT` 只限制每次进入 prompt 的最近 session 消息数量，不限制数据库总消息数。
 - session 是连续对话原始消息；memory 是通过 policy 审核的长期信息，两者不是同一个存储。
 - Compose 把宿主机 `./.data` 挂载到容器 `/app/.data`，重启容器不会自动删除数据。
+- `RAG_API_TYPE=local` 的文本 chunks 保存在当前进程内，服务重启后不会恢复；生产持久化 RAG 应使用 Qdrant，或安装可选依赖后使用 Chroma。
 - PostgreSQL session 配置属于高级场景；Memory 当前没有 PostgreSQL adapter。
+
+默认镜像只安装 `pyproject.toml` 的基础依赖。Chroma、Faiss 和 PostgreSQL adapter 分别需要 `chromadb`、`faiss-cpu`、`psycopg`，当前最小 Docker 镜像没有包含这些可选包；Qdrant adapter 使用标准库 HTTP 客户端，不需要额外 Python 包。
 
 ## 鉴权和配置管理
 

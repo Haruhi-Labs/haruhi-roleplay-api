@@ -49,7 +49,6 @@ HTTP server 还执行最小生产门禁：loopback 监听保留无密钥开发�
 | PersonaRepository           | 读取 `CharacterProfile` 和 `PersonaPreset`                         |
 | RoleplayOrchestrator        | 编排 persona、session、RAG、memory、backend context、prompt、model |
 | AgentContextPlanner         | 分析本次请求需要哪些上下文和能力                                   |
-| ContextExecutor             | 按计划调用 session、memory、RAG、业务后端 context port             |
 | PromptBuilder               | 把已准备好的上下文组装成模型 messages                              |
 | ChatModelRouter             | application 依赖的模型路由 port                                    |
 | ModelProviderRegistryRouter | 根据服务端 alias 白名单选择模型 provider                           |
@@ -67,7 +66,7 @@ HTTP server 还执行最小生产门禁：loopback 监听保留无密钥开发�
 
 ## Prompt 融合点
 
-RAG、memory、session 和业务后端 context 不直接调用模型。它们先由 Orchestrator 或 ContextExecutor 读取，再交给 PromptBuilder 统一融合。
+RAG、memory、session 和业务后端 context 不直接调用模型。当前由 `RoleplayOrchestrator` 按 `ContextPlan` 读取这些 port，再交给 PromptBuilder 统一融合；尚未拆出独立的 `ContextExecutor` 类。
 
 PromptBuilder 的推荐顺序：
 
@@ -92,7 +91,7 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 
 1. `AgentContextPlanner` 根据 `ChatInput`、persona policy、capabilities 和 app 权限生成 `ContextPlan`。
 2. `ContextPlan` 只能引用服务端白名单里的能力，例如 session、memory、RAG、backend context。
-3. `ContextExecutor` 按 plan 调用 ports，拿到 `ContextBundle`。
+3. 当前由 `RoleplayOrchestrator` 按 plan 调用 ports，拿到准备好的上下文；后续只有在执行逻辑明显膨胀时才考虑拆出独立 executor。
 4. `PromptBuilder` 把 `ContextBundle` 和 persona 信息融合成模型 messages。
 5. 模型 provider 只负责生成文本，不决定数据库、RAG provider 或业务后端 URL。
 6. `MemoryCandidateExtractor` 后续可以从输入和回复中生成候选记忆，再交给 `MemoryPolicyEngine` 审核。

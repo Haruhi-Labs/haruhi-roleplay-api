@@ -4,6 +4,8 @@
 
 这份文档说明前端、业务后端或本地 demo 如何调用 Haruhi Roleplay API。
 
+如果你还没有启动服务或签发业务服务令牌，请先完成 [快速开始](quickstart.md)。
+
 推荐生产链路：
 
 ```text

@@ -1018,3 +1018,24 @@
 ### 下一步
 
 - 保持当前生产边界稳定；12.11 至 12.16 仅在明确要求扩大项目时恢复。
+
+## 2026-07-14：Beginner Delivery Guide
+
+### 完成
+
+- 新增从 `.env`、启动、健康检查、服务令牌到最小 chat 和业务后端转发的单一快速开始路径。
+- 重排根 README 和文档入口，区分第一次使用与开发扩展阅读顺序。
+- 修正 Compose 强管理密钥、标准云 Provider 可选 base URL、可选依赖和本地 RAG 非持久化说明。
+- 修正后端接入中的鉴权主体、app scope、额度和 Provider 限流错误处理说明。
+- 将架构文档中尚不存在的独立 `ContextExecutor` 调整为当前实际由 `RoleplayOrchestrator` 执行。
+
+### 验证
+
+- 对照 Provider factory、配置 facade、HTTP runtime、Access Token API 和前端 demo 核对命令与字段。
+- `README.md` 和 `docs/` 下 104 个 Markdown 文件的本地链接检查通过。
+- `uv run python -m unittest discover -s tests`：267 项测试通过。
+- `docker compose config --quiet`：通过。
+
+### 下一步
+
+- 先在受控测试环境按快速开始完成真实云 Provider smoke；只有出现明确业务需求时再恢复延期功能卡。
