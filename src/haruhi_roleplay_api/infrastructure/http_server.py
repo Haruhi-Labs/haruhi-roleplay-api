@@ -7,12 +7,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import ClassVar
 
+from haruhi_roleplay_api.domain.request_limits import MAX_HTTP_BODY_BYTES
 from haruhi_roleplay_api.infrastructure.http_runtime import (
     HttpRuntimeResponse,
     HttpRuntimeSettings,
+    HttpRuntimeStreamResponse,
     RoleplayHttpRuntime,
+    request_body_too_large_response,
+    sse_event_bytes,
 )
 from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
+
+
+class _RequestBodyTooLargeError(ValueError):
+    pass
 
 
 class RoleplayRequestHandler(BaseHTTPRequestHandler):
@@ -38,11 +46,19 @@ class RoleplayRequestHandler(BaseHTTPRequestHandler):
         return
 
     def _handle_request(self) -> None:
+        try:
+            body = self._read_body()
+        except _RequestBodyTooLargeError:
+            response = request_body_too_large_response(
+                self.headers.get("X-Request-Id")
+            )
+            _write_response(self, response)
+            return
         response = self.runtime.handle(
             method=self.command,
             target=self.path,
             headers=_headers(self),
-            body=self._read_body(),
+            body=body,
         )
         _write_response(self, response)
 
@@ -56,6 +72,8 @@ class RoleplayRequestHandler(BaseHTTPRequestHandler):
             return b""
         if length <= 0:
             return b""
+        if length > MAX_HTTP_BODY_BYTES:
+            raise _RequestBodyTooLargeError
         return self.rfile.read(length)
 
 
@@ -67,6 +85,7 @@ def run_server(settings: HttpRuntimeSettings | None = None) -> None:
     config_store = RuntimeConfigStore.env_file(project_root=project_root, env=env)
     runtime_env = config_store.env()
     runtime_settings = settings or HttpRuntimeSettings.from_env(runtime_env)
+    _validate_server_settings(runtime_settings)
     RoleplayRequestHandler.runtime = RoleplayHttpRuntime.local(
         project_root=project_root,
         env=env,
@@ -103,13 +122,22 @@ def _settings_env(settings: HttpRuntimeSettings) -> dict[str, str]:
     env["ENABLE_DEBUG_TRACE"] = "true" if settings.debug_trace_enabled else "false"
     if settings.api_key is not None:
         env["ROLEPLAY_API_KEY"] = settings.api_key
+    if settings.cors_allowed_origins:
+        env["ROLEPLAY_CORS_ORIGINS"] = ",".join(settings.cors_allowed_origins)
     return env
+
+
+def _validate_server_settings(settings: HttpRuntimeSettings) -> None:
+    settings.validate_for_bind()
 
 
 def _write_response(
     handler: BaseHTTPRequestHandler,
-    response: HttpRuntimeResponse,
+    response: HttpRuntimeResponse | HttpRuntimeStreamResponse,
 ) -> None:
+    if isinstance(response, HttpRuntimeStreamResponse):
+        _write_stream_response(handler, response)
+        return
     handler.send_response(response.status)
     for key, value in response.headers.items():
         handler.send_header(key, value)
@@ -117,6 +145,27 @@ def _write_response(
     handler.end_headers()
     if response.body:
         handler.wfile.write(response.body)
+
+
+def _write_stream_response(
+    handler: BaseHTTPRequestHandler,
+    response: HttpRuntimeStreamResponse,
+) -> None:
+    events = iter(response.events)
+    try:
+        handler.send_response(response.status)
+        for key, value in response.headers.items():
+            handler.send_header(key, value)
+        handler.end_headers()
+        for event in events:
+            handler.wfile.write(sse_event_bytes(event))
+            handler.wfile.flush()
+    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+        return
+    finally:
+        close = getattr(events, "close", None)
+        if callable(close):
+            close()
 
 
 if __name__ == "__main__":

@@ -4,10 +4,12 @@
 
 其它后端服务、Bot Server、游戏服务器、活动页面后端可以把本服务作为 Roleplay API 中转层调用。
 
+第一次接入请先按 [快速开始](quickstart.md) 完成一次服务令牌和最小 chat 调用，本文再说明能力组合和内部调度。
+
 ## 接入前准备
 
-1. 申请或配置 `app_id`。
-2. 获取 API Key。
+1. 为调用方确定稳定的 `app_id`，例如 `web-demo` 或 `game-prod`。
+2. 管理员使用 `ROLEPLAY_API_KEY` 调用 `POST /v1/access-tokens`，签发绑定该 `app_id` 的服务令牌。
 3. 调用 `GET /v1/personas` 或读取后端配置，确认要使用的 `character_id` 和 `persona_mode`。
 4. 确认是否需要连续会话。
 5. 确认是否需要 RAG 和 memory。
@@ -33,8 +35,8 @@
 1. 调用 `POST /v1/sessions` 创建 session。
 2. 保存 `session_id` 到调用方业务系统。
 3. 后续每次 `POST /v1/chat` 都传 `session_id`。
-4. `capabilities.continuousSession` 设置为 true。
-5. 对话结束时调用 `DELETE /v1/sessions/{session_id}`。
+4. `capabilities.continuous_session` 设置为 true。
+5. 当前无需调用关闭接口；session 过期和清理由服务端 `SessionStore` 负责。
 
 适合：
 
@@ -46,11 +48,11 @@
 
 1. 调用方收到用户输入。
 2. 调用 `POST /v1/chat/stream`。
-3. 业务后端把 `data.events` 中的事件逐条转成 SSE 或等价流式响应。
+3. 业务后端透传当前 HTTP runtime 返回的 SSE 事件。
 4. 前端收到 `delta` 时追加文本。
 5. 收到 `done` 后结束 loading，并使用 `usage`、`rag`、`memory`、`debug` 做界面和联调处理。
 
-当前框架无关 handler 用数组表达 stream event，真实 HTTP 层负责逐条发送。流式接口复用同一 Orchestrator，正常结束后仍会写入完整 assistant message；provider 中途失败时返回 `error` event。
+框架无关 handler 可用数组表达 stream event；当前 HTTP runtime 已实现惰性 SSE。流式接口复用同一 Orchestrator，正常结束后仍会写入完整 assistant message；provider 中途失败时返回 `error` event。
 
 适合：
 
@@ -78,7 +80,7 @@
 
 当前 Memory 已支持管理查询、删除、chat 读取和显式候选写入。
 
-1. 后端注入 `InMemoryMemoryStore` 或未来的持久化 MemoryStore。
+1. 后端通过 `MEMORY_PROVIDER=memory|sqlite` 注入 `InMemoryMemoryStore` 或 `SQLiteMemoryStore`。
 2. 调用 `GET /v1/memory/{user_id}` 展示同一 app、用户、角色和 preset 下的记忆。
 3. 调用 `DELETE /v1/memory/{user_id}/{memory_id}` 删除指定记忆。
 4. Chat 请求中设置 `capabilities.memory=true`。
@@ -99,24 +101,24 @@
 
 ## 推荐默认参数
 
-| 场景       | character_id   | persona_mode         | rag   | memory | continuousSession | temperature | styleIntensity |
-| ---------- | -------------- | -------------------- | ----- | ------ | ----------------- | ----------- | -------------- |
-| 首次体验   | haruhi         | entrance_haruhi      | false | false  | false             | 0.8         | 0.75           |
-| 长期聊天   | haruhi         | mid_late_haruhi      | true  | true   | true              | 0.8         | 0.7            |
-| 日常轻互动 | haruhi         | disappearance_haruhi | false | true   | true              | 0.7         | 0.55           |
-| 温和陪伴   | asahina_mikuru | default_mikuru       | false | true   | true              | 0.7         | 0.55           |
-| 吐槽叙述   | kyon           | default_kyon         | true  | false  | true              | 0.6         | 0.6            |
+| 场景     | character_id | persona_mode       | rag   | memory | continuous_session | temperature | style_intensity |
+| -------- | ------------ | ------------------ | ----- | ------ | ------------------ | ----------- | --------------- |
+| 首次体验 | haruhi       | mid_late_haruhi    | false | false  | false              | 0.8         | 0.75            |
+| 长期聊天 | haruhi       | mid_late_haruhi    | true  | true   | true               | 0.8         | 0.7             |
+| 吐槽互动 | kyon         | default_kyon       | true  | false  | true               | 0.6         | 0.6             |
 
 ## 后端错误处理建议
 
 - `VALIDATION_ERROR`: 调用方修正参数。
 - `AUTH_INVALID_API_KEY`: 检查密钥配置。
-- `RATE_LIMIT_EXCEEDED`: 做重试退避或提示稍后再试。
+- `AUTH_PERMISSION_DENIED`: 检查服务令牌绑定的 `app_id` 是否与请求一致。
+- `ACCESS_TOKEN_QUOTA_EXCEEDED`: 提示额度不足，由管理员检查或调整令牌额度。
+- `MODEL_RATE_LIMIT`: 对模型 Provider 限流做退避，不要立即无限重试。
 - `SESSION_NOT_FOUND`: 重新创建 session。
 - `PERSONA_NOT_FOUND`: 重新拉取 catalog 或回退到默认角色。
 - `PERSONA_MODE_NOT_FOUND`: 回退到该角色的默认 persona mode。
 - `MODEL_TIMEOUT`: 允许重试一次。
-- `SAFETY_BLOCKED`: 向用户展示安全提示，不自动重试。
+- `SAFETY_BLOCKED`: 预留安全错误码；当前规则型 `SafetyGuard` 尚未接入主动拦截链路。
 
 ## 后端不要做什么
 

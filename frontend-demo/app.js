@@ -262,7 +262,7 @@ async function sendMessage() {
     if (els.sessionToggle.checked) {
       await createSession({ force: false });
     }
-    const body = chatBody(content);
+    const body = buildChatRequest(content);
     if (els.streamToggle.checked) {
       await streamChat(body, assistantId);
     } else {
@@ -282,8 +282,14 @@ async function sendMessage() {
   }
 }
 
-function chatBody(message) {
-  return {
+function buildChatRequest(message) {
+  const capabilities = {};
+  if (els.ragToggle.checked) capabilities.rag = true;
+  if (els.memoryToggle.checked) capabilities.memory = true;
+  if (els.sessionToggle.checked) capabilities.continuous_session = true;
+  if (els.debugToggle.checked) capabilities.debug_trace = true;
+
+  const body = {
     app_id: els.appIdInput.value.trim() || "web-demo",
     user_id: els.userIdInput.value.trim() || "demo-user",
     session_id: state.sessionId || undefined,
@@ -291,18 +297,15 @@ function chatBody(message) {
     persona_mode: state.selectedMode,
     message,
     language: "zh-CN",
-    capabilities: {
-      rag: els.ragToggle.checked,
-      memory: els.memoryToggle.checked,
-      continuous_session: els.sessionToggle.checked,
-      safety_filter: true,
-      debug_trace: els.debugToggle.checked,
-      stream: els.streamToggle.checked,
-    },
-    generation: {
-      model: els.modelInput.value.trim() || "fake-roleplay-model",
-    },
   };
+  if (Object.keys(capabilities).length > 0) {
+    body.capabilities = capabilities;
+  }
+  const model = els.modelInput.value.trim();
+  if (model) {
+    body.generation = { model };
+  }
+  return body;
 }
 
 async function streamChat(body, assistantId) {
@@ -331,10 +334,12 @@ async function streamChat(body, assistantId) {
     if (event.event === "done") {
       updateMessage(assistantId, data.reply || accumulated);
       applyChatResult(data);
+      return false;
     }
     if (event.event === "error") {
       throw apiError({ ok: false, error: data.error }, response.status);
     }
+    return true;
   });
 }
 
@@ -353,14 +358,19 @@ async function readSse(response, onEvent) {
     for (const part of parts) {
       const event = parseSse(part);
       if (event) {
-        onEvent(event);
+        if (onEvent(event) === false) {
+          await reader.cancel();
+          return;
+        }
       }
     }
   }
   if (buffer.trim()) {
     const event = parseSse(buffer);
     if (event) {
-      onEvent(event);
+      if (onEvent(event) === false) {
+        await reader.cancel();
+      }
     }
   }
 }

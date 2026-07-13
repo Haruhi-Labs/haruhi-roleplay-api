@@ -19,7 +19,21 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | ok        | true 或 false |
 | data      | 成功时返回    |
 | error     | 失败时返回    |
-| requestId | 请求追踪 ID   |
+| request_id | 请求追踪 ID  |
+
+### 请求资源上限
+
+| 输入 | 上限 | 超限响应 |
+| ---- | ---- | -------- |
+| HTTP request body | 1 MiB | `413 REQUEST_BODY_TOO_LARGE` |
+| Chat/RAG 请求 ID | 128 字符 | `400 VALIDATION_ERROR` |
+| Chat `message` | 16,000 字符 | `400 VALIDATION_ERROR` |
+| `generation.max_tokens` | 8,192 | `400 VALIDATION_ERROR` |
+| RAG `title` / `query` | 256 / 4,000 字符 | `400 VALIDATION_ERROR` |
+| RAG `content` | 500,000 字符 | `400 VALIDATION_ERROR` |
+| RAG `top_k` | 20 | `400 VALIDATION_ERROR` |
+
+Boolean 参数必须使用 JSON `true` / `false`，不要传字符串。当前限制是服务端集中常量，不通过 `.env` 调整，也不等同于按用户或令牌计数的 rate limit。
 
 ## Chat: POST /v1/chat
 
@@ -32,13 +46,15 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | app_id       | 是   | 调用方应用 ID                                    |
 | user_id      | 是   | 调用方用户 ID                                    |
 | session_id   | 否   | 连续会话 ID                                      |
-| character_id | 是   | 角色 ID，例如 `haruhi`、`asahina_mikuru`、`kyon` |
-| persona_mode | 是   | 角色 preset，例如 `entrance_haruhi`              |
+| character_id | 是   | 角色 ID，例如 `haruhi`、`kyon`                   |
+| persona_mode | 是   | 角色 preset，例如 `mid_late_haruhi`              |
 | message      | 是   | 用户输入                                         |
 | language     | 是   | `zh-CN`、`ja-JP`、`en-US`                        |
-| capabilities | 是   | 能力开关                                         |
+| capabilities | 否   | 能力开关                                         |
 | generation   | 否   | 模型生成参数                                     |
 | metadata     | 否   | 调用方透传对象                                   |
+
+省略 `capabilities` 时，RAG、memory、连续会话和 debug 默认关闭，`safety_filter` 默认开启。省略 `generation` 或 `generation.model` 时，服务端使用 model router 的 default alias。普通前端不传 provider type、base URL、token 或 model alias；高级调用方仍可传服务端白名单 alias 和生成参数。
 
 ### capabilities
 
@@ -47,7 +63,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | rag                | boolean | 是否启用 RAG                                               |
 | memory             | boolean | 是否启用长期记忆                                           |
 | continuous_session | boolean | 是否启用连续会话                                           |
-| safety_filter      | boolean | 是否启用安全检查                                           |
+| safety_filter      | boolean | 安全能力意图；当前只记录状态，尚未接入规则型 SafetyGuard   |
 | debug_trace        | boolean | 是否返回调试信息                                           |
 | stream             | boolean | `/v1/chat` 必须为 false；`/v1/chat/stream` 会强制视为 true |
 
@@ -59,7 +75,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | ----------------- | ------- | ----------------------------------------------------------------------------------- |
 | model             | string  | 服务端白名单模型别名，例如 `haruhi-ollama`；不能传 provider 名、base URL 或真实密钥 |
 | temperature       | number  | 随机性                                                                              |
-| max_tokens        | number  | 最大输出 token                                                                      |
+| max_tokens        | number  | 最大输出 token，范围 1 到 8,192                                                      |
 | top_p             | number  | nucleus sampling 参数                                                               |
 | presence_penalty  | number  | 话题重复惩罚                                                                        |
 | frequency_penalty | number  | 词频重复惩罚                                                                        |
@@ -106,9 +122,9 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 
 ## Chat Stream: POST /v1/chat/stream
 
-用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，服务端会把 `capabilities.stream` 强制视为 true。模型开始前失败时返回普通错误响应；模型开始后失败时返回 `error` event。
+用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，即使省略 `capabilities`，服务端也会把 stream 强制视为 true。模型开始前失败时返回普通错误响应；模型开始后失败时返回 `error` event。
 
-当前框架无关 handler 返回 `data.events` 数组；真实 HTTP adapter 应逐条编码为 SSE 或等价流式协议。
+框架无关 handler 可用 `data.events` 数组表达事件；当前 HTTP runtime 会把 provider 增量惰性编码为端到端 SSE。
 
 ### Stream Event
 
@@ -159,20 +175,7 @@ start -> source* -> delta* -> error
 | status     | active   |
 | created_at | 创建时间 |
 
-## Session: GET /v1/sessions/{session_id}
-
-用途：查询 session 状态和摘要。
-
-### 查询参数
-
-| 字段    | 必填 | 说明          |
-| ------- | ---- | ------------- |
-| app_id  | 是   | 调用方应用 ID |
-| user_id | 是   | 用户 ID       |
-
-## Session: DELETE /v1/sessions/{session_id}
-
-用途：关闭 session。关闭后不可继续写入。
+当前 HTTP runtime 不提供 session 查询或关闭接口。调用方只需保存创建结果中的 `session_id`；session 过期和清理由已配置的 `SessionStore` 负责。
 
 ## Persona: GET /v1/personas
 
@@ -197,18 +200,7 @@ character 字段：
 | tags                 | 前端筛选标签     |
 | modes                | 可选 preset 摘要 |
 
-## Persona: GET /v1/personas/{character_id}/modes
-
-用途：列出指定角色可用 preset。
-
-### 响应 data
-
-| 字段         | 说明     |
-| ------------ | -------- |
-| character_id | 角色 ID  |
-| modes        | 模式列表 |
-
-mode 字段：
+`GET /v1/personas` 的每个 character 已包含 `modes`，当前不提供单独的 modes 子路由。mode 字段：
 
 | 字段         | 说明     |
 | ------------ | -------- |
@@ -221,11 +213,10 @@ mode 字段：
 
 | character_id   | persona_mode         | 显示名       |
 | -------------- | -------------------- | ------------ |
-| haruhi         | entrance_haruhi      | 刚入学的春日 |
-| haruhi         | mid_late_haruhi      | 中后期的春日 |
-| haruhi         | disappearance_haruhi | 消失春日     |
-| asahina_mikuru | default_mikuru       | 朝比奈学姐   |
-| kyon           | default_kyon         | 阿虚         |
+| haruhi       | mid_late_haruhi | 中后期的春日 |
+| kyon         | default_kyon    | 阿虚         |
+
+以上是当前 catalog 中真实公开的 preset。其它角色和春日模式属于后续卡片，不应作为当前可调用值。
 
 ## RAG: POST /v1/rag/documents
 
@@ -257,6 +248,8 @@ mode 字段：
 
 未注入 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 RAG provider 时返回 `imported`，并把文本切成本地或云端 chunks，供 `/v1/chat` 的 RAG 分支检索。
 
+服务端会把顶层 `app_id` 写入所有 chunk metadata，调用方不需要也不能在扩展 `metadata` 中另行指定 scope。不同应用可以使用相同 `document_id`；内部 chunk/point ID 会按 app 区分。
+
 当前校验规则：
 
 - 必须提供 `character_id`、`timeline`、`spoiler_level`、`language`、`source_type`。
@@ -277,7 +270,7 @@ mode 字段：
 | character_id | 是   | 角色 ID          |
 | persona_mode | 是   | 角色 preset      |
 | query        | 是   | 检索 query       |
-| top_k        | 是   | 返回数量         |
+| top_k        | 是   | 返回数量，范围 1 到 20 |
 | filters      | 否   | metadata filter  |
 | debug        | 否   | 是否返回调试信息 |
 
@@ -300,6 +293,8 @@ mode 字段：
 | filtered_hit_count | metadata filter 后数量                                     |
 | rerank_applied     | 是否执行 rerank                                            |
 | chunks             | 命中的 chunk，包含 source 摘要和 `content`                 |
+
+检索始终强制匹配请求的 `app_id`，该条件不能通过 `filters` 放宽。返回 chunk 的 source 摘要包含 `app_id`，便于后台联调确认 scope；普通聊天前端不应允许用户编辑它。
 
 ## Memory: GET /v1/memory/{user_id}
 
@@ -364,7 +359,7 @@ item 字段：
 
 | Endpoint | 请求 | 用途 |
 | --- | --- | --- |
-| `POST /v1/access-tokens` | `name`、可选 `quota_tokens`、`expires_at` | 创建并一次性返回令牌明文 |
+| `POST /v1/access-tokens` | `app_id`、`name`、可选 `quota_tokens`、`expires_at` | 创建绑定单一 app 的令牌并一次性返回明文 |
 | `GET /v1/access-tokens` | 无 | 列举令牌摘要和累计用量 |
 | `GET /v1/access-tokens/{token_id}` | 无 | 查询令牌详情 |
 | `PATCH /v1/access-tokens/{token_id}` | `quota_tokens`，可为 `null` | 调整额度或设为不限额 |
@@ -373,7 +368,13 @@ item 字段：
 
 创建响应中的 `token` 只出现一次；后续响应只返回不可用于鉴权的 `prefix`。业务 API 接受 `Authorization: Bearer hrt_...` 或 `X-API-Key: hrt_...`。
 
+创建、列表、详情、额度调整和吊销响应都会返回 `app_id`。新令牌的 `app_id` 必须是非空字符串且创建后不可修改；旧 SQLite 账本迁移出的未绑定令牌返回 `app_id=null`。
+
+服务令牌调用 session、chat、RAG、memory route 时，请求 body/query 中的 `app_id` 必须与 token scope 一致，否则返回 `403 AUTH_PERMISSION_DENIED`。legacy unscoped token 不能调用这些 route。`/health`、`/v1/personas` 无 app scope；`ROLEPLAY_API_KEY` 不受服务 token scope 限制。
+
 令牌详情中的用量字段包括 `quota_tokens`、`prompt_tokens`、`completion_tokens`、`total_tokens` 和 `remaining_tokens`。额度耗尽后的聊天请求返回 HTTP 429 和 `ACCESS_TOKEN_QUOTA_EXCEEDED`。
+
+模型 provider 返回 usage 时使用真实值；OpenAI-compatible 响应缺少 usage 字段时，服务按消息和回复长度进行 fallback 估算。负数或不可解析的单个 usage 字段按 `0` 处理。流式 provider 失败时，请求日志记录 SSE `data.error.code`，不会记录消息或回复正文。
 
 ## Runtime Config: GET /v1/runtime-config
 
@@ -396,7 +397,7 @@ item 字段：
 session 相关配置当前分两类：
 
 - `SESSION_RECENT_LIMIT` 属于 `configurable_keys`，可以热更新并影响后续 chat 读取最近消息的数量。
-- `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS`、`SESSION_POSTGRES_SCHEMA` 等属于 `restart_required_keys`，管理前端可以展示，但不能通过 PATCH 热切换。
+- `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`ROLEPLAY_CORS_ORIGINS`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS`、`SESSION_POSTGRES_SCHEMA`、`MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH` 等属于 `restart_required_keys`，管理前端可以展示，但不能通过 PATCH 热切换。
 
 `DATABASE_URL` 是敏感连接串，不会出现在 `values`、`configurable_keys` 或 `restart_required_keys` 中，也不能通过 PATCH 写入。需要 PostgreSQL session store 时，应由服务端 `.env` 或部署平台 secret 注入。
 
@@ -462,11 +463,14 @@ http://127.0.0.1:8000/config
 
 ### schema 字段
 
+schema 顶层同时返回 `simple_groups`、`advanced_groups` 和 `simple_presets`。`simple_presets` 是按 API type 声明应显示哪些字段的 UI 矩阵，不是可保存或切换的配置 profile；完整 `groups` 和全部字段仍会返回，供 Advanced 视图使用。
+
 | 字段             | 说明                                                                   |
 | ---------------- | ---------------------------------------------------------------------- |
 | key              | 配置 key                                                               |
 | group            | UI 分组                                                                |
 | type             | `string`、`int`、`float`、`bool`、`enum`、`json`、`url`、`path`、`csv` |
+| advanced         | 是否属于默认折叠的专家/兼容配置                                        |
 | secret           | 是否为敏感字段                                                         |
 | hot_reload       | 是否可在当前进程热更新                                                 |
 | restart_required | 是否需要重启服务完整生效                                               |
@@ -506,6 +510,7 @@ check 成功执行时即使配置无效也返回 `ok=true`，并在 `data.valid=
 | error.code             | 说明                  |
 | ---------------------- | --------------------- |
 | VALIDATION_ERROR       | 参数错误              |
+| REQUEST_BODY_TOO_LARGE | HTTP 请求体超过 1 MiB |
 | AUTH_INVALID_API_KEY   | API Key 无效          |
 | AUTH_PERMISSION_DENIED | 权限不足              |
 | ACCESS_TOKEN_NOT_FOUND | 访问令牌不存在        |
@@ -516,5 +521,5 @@ check 成功执行时即使配置无效也返回 `ok=true`，并在 `data.valid=
 | RAG_PROVIDER_ERROR     | RAG provider 失败     |
 | MODEL_PROVIDER_ERROR   | 模型 provider 失败    |
 | MEMORY_NOT_FOUND       | 记忆不存在            |
-| SAFETY_BLOCKED         | 安全策略阻断          |
+| SAFETY_BLOCKED         | 预留安全策略错误码；当前 SafetyGuard 尚未接入 |
 | PERSONA_NOT_FOUND      | 角色不存在            |

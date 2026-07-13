@@ -6,6 +6,7 @@ import json
 import socket
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from typing import Any
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
@@ -78,7 +79,7 @@ class GeminiModelProvider(OpenAICompatibleModelProvider):
             error_label=self._error_label,
         )
 
-    def stream(self, request: ModelRequest) -> tuple[ModelStreamEvent, ...]:
+    def stream(self, request: ModelRequest) -> Iterable[ModelStreamEvent]:
         payload = {**_gemini_request_payload(request), "stream": True}
         http_request = urllib.request.Request(
             self._endpoint,
@@ -91,13 +92,11 @@ class GeminiModelProvider(OpenAICompatibleModelProvider):
                 http_request,
                 timeout=self._timeout_seconds,
             ) as response:
-                return tuple(
-                    _stream_response_events(
-                        response,
-                        request,
-                        provider_name=self.provider_name,
-                        error_label=self._error_label,
-                    )
+                yield from _stream_response_events(
+                    response,
+                    request,
+                    provider_name=self.provider_name,
+                    error_label=self._error_label,
                 )
         except (TimeoutError, socket.timeout) as exc:
             raise AppError(

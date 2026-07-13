@@ -826,6 +826,23 @@
 
 - 继续实现 `10.01` Docker Compose 封装，复用本次已经跑通的 simple provider 字段。
 
+## 2026-07-07：SQLite Memory Store
+
+### 完成
+
+- 新增 `SQLiteMemoryStore`，使用标准库 `sqlite3` 保存长期 memory。
+- 新增 `MemoryStoreSettings` 和 `build_memory_store_from_env`。
+- HTTP runtime 改为通过 memory store factory 装配，不再固定使用 `InMemoryMemoryStore`。
+- `.env.example`、`.env.compose.example`、runtime config、env config schema 和使用文档补充 `MEMORY_PROVIDER=sqlite`。
+
+### 验证
+
+- `uv run python -m unittest tests.test_sqlite_memory_store tests.test_memory_store_factory tests.test_memory_crud tests.test_memory_read_policy tests.test_memory_write_policy tests.test_http_runtime_adapter` 通过。
+
+### 下一步
+
+- 继续实现 `11.04`，用 session 切片补 memory candidate 来源；不要把 session summary 混进 `MemoryStore`。
+
 ## 2026-07-13：Access Token Management And Quota Accounting
 
 ### 完成
@@ -847,3 +864,178 @@
 ### 下一步
 
 - 如果需要严格的并发硬上限，可在模型调用前增加额度预留和请求结束后的差额结算；当前按 Provider 返回的实际 usage 完成后结算。
+
+## 2026-07-13：Access Token App Scope
+
+### 完成
+
+- 为 `AccessToken`、store port、创建用例和管理 API 增加单一 `app_id` scope。
+- 新建令牌必须绑定非空 `app_id`，创建、列表、详情、额度调整和吊销响应均返回 scope。
+- SQLite 新库持久化 `app_id`；旧库启动时原地增加 nullable 列，不重建 token 或日志表。
+- 迁移前旧令牌以 `app_id=null` 表示 legacy unscoped，本阶段保持原鉴权行为。
+
+### 验证
+
+- Access Token store/admin API 共 19 项定向测试通过。
+- 完整测试集共 229 项通过。
+- 覆盖新库 scope 持久化、缺失 scope 校验、secret 不落库和旧库用量/日志无损迁移。
+
+### 下一步
+
+- 实现 12.03，在业务 HTTP 请求中比较服务令牌 scope 与请求 `app_id`；上线前替换并吊销 legacy unscoped token。
+
+## 2026-07-13：Enforce Request App Scope
+
+### 完成
+
+- HTTP runtime 对 session、chat、RAG body 和 memory query 使用同一 Access Token app scope 规则。
+- scope 校验早于聊天额度预检、业务 handler、provider 和 SSE 模型调用。
+- 跨 app 和 legacy unscoped token 统一返回 `AUTH_PERMISSION_DENIED`。
+- 管理密钥可跨 app；无 app 的 health/persona route 保持可调用。
+- scope 拒绝沿用现有令牌审计日志，不保存 body、query 或用户内容。
+
+### 验证
+
+- Access Token admin/runtime 定向测试 15 项通过。
+- 完整测试集 234 项通过。
+- 覆盖 body/query route、普通/SSE 拒绝、legacy token、管理员跨 app 和拒绝审计。
+
+### 下一步
+
+- 实现 12.04，把 `app_id` 写入 RAG chunk metadata 并在所有 RAG backend 强制过滤。
+
+## 2026-07-13：RAG App Isolation
+
+### 完成
+
+- 顶层 RAG `app_id` 写入每个 chunk metadata，并由 ingest domain 校验 scope 一致性。
+- local、内存向量和 Faiss 通过统一 metadata filter 拒绝跨 app chunk。
+- Chroma 和 Qdrant 的 payload、查询 filter 和内部 ID 都包含 app scope。
+- 缺少 `app_id` 的旧持久化记录不会自动归属或参与检索；使用文档补充 collection 重建说明。
+- 保留现有 character、persona、timeline、spoiler、language 和 source type 过滤语义。
+
+### 验证
+
+- RAG metadata/local/vector/Qdrant/embedding 定向测试 38 项通过。
+- 完整测试集 240 项通过。
+- 覆盖同 document ID 跨 app 隔离、Chroma payload/query filter、Qdrant point ID/filter，以及 legacy 无 scope 记录拒绝。
+
+### 下一步
+
+- 实现 12.05，为 HTTP body、chat message、RAG 文档、`top_k` 和 `max_tokens` 增加资源上限。
+
+## 2026-07-13：Request Resource Limits
+
+### 完成
+
+- 集中定义 HTTP body、ID、chat message、RAG 文档/query 和生成参数的保守默认上限。
+- 标准库 HTTP server 在读取前拒绝超过 1 MiB 的 `Content-Length`，runtime direct call 执行同一检查。
+- 新增 `REQUEST_BODY_TOO_LARGE`，body 超限返回 413；DTO 字段超限继续返回 400 `VALIDATION_ERROR`。
+- Chat/RAG DTO 严格校验 boolean、`top_k` 和 `max_tokens`，不再把字符串 `"false"` 当作 true。
+- 超限请求在模型或 RAG provider 调用前失败，不增加依赖、环境变量或分布式限流系统。
+
+### 验证
+
+- Chat/RAG/HTTP/error 定向测试 65 项通过。
+- 完整测试集 248 项通过。
+- 覆盖 HTTP 预读拒绝、message/content/ID、`top_k`、`max_tokens`、boolean 类型和 provider 未调用。
+
+### 下一步
+
+- 实现 12.06，收束普通用户看到的 LLM、Embedding 和 RAG 配置面。
+
+## 2026-07-13：Simple Config Surface
+
+### 完成
+
+- `/config` 默认只显示 HTTP、Storage、Simple LLM、Simple RAG 和 Simple Embedding，Advanced 默认折叠。
+- schema 增加字段级 `advanced` 标记和 provider 字段矩阵，不新增配置 profile 系统。
+- 单模型配置使用 `LLM_MODEL` 即可生成内部 route alias，registry 和高级 provider 配置继续保留并具有更高优先级。
+- Simple provider 配置默认补齐 SQLite session/memory 与可见数据路径；显式 storage 配置仍优先。
+- `.env.example` 收束为 fake model、hash embedding、local RAG 和 SQLite storage 的最小本地配置。
+
+### 验证
+
+- Simple facade、env editor、memory/session factory 和 HTTP adapter 定向测试 63 项通过。
+- 完整测试集 250 项通过。
+- `/config` 浏览器 smoke 通过：默认不显示高级字段，API type 字段矩阵、Advanced 展开和 SQLite Storage 路径符合预期。
+
+### 下一步
+
+- 实现 12.07 配置写入事务性。
+
+## 2026-07-13：Minimal Frontend Chat Contract
+
+### 完成
+
+- `/v1/chat` 和 `/v1/chat/stream` 允许省略 `capabilities` 与 `generation`。
+- 缺省能力关闭 RAG、memory、连续会话和 debug；流式路由仍强制 stream。
+- 缺省 model 时使用 router default alias，普通前端不再绑定 fake、Ollama 或云模型名称。
+- demo 使用共享 request builder，只发送启用的能力；model alias 移入默认折叠的 Advanced。
+
+### 验证
+
+- Chat DTO、Chat API、Stream Chat 和 HTTP runtime 定向测试 49 项通过。
+- 完整测试集 252 项通过。
+- 浏览器 smoke 通过：Advanced 默认折叠，model alias 留空时使用服务端 default alias，SSE `done` 后 Send 恢复可用。
+
+### 下一步
+
+- 实现 12.10 Access Token 计量正确性。
+
+## 2026-07-13：Access Token Accounting Correctness
+
+### 完成
+
+- SSE 审计从 `data.error.code` 读取 provider 错误码，并兼容原顶层 `code`。
+- OpenAI-compatible 响应缺少 usage 时同时估算 prompt 和 completion。
+- provider usage 的负数或不可解析字段按单字段归零，已返回的有效真实值仍优先。
+
+### 验证
+
+- 云/本地模型 provider、Access Token 管理和 HTTP runtime 定向测试 70 项通过。
+- 完整测试集 255 项通过。
+
+### 下一步
+
+- 实现 12.17 Production HTTP Gate；12.11 至 12.16 扩展能力继续延期。
+
+## 2026-07-14：Production HTTP Gate
+
+### 完成
+
+- 非 loopback 监听要求至少 32 字符且不是示例占位值的管理密钥。
+- CORS 改为同源自动允许、跨域精确白名单，不再返回 `*`。
+- SSE 客户端断开时关闭事件迭代器，避免无意义 traceback 并保留审计清理。
+- Compose 端口默认只映射宿主机 loopback，TLS 和公网限流交由反向代理。
+
+### 验证
+
+- HTTP runtime、server、配置 schema、SSE 和 Access Token 定向测试 80 项通过。
+- 完整测试集 267 项通过。
+- `docker compose config --quiet` 通过。
+
+### 下一步
+
+- 保持当前生产边界稳定；12.11 至 12.16 仅在明确要求扩大项目时恢复。
+
+## 2026-07-14：Beginner Delivery Guide
+
+### 完成
+
+- 新增从 `.env`、启动、健康检查、服务令牌到最小 chat 和业务后端转发的单一快速开始路径。
+- 重排根 README 和文档入口，区分第一次使用与开发扩展阅读顺序。
+- 修正 Compose 强管理密钥、标准云 Provider 可选 base URL、可选依赖和本地 RAG 非持久化说明。
+- 修正后端接入中的鉴权主体、app scope、额度和 Provider 限流错误处理说明。
+- 将架构文档中尚不存在的独立 `ContextExecutor` 调整为当前实际由 `RoleplayOrchestrator` 执行。
+
+### 验证
+
+- 对照 Provider factory、配置 facade、HTTP runtime、Access Token API 和前端 demo 核对命令与字段。
+- `README.md` 和 `docs/` 下 104 个 Markdown 文件的本地链接检查通过。
+- `uv run python -m unittest discover -s tests`：267 项测试通过。
+- `docker compose config --quiet`：通过。
+
+### 下一步
+
+- 先在受控测试环境按快速开始完成真实云 Provider smoke；只有出现明确业务需求时再恢复延期功能卡。

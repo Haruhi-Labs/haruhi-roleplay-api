@@ -20,6 +20,21 @@
 | error.details | 可选调试信息   |
 | request_id    | 请求 ID        |
 
+## 请求资源上限
+
+| 输入 | 上限 |
+| ---- | ---- |
+| HTTP request body | 1 MiB（1,048,576 bytes） |
+| Chat/RAG 请求中的 ID | 128 字符 |
+| `message` | 16,000 字符 |
+| `generation.max_tokens` | 8,192 |
+| RAG `title` | 256 字符 |
+| RAG search `query` | 4,000 字符 |
+| RAG document `content` | 500,000 字符 |
+| RAG `top_k` | 20 |
+
+超过 HTTP body 字节上限时返回 HTTP 413 和 `REQUEST_BODY_TOO_LARGE`。JSON 已被读取后发现字段长度、数值范围或类型错误时返回 HTTP 400 和 `VALIDATION_ERROR`。`capabilities.*`、`generation.allow_narration` 和 RAG `debug` 必须是真正的 JSON boolean，字符串 `"true"`、`"false"` 不会被隐式转换。
+
 ## Chat
 
 ### POST /v1/chat
@@ -37,13 +52,15 @@
 | persona_mode | 是   | 角色 preset    |
 | message      | 是   | 用户输入       |
 | language     | 是   | 输出语言       |
-| capabilities | 是   | 能力开关       |
+| capabilities | 否   | 能力开关       |
 | generation   | 否   | 生成参数       |
 | metadata     | 否   | 调用方透传对象 |
 
+省略 `capabilities` 时默认关闭 RAG、memory、连续会话和 debug，并保持 `safety_filter=true`。省略 `generation` 或 `generation.model` 时使用服务端 router 的 default alias；普通前端不需要知道 provider、base URL、token 或 model alias。
+
 当 `capabilities.continuous_session=true` 时，`session_id` 必须来自 `POST /v1/sessions` 创建的 active session，并且与当前 `app_id`、`user_id`、`character_id`、`persona_mode` 匹配。
 
-当 `capabilities.rag=true` 时，服务端必须已注入 `RagService`。当前实现支持 Fake RAG retrieve，用 persona policy 过滤固定 chunks，并返回 source 摘要；真实 embedding、向量库和 rerank 尚未接入。
+当 `capabilities.rag=true` 时，服务端必须已注入 `RagService`。当前实现支持 fake、本地文本、本地向量（memory/Chroma/Faiss）和 Qdrant 检索，并使用 persona policy 过滤 chunks；rerank 尚未实现。
 
 当 `capabilities.memory=true` 时，服务端必须已注入 `MemoryStore`。服务会读取同一 `app_id`、`user_id`、`character_id`、`persona_mode` 下的有限记忆，并按 persona `memoryPolicy.allowedTypes` 过滤。
 
@@ -111,11 +128,13 @@
 
 `debug` 不返回完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
 
+当前 `capabilities.safety_filter` 和 debug 中的 safety 字段只记录调用意图与结果占位，规则型 `SafetyGuard` 尚未接入，不应把它视为已经执行输入/输出内容审核。
+
 ### POST /v1/chat/stream
 
 发送一次流式角色扮演请求。请求字段与 `/v1/chat` 一致，服务端会把 `capabilities.stream` 视为 true。流式接口复用同一个 Orchestrator 和 PromptBuilder，不改变 session、RAG、memory 或 safety 语义。
 
-当前框架无关 API handler 返回 `data.events` 数组；真实 HTTP adapter 应把数组中的每个对象编码为 SSE 或等价流式事件。
+框架无关 API handler 可用 `data.events` 数组表达事件；当前 HTTP runtime 已把 provider 增量惰性编码为端到端 SSE，不会先缓存完整回复再发送。
 
 事件格式：
 
@@ -153,9 +172,7 @@ character 字段：
 | tags                 | 前端筛选标签     |
 | modes                | 可选 preset 摘要 |
 
-### GET /v1/personas/{character_id}/modes
-
-返回指定角色的可用 preset。
+每个 character 的 `modes` 已包含该角色当前公开的 preset，不另提供 modes 子路由。
 
 ## Session
 
@@ -163,13 +180,7 @@ character 字段：
 
 创建连续会话。
 
-### GET /v1/sessions/{session_id}
-
-查询 session 状态。
-
-### DELETE /v1/sessions/{session_id}
-
-关闭 session。
+当前不提供 session 查询或关闭接口。调用方保存 `POST /v1/sessions` 返回的 `session_id`；过期和清理由具体 `SessionStore` 负责。
 
 ## RAG
 
@@ -203,6 +214,8 @@ character 字段：
 | metadata    | 通过校验后的 metadata 摘要 |
 
 未注入 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 RAG provider 时返回 `imported`，服务会按文本切分 chunk 并保留 metadata。当前支持 `local` 文本检索、`local_vector` 标准库向量检索、可选 Chroma/Faiss 本地向量后端，以及 Qdrant REST 云端 provider。
+
+顶层 `app_id` 会由服务端写入每个 RAG chunk 的 metadata。检索只返回同一 `app_id` 下的数据，且 source 摘要包含 `app_id`。不同应用可以复用同一个 `document_id`，服务端生成的内部 chunk/point ID 仍然不同。缺少 `app_id` 的旧 Chroma/Qdrant 记录不会参与检索，不会被自动归属到当前应用。
 
 ### POST /v1/rag/search
 
@@ -240,6 +253,8 @@ character 字段：
 | filtered_hit_count | metadata filter 后数量                        |
 | rerank_applied     | 是否执行 rerank                               |
 | chunks             | 命中的 chunk 列表，包含 source 摘要和 content |
+
+`app_id` 是强制存储过滤条件，不属于调用方可覆盖的 `filters` 字段。它会与 character、persona、timeline、spoiler、language 和 source type 过滤共同生效。
 
 ## Memory
 
@@ -300,11 +315,38 @@ memory item 字段：
 
 删除只会影响同一个 `app_id`、`user_id`、`character_id`、`persona_mode` 下的记忆。上下文不匹配或记忆不存在时统一返回 `MEMORY_NOT_FOUND`，避免暴露其它用户或角色的记忆是否存在。
 
+## Access Token
+
+### POST /v1/access-tokens
+
+使用 `ROLEPLAY_API_KEY` 创建服务令牌。请求必须包含非空 `app_id` 和 `name`，可选 `quota_tokens`、`expires_at`。一个令牌只绑定一个 `app_id`，创建后不可修改。
+
+创建、列表、详情、额度调整和吊销响应中的安全摘要都包含 `app_id`。令牌明文 `token` 只在创建响应出现一次，SQLite 只保存哈希和安全前缀。
+
+旧 SQLite 账本会原地增加 nullable `app_id` 列；旧令牌返回 `app_id=null`。
+
+服务令牌调用以下 app-scoped route 时，HTTP runtime 必须在业务 handler 前比较 token scope 与请求 `app_id`：
+
+- body：`POST /v1/sessions`、`POST /v1/chat`、`POST /v1/chat/stream`、`POST /v1/rag/documents`、`POST /v1/rag/search`。
+- query：`GET /v1/memory/{user_id}`、`DELETE /v1/memory/{user_id}/{memory_id}`。
+
+不匹配或 legacy unscoped token 统一返回 `AUTH_PERMISSION_DENIED`，不暴露目标资源是否存在。管理密钥仍可跨 app 调用；额外 Header 不能声明或覆盖 app scope。
+
+聊天用量优先采用模型 provider 返回的 `prompt_tokens` 和 `completion_tokens`。OpenAI-compatible provider 未返回某个 usage 字段时，服务使用消息或回复长度进行轻量估算；估算不是 tokenizer 精确结果。provider 返回负数或不可解析字段时，该字段按 `0` 记账。SSE provider 错误从 `data.error.code` 写入请求日志，日志不保存 prompt 或回复正文。
+
+## HTTP 生产门禁
+
+- loopback 监听允许本地无密钥开发；非 loopback 监听要求至少 32 字符且不是示例占位值的 `ROLEPLAY_API_KEY`。
+- 未携带 `Origin` 的服务间调用不受 CORS 影响，继续执行 API Key 或 Access Token 鉴权。
+- 浏览器同源请求自动允许；跨域请求的 Origin 必须精确匹配 `ROLEPLAY_CORS_ORIGINS`，否则返回 `403 AUTH_PERMISSION_DENIED`。
+- CORS 响应只回显当前允许的具体 Origin，不返回 `Access-Control-Allow-Origin: *`。
+
 ## 错误码
 
 | 错误码                 | 说明               |
 | ---------------------- | ------------------ |
 | VALIDATION_ERROR       | 参数错误           |
+| REQUEST_BODY_TOO_LARGE | HTTP 请求体超过 1 MiB |
 | AUTH_INVALID_API_KEY   | API Key 无效       |
 | AUTH_PERMISSION_DENIED | 权限不足           |
 | PERSONA_NOT_FOUND      | 角色不存在         |
@@ -316,7 +358,7 @@ memory item 字段：
 | MODEL_TIMEOUT          | 模型超时           |
 | MEMORY_NOT_FOUND       | 记忆不存在         |
 | MEMORY_ACCESS_DENIED   | 记忆访问被拒绝     |
-| SAFETY_BLOCKED         | 安全策略阻断       |
+| SAFETY_BLOCKED         | 预留安全策略错误码；当前尚未主动产生 |
 | INTERNAL_ERROR         | 内部错误           |
 
 ## 字段命名

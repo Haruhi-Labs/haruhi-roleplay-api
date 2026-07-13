@@ -4,6 +4,8 @@
 
 这份文档说明前端、业务后端或本地 demo 如何调用 Haruhi Roleplay API。
 
+如果你还没有启动服务或签发业务服务令牌，请先完成 [快速开始](quickstart.md)。
+
 推荐生产链路：
 
 ```text
@@ -145,24 +147,14 @@ POST /v1/chat
 {
   "app_id": "web-demo",
   "user_id": "user-123",
-  "session_id": "optional-session-id",
   "character_id": "haruhi",
   "persona_mode": "mid_late_haruhi",
   "message": "今天社团要做什么？",
-  "language": "zh-CN",
-  "capabilities": {
-    "rag": false,
-    "memory": false,
-    "continuous_session": false,
-    "safety_filter": true,
-    "debug_trace": false,
-    "stream": false
-  },
-  "generation": {
-    "model": "fake-roleplay-model"
-  }
+  "language": "zh-CN"
 }
 ```
+
+这是普通前端的推荐最小 body。未传的能力使用安全默认值，模型使用服务端 default alias，因此切换 Ollama、OpenAI 或 Gemini 配置时不需要修改前端请求。只有真正启用 RAG、memory、session 或 debug 时才发送对应 `capabilities` 字段；高级调用方需要选择服务端白名单 alias 时才发送 `generation.model`。
 
 响应：
 
@@ -194,7 +186,7 @@ POST /v1/chat
 POST /v1/chat/stream
 ```
 
-请求体与 `/v1/chat` 相同，但服务端会把 `capabilities.stream` 视为 true。
+请求体与 `/v1/chat` 相同，但服务端会强制使用 stream；前端不需要发送 `capabilities.stream`。
 
 当前 HTTP runtime 返回 `text/event-stream`。事件顺序：
 
@@ -412,6 +404,7 @@ DELETE /v1/memory/{user_id}/{memory_id}?app_id=web-demo&character_id=haruhi&pers
 | `AUTH_INVALID_API_KEY`                         | 本地 demo 提示 API key 错误；生产前端不应看到 |
 | `AUTH_PERMISSION_DENIED`                       | 管理接口权限不足                              |
 | `VALIDATION_ERROR`                             | 标记表单或请求参数错误                        |
+| `REQUEST_BODY_TOO_LARGE`                       | 阻止提交并提示缩短消息或 RAG 文档             |
 | `PERSONA_NOT_FOUND` / `PERSONA_MODE_NOT_FOUND` | 重新加载 persona catalog                      |
 | `SESSION_NOT_FOUND` / `SESSION_EXPIRED`        | 新建 session 并提示用户                       |
 | `RAG_PROVIDER_ERROR`                           | 降级为无 RAG 或提示后台配置错误               |

@@ -24,19 +24,29 @@ class EnvConfigEditorTests(unittest.TestCase):
     def test_schema_marks_secret_hot_reload_and_restart_fields(self) -> None:
         roleplay_key = ENV_CONFIG_FIELD_BY_KEY["ROLEPLAY_API_KEY"]
         roleplay_port = ENV_CONFIG_FIELD_BY_KEY["ROLEPLAY_PORT"]
+        cors_origins = ENV_CONFIG_FIELD_BY_KEY["ROLEPLAY_CORS_ORIGINS"]
         session_provider = ENV_CONFIG_FIELD_BY_KEY["SESSION_PROVIDER"]
         access_token_path = ENV_CONFIG_FIELD_BY_KEY["ACCESS_TOKEN_SQLITE_PATH"]
         model_provider = ENV_CONFIG_FIELD_BY_KEY["MODEL_PROVIDER"]
+        llm_api_type = ENV_CONFIG_FIELD_BY_KEY["LLM_API_TYPE"]
+        memory_provider = ENV_CONFIG_FIELD_BY_KEY["MEMORY_PROVIDER"]
 
         self.assertTrue(roleplay_key.secret)
         self.assertTrue(roleplay_key.hotReload)
         self.assertTrue(roleplay_port.restartRequired)
         self.assertFalse(roleplay_port.hotReload)
+        self.assertTrue(cors_origins.restartRequired)
+        self.assertFalse(cors_origins.hotReload)
         self.assertTrue(session_provider.restartRequired)
         self.assertTrue(access_token_path.restartRequired)
         self.assertFalse(access_token_path.hotReload)
         self.assertEqual(model_provider.valueType, "enum")
         self.assertIn("fake", model_provider.enum)
+        self.assertTrue(model_provider.advanced)
+        self.assertFalse(llm_api_type.advanced)
+        self.assertEqual(llm_api_type.default, "fake")
+        self.assertEqual(session_provider.default, "sqlite")
+        self.assertEqual(memory_provider.default, "sqlite")
 
     def test_snapshot_redacts_secret_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -128,6 +138,45 @@ class EnvConfigEditorTests(unittest.TestCase):
             "MODEL_PROVIDER_REGISTRY.default_alias must exist in aliases",
             result.errors,
         )
+
+    def test_cors_origin_check_rejects_wildcard_and_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            editor = editor_for(Path(temp_dir) / ".env")
+            wildcard = editor.check(
+                {"key": "ROLEPLAY_CORS_ORIGINS", "value": "*"}
+            )
+            path = editor.check(
+                {
+                    "key": "ROLEPLAY_CORS_ORIGINS",
+                    "value": "https://app.example.com/path",
+                }
+            )
+
+        self.assertFalse(wildcard.valid)
+        self.assertFalse(path.valid)
+
+    def test_public_bind_check_requires_strong_admin_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            editor = editor_for(Path(temp_dir) / ".env")
+            weak = editor.check(
+                {
+                    "values": {
+                        "ROLEPLAY_HOST": "0.0.0.0",
+                        "ROLEPLAY_API_KEY": "change-me",
+                    }
+                }
+            )
+            strong = editor.check(
+                {
+                    "values": {
+                        "ROLEPLAY_HOST": "0.0.0.0",
+                        "ROLEPLAY_API_KEY": "a" * 32,
+                    }
+                }
+            )
+
+        self.assertFalse(weak.valid)
+        self.assertTrue(strong.valid)
 
     def test_commit_preserves_comments_unknown_keys_and_redacts_secret(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

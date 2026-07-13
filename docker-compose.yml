@@ -11,7 +11,7 @@ services:
       ROLEPLAY_PORT: ${ROLEPLAY_PORT:-8000}
       ROLEPLAY_CONFIG_FILE: /app/.data/runtime.env
     ports:
-      - "${ROLEPLAY_PORT:-8000}:${ROLEPLAY_PORT:-8000}"
+      - "127.0.0.1:${ROLEPLAY_PORT:-8000}:${ROLEPLAY_PORT:-8000}"
     volumes:
       - ./.data:/app/.data
     restart: unless-stopped

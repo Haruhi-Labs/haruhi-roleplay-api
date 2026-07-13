@@ -16,6 +16,7 @@ class AccessTokenStatus(StrEnum):
 @dataclass(frozen=True, kw_only=True)
 class AccessToken:
     tokenId: str
+    appId: str | None
     name: str
     prefix: str
     status: AccessTokenStatus
@@ -30,6 +31,8 @@ class AccessToken:
 
     def __post_init__(self) -> None:
         _require_non_empty(self.tokenId, "accessToken.tokenId")
+        if self.appId is not None:
+            _require_non_empty(self.appId, "accessToken.appId")
         _require_non_empty(self.name, "accessToken.name")
         _require_non_empty(self.prefix, "accessToken.prefix")
         _require_non_empty(self.createdAt, "accessToken.createdAt")
@@ -56,6 +59,7 @@ class AccessToken:
     def to_mapping(self) -> dict[str, object]:
         return {
             "token_id": self.tokenId,
+            "app_id": self.appId,
             "name": self.name,
             "prefix": self.prefix,
             "status": self.status.value,

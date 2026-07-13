@@ -6,6 +6,8 @@
 
 ```bash
 cp .env.compose.example .env
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+# 将输出写入 .env 的 ROLEPLAY_API_KEY 后再启动
 docker compose up -d --build
 docker compose logs -f roleplay-api
 ```
@@ -13,7 +15,7 @@ docker compose logs -f roleplay-api
 检查服务：
 
 ```bash
-curl -H "Authorization: Bearer change-me" http://127.0.0.1:8000/health
+curl -H "Authorization: Bearer <ROLEPLAY_API_KEY>" http://127.0.0.1:8000/health
 ```
 
 静态 demo：
@@ -37,7 +39,7 @@ ROLEPLAY_PORT=8010
 http://127.0.0.1:8010/health
 ```
 
-容器内会绑定 `0.0.0.0:$ROLEPLAY_PORT`，Compose 会映射同一个宿主机端口。
+容器内会绑定 `0.0.0.0:$ROLEPLAY_PORT`，因此启动前必须把 `ROLEPLAY_API_KEY` 替换为至少 32 字符的非占位密钥。Compose 默认只把端口映射到宿主机 `127.0.0.1`，避免应用 server 直接暴露公网。
 
 ## 配置
 
@@ -69,6 +71,25 @@ RAG_API_KEY=replace-with-token
 docker compose up -d --build
 ```
 
+浏览器跨域访问时配置精确 Origin；同源部署留空即可：
+
+```env
+ROLEPLAY_CORS_ORIGINS=https://app.example.com,https://admin.example.com
+```
+
+不支持 `*`。修改后需要重启容器。
+
+## 公网入口边界
+
+生产环境应由宿主机 Caddy、Nginx 或云入口代理到 `127.0.0.1:$ROLEPLAY_PORT`。反向代理负责：
+
+- TLS 证书和 HTTPS。
+- 公网请求速率限制、并发连接上限和请求超时。
+- 可信代理链中的真实客户端 IP。
+- 只公开业务 API；`/config`、`/v1/env-config/*`、`/v1/runtime-config` 和 `/v1/access-tokens/*` 应额外限制来源。
+
+应用自身继续负责 API Key、服务 Access Token、app scope、请求大小和模型额度。不要把 Compose 端口改成公网映射后绕过反向代理。
+
 ## 数据位置
 
 Compose 只挂载一个本地数据目录：
@@ -81,6 +102,12 @@ SQLite session 默认写入：
 
 ```text
 .data/sessions.sqlite3
+```
+
+SQLite memory 默认写入：
+
+```text
+.data/memories.sqlite3
 ```
 
 访问令牌账本、逐令牌用量和请求日志默认写入：

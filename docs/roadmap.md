@@ -58,16 +58,18 @@
 
 ## 当前优先级
 
-1. 补真实 HTTP API 运行封装，让 `GET /v1/personas`、`POST /v1/chat`、`POST /v1/chat/stream` 可通过本地服务调用。
-2. 把现有 fake/local provider 装配为明确的 provider pack。
-3. 逐个增加常见模型 provider：Ollama local、DeepSeek、OpenAI/OpenAI-compatible。
-4. 把 RAG 拆成本地检索和云端检索两类 provider，先稳定 port，再接具体实现。
-5. 增加 AgentContextPlanner 和 ContextExecutor，让本项目能分析请求并决定要拉取哪些上下文。
-6. 做最简前端 demo，用 catalog 选择角色，用 chat/stream 展示回复和 sources。
-7. 做受信任 `.env` 编辑器，用独立 env config API 查看、选择、check 和保存配置草稿。
-8. 提供一个 Docker Compose 单容器封装，并把用户配置收束为 API type / provider、base URL、model/index 和 token。
+Phase A 到 K 的主要能力已经实现。当前项目已进入“可被前端真实接入的 Roleplay API 中转服务”状态，下一阶段优先修复产品化边界：
 
-完成以上步骤后，项目进入“可被前端真实接入的 Roleplay API 中转服务”状态。
+1. 同步正式契约与实际 runtime，避免公开不存在的接口和配置。
+2. Access Token 单一 app scope、业务请求强制校验和 RAG 存储层 app 隔离已完成。
+3. HTTP body、消息、RAG 文档、`top_k` 和 `max_tokens` 资源上限已完成。
+4. 后端简单配置面已收束；单 provider 用户默认只看到 LLM、Embedding、RAG、HTTP 和 SQLite Storage essentials。
+5. 普通聊天前端契约已化简；默认不再传 provider alias 或完整 generation。
+6. Access Token 计量正确性已完成：SSE 错误码可审计，缺失 usage 时会估算 prompt 和 completion。
+7. 生产 HTTP 门禁已完成：公网监听要求强管理密钥，CORS 使用精确白名单，SSE 断开会安全清理。
+8. 当前最小生产交付边界完成；角色扩展、SafetyGuard、真实 backend context 和 model-backed planner 继续延期。
+
+额外角色、SafetyGuard、真实 backend context adapter 和 model-backed planner 不属于当前最小生产交付，继续延期到用户明确要求扩大范围之后。
 
 ## 交付原则
 

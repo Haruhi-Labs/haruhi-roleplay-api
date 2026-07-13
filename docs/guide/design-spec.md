@@ -72,9 +72,9 @@
 | ----------------- | ------------------------------------ |
 | rag               | 默认关闭，开启后必须返回 source 摘要 |
 | memory            | 默认关闭，开启后必须经过 policy      |
-| continuousSession | 默认关闭，开启后读写 session         |
-| safetyFilter      | 默认开启                             |
-| debugTrace        | 本地可开启，生产必须裁剪敏感信息     |
+| continuous_session | 默认关闭，开启后读写 session        |
+| safety_filter      | 契约已保留；SafetyGuard 接入后才执行内容审核 |
+| debug_trace        | 本地可开启，生产必须裁剪敏感信息    |
 | stream            | 只改变输出方式，不改变编排语义       |
 
 ## HTTP API 运行层规范
@@ -122,7 +122,7 @@
 
 ## API 设计规范
 
-- 所有响应带 requestId。
+- 所有对外响应 envelope 带 `request_id`。
 - 错误响应使用稳定 error.code。
 - 对外 HTTP API 字段统一使用 `snake_case`，例如 `persona_mode`、`session_id`。
 - 内部 application/domain DTO 字段统一使用 `camelCase`，例如 `personaMode`、`sessionId`。

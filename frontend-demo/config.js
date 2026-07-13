@@ -6,6 +6,7 @@ const state = {
   selectedGroup: "",
   draft: {},
   lastCheck: null,
+  advancedVisible: false,
 };
 
 const els = {
@@ -50,9 +51,10 @@ async function loadConfig() {
     ]);
     state.schema = schema.data;
     state.snapshot = snapshot.data;
-    state.selectedGroup = state.schema.groups[0] || "";
+    state.selectedGroup = state.schema.simple_groups?.[0] || state.schema.groups[0] || "";
     state.draft = {};
     state.lastCheck = null;
+    state.advancedVisible = false;
     setStatus("ready");
     render();
   } catch (error) {
@@ -66,7 +68,7 @@ function render() {
     renderEmpty();
     return;
   }
-  els.fieldCount.textContent = String(state.schema.fields.length);
+  renderFieldCount();
   els.configSource.textContent = state.snapshot.source;
   els.writableBadge.textContent = state.snapshot.writable ? "writable" : "read-only";
   renderSnapshotMeta();
@@ -106,28 +108,88 @@ function renderSnapshotMeta() {
 }
 
 function renderGroups() {
+  const simpleGroups = state.schema.simple_groups || state.schema.groups;
+  const advancedGroups = state.schema.advanced_groups || [];
+  const groups = state.advancedVisible
+    ? [...simpleGroups, ...advancedGroups]
+    : simpleGroups;
+  const groupButtons = groups.map((group) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "group-button";
+    if (group === state.selectedGroup) {
+      button.classList.add("active");
+    }
+    button.textContent = group;
+    button.addEventListener("click", () => {
+      state.selectedGroup = group;
+      renderGroups();
+      renderFields();
+    });
+    return button;
+  });
+  const advancedButton = document.createElement("button");
+  advancedButton.type = "button";
+  advancedButton.className = "group-button advanced-toggle";
+  advancedButton.setAttribute("aria-expanded", String(state.advancedVisible));
+  advancedButton.textContent = state.advancedVisible ? "Hide Advanced" : "Advanced";
+  advancedButton.addEventListener("click", () => {
+    state.advancedVisible = !state.advancedVisible;
+    if (!state.advancedVisible && !simpleGroups.includes(state.selectedGroup)) {
+      state.selectedGroup = simpleGroups[0] || "";
+    }
+    renderGroups();
+    renderFields();
+    renderFieldCount();
+  });
   els.groupNav.replaceChildren(
-    ...state.schema.groups.map((group) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "group-button";
-      if (group === state.selectedGroup) {
-        button.classList.add("active");
-      }
-      button.textContent = group;
-      button.addEventListener("click", () => {
-        state.selectedGroup = group;
-        renderGroups();
-        renderFields();
-      });
-      return button;
-    }),
+    ...groupButtons,
+    advancedButton,
   );
 }
 
 function renderFields() {
-  const fields = state.schema.fields.filter((field) => field.group === state.selectedGroup);
+  const fields = visibleFields().filter((field) => field.group === state.selectedGroup);
   els.fieldGrid.replaceChildren(...fields.map(fieldCard));
+}
+
+function visibleFields() {
+  return state.schema.fields.filter((field) => {
+    if (!state.advancedVisible && field.advanced) {
+      return false;
+    }
+    if (state.advancedVisible || field.advanced) {
+      return true;
+    }
+    return simplePresetAllows(field);
+  });
+}
+
+function simplePresetAllows(field) {
+  const groupConfig = {
+    "Simple LLM": ["llm", "LLM_API_TYPE"],
+    "Simple Embedding": ["embedding", "EMBEDDING_API_TYPE"],
+    "Simple RAG": ["rag", "RAG_API_TYPE"],
+  }[field.group];
+  if (!groupConfig) {
+    return true;
+  }
+  const [category, typeKey] = groupConfig;
+  const apiType = String(effectiveValue(typeKey) || "").trim();
+  const keys = state.schema.simple_presets?.[category]?.[apiType];
+  return !keys || keys.includes(field.key);
+}
+
+function effectiveValue(key) {
+  if (key in state.draft) {
+    return state.draft[key];
+  }
+  const field = fieldByKey(key);
+  return valueSnapshot(key).value || field?.default || "";
+}
+
+function renderFieldCount() {
+  els.fieldCount.textContent = String(visibleFields().length);
 }
 
 function fieldCard(field) {
@@ -143,6 +205,7 @@ function fieldCard(field) {
       </div>
       <div class="field-pills">
         ${field.secret ? '<span class="status-pill">secret</span>' : ""}
+        ${field.advanced ? '<span class="status-pill">expert</span>' : ""}
         ${field.hot_reload ? '<span class="status-pill">hot</span>' : ""}
         ${field.restart_required ? '<span class="status-pill">restart</span>' : ""}
       </div>
@@ -164,6 +227,7 @@ function fieldCard(field) {
 }
 
 function controlForField(field, snapshot) {
+  const currentValue = effectiveValue(field.key);
   if (field.secret) {
     const input = document.createElement("input");
     input.type = "password";
@@ -187,7 +251,7 @@ function controlForField(field, snapshot) {
         const option = document.createElement("option");
         option.value = value;
         option.textContent = value;
-        option.selected = value === String(snapshot.value || field.default || "");
+        option.selected = value === String(currentValue);
         return option;
       }),
     );
@@ -197,7 +261,7 @@ function controlForField(field, snapshot) {
   if (field.type === "json") {
     const textarea = document.createElement("textarea");
     textarea.rows = 7;
-    textarea.value = String(snapshot.value || "");
+    textarea.value = String(currentValue);
     textarea.spellcheck = false;
     textarea.addEventListener("input", () => setDraft(field.key, textarea.value));
     return textarea;
@@ -210,7 +274,7 @@ function controlForField(field, snapshot) {
   if (field.max !== undefined) {
     input.max = String(field.max);
   }
-  input.value = String(snapshot.value || "");
+  input.value = String(currentValue);
   input.addEventListener("input", () => setDraft(field.key, input.value));
   return input;
 }
@@ -225,6 +289,10 @@ function setDraft(key, value) {
     state.draft[key] = value;
   }
   renderDraftOnly();
+  if (key.endsWith("_API_TYPE")) {
+    renderFields();
+    renderFieldCount();
+  }
 }
 
 function renderDraftOnly() {

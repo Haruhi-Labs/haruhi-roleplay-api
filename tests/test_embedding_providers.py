@@ -57,6 +57,7 @@ def ingest_input() -> RagIngestInput:
         title="Embedding RAG 资料",
         content="社团 活动 计划：春日会主动安排调查和招募。",
         metadata=RagDocumentMetadata(
+            appId=AppId("web"),
             characterId=CharacterId("haruhi"),
             personaMode=PersonaModeId("mid_late_haruhi"),
             timeline="mid_late",

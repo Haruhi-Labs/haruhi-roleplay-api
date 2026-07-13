@@ -35,10 +35,12 @@ class SQLiteAccessTokenStore:
     def create_token(
         self,
         *,
+        app_id: str,
         name: str,
         quota_tokens: int | None,
         expires_at: str | None = None,
     ) -> IssuedAccessToken:
+        clean_app_id = _required_text(app_id, "app_id")
         clean_name = _required_text(name, "name")
         clean_quota = _optional_positive_int(quota_tokens, "quota_tokens")
         clean_expires_at = _optional_future_timestamp(expires_at)
@@ -50,6 +52,7 @@ class SQLiteAccessTokenStore:
                 """
                 INSERT INTO access_tokens (
                     token_id,
+                    app_id,
                     name,
                     token_prefix,
                     secret_hash,
@@ -61,10 +64,11 @@ class SQLiteAccessTokenStore:
                     created_at,
                     expires_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
                 """,
                 (
                     token_id,
+                    clean_app_id,
                     clean_name,
                     secret[:12],
                     _secret_hash(secret),
@@ -246,7 +250,7 @@ class SQLiteAccessTokenStore:
                 SELECT *
                 FROM access_token_request_logs
                 WHERE token_id = ?
-                ORDER BY created_at DESC, log_id DESC
+                ORDER BY created_at DESC, rowid DESC
                 LIMIT ?
                 """,
                 (token_id, clean_limit),
@@ -258,6 +262,18 @@ class SQLiteAccessTokenStore:
             Path(self._path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.executescript(_SCHEMA_SQL)
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(access_tokens)")
+            }
+            if "app_id" not in columns:
+                connection.execute(
+                    """
+                    ALTER TABLE access_tokens
+                    ADD COLUMN app_id TEXT
+                    CHECK (app_id IS NULL OR length(trim(app_id)) > 0)
+                    """
+                )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -281,6 +297,7 @@ class SQLiteAccessTokenStore:
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS access_tokens (
     token_id TEXT PRIMARY KEY,
+    app_id TEXT CHECK (app_id IS NULL OR length(trim(app_id)) > 0),
     name TEXT NOT NULL,
     token_prefix TEXT NOT NULL,
     secret_hash TEXT NOT NULL UNIQUE,
@@ -322,6 +339,7 @@ ON access_token_request_logs (token_id, created_at DESC);
 def _token_from_row(row: sqlite3.Row) -> AccessToken:
     return AccessToken(
         tokenId=str(row["token_id"]),
+        appId=(str(row["app_id"]) if row["app_id"] is not None else None),
         name=str(row["name"]),
         prefix=str(row["token_prefix"]),
         status=AccessTokenStatus(str(row["status"])),

@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import hmac
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
+from ipaddress import ip_address
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Mapping
@@ -13,7 +15,6 @@ from urllib.parse import parse_qs, unquote, urlparse
 from uuid import uuid4
 
 from haruhi_roleplay_api.adapters import (
-    InMemoryMemoryStore,
     LocalPersonaRepository,
     SQLiteAccessTokenStore,
 )
@@ -25,7 +26,7 @@ from haruhi_roleplay_api.api.access_tokens import (
     patch_access_token,
     post_access_token,
 )
-from haruhi_roleplay_api.api.chat import post_chat, post_chat_stream
+from haruhi_roleplay_api.api.chat import iter_chat_stream_events, post_chat
 from haruhi_roleplay_api.api.memory import delete_memory, get_memory
 from haruhi_roleplay_api.api.personas import get_personas
 from haruhi_roleplay_api.api.rag import post_rag_document, post_rag_search
@@ -38,7 +39,8 @@ from haruhi_roleplay_api.application.errors import (
     ErrorCode,
     app_error_from_exception,
 )
-from haruhi_roleplay_api.domain import DTOValidationError
+from haruhi_roleplay_api.domain import AccessToken, DTOValidationError
+from haruhi_roleplay_api.domain.request_limits import MAX_HTTP_BODY_BYTES
 from haruhi_roleplay_api.infrastructure.agent_planner_factory import (
     build_agent_context_planner_from_env,
 )
@@ -50,6 +52,9 @@ from haruhi_roleplay_api.infrastructure.models import (
     ModelProviderSettings,
     build_model_router,
 )
+from haruhi_roleplay_api.infrastructure.memory_store_factory import (
+    build_memory_store_from_env,
+)
 from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     build_rag_service_from_env,
 )
@@ -58,10 +63,25 @@ from haruhi_roleplay_api.infrastructure.session_store_factory import (
     SessionStoreSettings,
     build_session_store,
 )
-from haruhi_roleplay_api.ports import AccessTokenStore, AgentContextPlanner, SessionStore
+from haruhi_roleplay_api.ports import (
+    AccessTokenStore,
+    AgentContextPlanner,
+    MemoryStore,
+    SessionStore,
+)
 
 
 _LOGGER = logging.getLogger(__name__)
+
+_APP_SCOPED_BODY_ROUTES = frozenset(
+    {
+        ("POST", ("v1", "sessions")),
+        ("POST", ("v1", "chat")),
+        ("POST", ("v1", "chat", "stream")),
+        ("POST", ("v1", "rag", "documents")),
+        ("POST", ("v1", "rag", "search")),
+    }
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -72,11 +92,19 @@ class HttpRuntimeResponse:
 
 
 @dataclass(frozen=True, kw_only=True)
+class HttpRuntimeStreamResponse:
+    status: int
+    headers: Mapping[str, str]
+    events: Iterable[Mapping[str, Any]]
+
+
+@dataclass(frozen=True, kw_only=True)
 class HttpRuntimeSettings:
     host: str = "127.0.0.1"
     port: int = 8000
     api_key: str | None = None
     debug_trace_enabled: bool = True
+    cors_allowed_origins: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "HttpRuntimeSettings":
@@ -87,7 +115,21 @@ class HttpRuntimeSettings:
             debug_trace_enabled=_bool_from_env(
                 env.get("ENABLE_DEBUG_TRACE", "true")
             ),
+            cors_allowed_origins=_cors_origins_from_env(
+                env.get("ROLEPLAY_CORS_ORIGINS", "")
+            ),
         )
+
+    def validate_for_bind(self) -> None:
+        if _is_loopback_host(self.host):
+            return
+        api_key = (self.api_key or "").strip()
+        weak_prefixes = ("change-me", "replace-with", "changeme")
+        if len(api_key) < 32 or api_key.casefold().startswith(weak_prefixes):
+            raise ValueError(
+                "Non-loopback ROLEPLAY_HOST requires a non-placeholder "
+                "ROLEPLAY_API_KEY with at least 32 characters."
+            )
 
 
 class RoleplayHttpRuntime:
@@ -99,7 +141,7 @@ class RoleplayHttpRuntime:
         model_router: object,
         session_store: SessionStore,
         session_recent_limit: int,
-        memory_store: InMemoryMemoryStore,
+        memory_store: MemoryStore,
         rag_service: object,
         backend_context_provider: object | None,
         agent_context_planner: AgentContextPlanner,
@@ -108,6 +150,7 @@ class RoleplayHttpRuntime:
         access_token_store: AccessTokenStore,
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
+        cors_allowed_origins: tuple[str, ...] = (),
     ) -> None:
         self._persona_repository = persona_repository
         self._prompt_builder = prompt_builder
@@ -123,6 +166,7 @@ class RoleplayHttpRuntime:
         self._access_token_store = access_token_store
         self._api_key = api_key
         self._debug_trace_enabled = debug_trace_enabled
+        self._cors_allowed_origins = cors_allowed_origins
 
     @classmethod
     def local(
@@ -135,6 +179,7 @@ class RoleplayHttpRuntime:
         config_store = runtime_config_store or RuntimeConfigStore.in_memory(env)
         runtime_env = config_store.env()
         settings = HttpRuntimeSettings.from_env(runtime_env)
+        settings.validate_for_bind()
         session_settings = SessionStoreSettings.from_mapping(runtime_env)
         return cls(
             persona_repository=LocalPersonaRepository(project_root / "personas"),
@@ -144,7 +189,7 @@ class RoleplayHttpRuntime:
             ),
             session_store=build_session_store(session_settings),
             session_recent_limit=session_settings.recentMessageLimit,
-            memory_store=InMemoryMemoryStore(),
+            memory_store=build_memory_store_from_env(runtime_env),
             rag_service=build_rag_service_from_env(runtime_env),
             backend_context_provider=build_backend_context_provider_from_env(
                 runtime_env
@@ -160,6 +205,7 @@ class RoleplayHttpRuntime:
             ),
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
+            cors_allowed_origins=settings.cors_allowed_origins,
         )
 
     @classmethod
@@ -185,44 +231,80 @@ class RoleplayHttpRuntime:
         target: str,
         headers: Mapping[str, str],
         body: bytes = b"",
-    ) -> HttpRuntimeResponse:
+    ) -> HttpRuntimeResponse | HttpRuntimeStreamResponse:
         normalized_headers = _normalized_headers(headers)
         request_id = _request_id(normalized_headers)
         normalized_headers["x-request-id"] = request_id
-        access_token = self._access_token_from_headers(normalized_headers)
+        request_origin = normalized_headers.get("origin")
+        allowed_origin = _allowed_request_origin(
+            request_origin,
+            host=normalized_headers.get("host"),
+            allowed_origins=self._cors_allowed_origins,
+        )
+        if request_origin is not None and allowed_origin is None:
+            return _with_cors_headers(
+                _json_response(
+                    error_response(
+                        AppError(code=ErrorCode.AUTH_PERMISSION_DENIED),
+                        request_id,
+                    )
+                ),
+                allowed_origin=None,
+            )
+        if len(body) > MAX_HTTP_BODY_BYTES:
+            return _with_cors_headers(
+                request_body_too_large_response(request_id),
+                allowed_origin=allowed_origin,
+            )
+        admin_authenticated = bool(
+            self._api_key
+            and _has_matching_secret(normalized_headers, self._api_key)
+        )
+        access_token = (
+            None
+            if admin_authenticated
+            else self._access_token_from_headers(normalized_headers)
+        )
         started_at = perf_counter()
         parsed_path = urlparse(target).path
         try:
-            if access_token is not None and _consumes_model_tokens(method, parsed_path):
-                self._access_token_store.ensure_quota_available(access_token.tokenId)
             response = self._handle_request(
                 method=method,
                 target=target,
                 headers=normalized_headers,
                 body=body,
+                access_token=access_token,
             )
         except AppError as exc:
             response = _json_response(error_response(exc, request_id))
-        if access_token is not None:
-            try:
-                prompt_tokens, completion_tokens = _response_token_usage(response)
-                self._access_token_store.record_request(
+        if access_token is None:
+            return _with_cors_headers(response, allowed_origin=allowed_origin)
+        if isinstance(response, HttpRuntimeStreamResponse):
+            response = HttpRuntimeStreamResponse(
+                status=response.status,
+                headers=response.headers,
+                events=self._audited_stream_events(
+                    response.events,
                     token_id=access_token.tokenId,
                     request_id=request_id,
                     method=method,
                     path=parsed_path,
                     status_code=response.status,
-                    duration_ms=max(int((perf_counter() - started_at) * 1000), 0),
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    error_code=_response_error_code(response),
-                )
-            except Exception:
-                _LOGGER.exception(
-                    "access token request log failed token_id=%s",
-                    access_token.tokenId,
-                )
-        return response
+                    started_at=started_at,
+                ),
+            )
+        else:
+            self._record_access_token_request(
+                token_id=access_token.tokenId,
+                request_id=request_id,
+                method=method,
+                path=parsed_path,
+                status_code=response.status,
+                started_at=started_at,
+                usage=_response_token_usage(response),
+                error_code=_response_error_code(response),
+            )
+        return _with_cors_headers(response, allowed_origin=allowed_origin)
 
     def _handle_request(
         self,
@@ -231,7 +313,8 @@ class RoleplayHttpRuntime:
         target: str,
         headers: Mapping[str, str],
         body: bytes = b"",
-    ) -> HttpRuntimeResponse:
+        access_token: AccessToken | None = None,
+    ) -> HttpRuntimeResponse | HttpRuntimeStreamResponse:
         headers = _normalized_headers(headers)
         request_id = _request_id(headers)
         parsed = urlparse(target)
@@ -253,6 +336,16 @@ class RoleplayHttpRuntime:
         json_body = _json_body(body, request_id)
         if isinstance(json_body, HttpRuntimeResponse):
             return json_body
+        if access_token is not None:
+            _enforce_access_token_app_scope(
+                access_token,
+                method=method,
+                path_parts=path_parts,
+                body=json_body,
+                query=query,
+            )
+            if _consumes_model_tokens(method, parsed.path):
+                self._access_token_store.ensure_quota_available(access_token.tokenId)
 
         if method == "GET" and path_parts == ["health"]:
             return _json_response(
@@ -362,25 +455,39 @@ class RoleplayHttpRuntime:
         self,
         body: Mapping[str, Any],
         request_id: str,
-    ) -> HttpRuntimeResponse:
-        response = post_chat_stream(
-            body,
-            persona_repository=self._persona_repository,
-            prompt_builder=self._prompt_builder,
-            model_router=self._model_router,
-            session_store=self._session_store,
-            memory_store=self._memory_store,
-            rag_service=self._rag_service,
-            backend_context_provider=self._backend_context_provider,
-            agent_context_planner=self._agent_context_planner,
-            recent_message_limit=self._session_recent_limit,
-            request_id=request_id,
-            debug_trace_enabled=self._debug_trace_enabled,
-        )
-        if not response.get("ok", False):
-            return _json_response(response)
-        events = response.get("data", {}).get("events", [])
-        return HttpRuntimeResponse(
+    ) -> HttpRuntimeResponse | HttpRuntimeStreamResponse:
+        try:
+            event_iterator = iter(
+                iter_chat_stream_events(
+                    body,
+                    persona_repository=self._persona_repository,
+                    prompt_builder=self._prompt_builder,
+                    model_router=self._model_router,
+                    session_store=self._session_store,
+                    memory_store=self._memory_store,
+                    rag_service=self._rag_service,
+                    backend_context_provider=self._backend_context_provider,
+                    agent_context_planner=self._agent_context_planner,
+                    recent_message_limit=self._session_recent_limit,
+                    request_id=request_id,
+                    debug_trace_enabled=self._debug_trace_enabled,
+                )
+            )
+            first_event = next(event_iterator)
+        except StopIteration:
+            return _json_response(
+                error_response(
+                    AppError(
+                        code=ErrorCode.MODEL_PROVIDER_ERROR,
+                        message="Chat stream ended without events.",
+                    ),
+                    request_id,
+                )
+            )
+        except Exception as exc:
+            return _json_response(error_response(exc, request_id))
+
+        return HttpRuntimeStreamResponse(
             status=200,
             headers={
                 **_base_headers(),
@@ -388,8 +495,85 @@ class RoleplayHttpRuntime:
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
             },
-            body=_sse_body(events),
+            events=_stream_event_mappings(first_event, event_iterator),
         )
+
+    def _audited_stream_events(
+        self,
+        events: Iterable[Mapping[str, Any]],
+        *,
+        token_id: str,
+        request_id: str,
+        method: str,
+        path: str,
+        status_code: int,
+        started_at: float,
+    ) -> Iterable[Mapping[str, Any]]:
+        usage = (0, 0)
+        error_code: str | None = None
+        try:
+            for event in events:
+                if event.get("event") == "usage":
+                    data = event.get("data")
+                    if isinstance(data, Mapping):
+                        usage = _usage_pair(data)
+                elif event.get("event") == "error":
+                    data = event.get("data")
+                    if isinstance(data, Mapping):
+                        nested_error = data.get("error")
+                        if (
+                            isinstance(nested_error, Mapping)
+                            and nested_error.get("code") is not None
+                        ):
+                            error_code = str(nested_error["code"])
+                        elif data.get("code") is not None:
+                            error_code = str(data["code"])
+                yield event
+        except Exception as exc:
+            error_code = app_error_from_exception(exc).code.value
+            raise
+        finally:
+            self._record_access_token_request(
+                token_id=token_id,
+                request_id=request_id,
+                method=method,
+                path=path,
+                status_code=status_code,
+                started_at=started_at,
+                usage=usage,
+                error_code=error_code,
+            )
+
+    def _record_access_token_request(
+        self,
+        *,
+        token_id: str,
+        request_id: str,
+        method: str,
+        path: str,
+        status_code: int,
+        started_at: float,
+        usage: tuple[int, int],
+        error_code: str | None,
+    ) -> None:
+        try:
+            prompt_tokens, completion_tokens = usage
+            self._access_token_store.record_request(
+                token_id=token_id,
+                request_id=request_id,
+                method=method,
+                path=path,
+                status_code=status_code,
+                duration_ms=max(int((perf_counter() - started_at) * 1000), 0),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                error_code=error_code,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "access token request log failed token_id=%s",
+                token_id,
+            )
 
     def _env_config(
         self,
@@ -559,6 +743,7 @@ class RoleplayHttpRuntime:
             agent_context_planner = build_agent_context_planner_from_env(env)
             session_settings = SessionStoreSettings.from_mapping(env)
             settings = HttpRuntimeSettings.from_env(env)
+            settings.validate_for_bind()
         except Exception as exc:
             app_error = app_error_from_exception(exc)
             return {
@@ -745,6 +930,31 @@ def _consumes_model_tokens(method: str, path: str) -> bool:
     return method.upper() == "POST" and path in {"/v1/chat", "/v1/chat/stream"}
 
 
+def _enforce_access_token_app_scope(
+    access_token: AccessToken,
+    *,
+    method: str,
+    path_parts: list[str],
+    body: Mapping[str, Any],
+    query: Mapping[str, Any],
+) -> None:
+    route = (method.upper(), tuple(path_parts))
+    if route in _APP_SCOPED_BODY_ROUTES:
+        request_app_id = body.get("app_id")
+    elif path_parts[:2] == ["v1", "memory"] and (
+        (method.upper() == "GET" and len(path_parts) == 3)
+        or (method.upper() == "DELETE" and len(path_parts) == 4)
+    ):
+        request_app_id = query.get("app_id")
+    else:
+        return
+
+    if not isinstance(request_app_id, str) or not request_app_id.strip():
+        return
+    if access_token.appId is None or access_token.appId != request_app_id.strip():
+        raise AppError(code=ErrorCode.AUTH_PERMISSION_DENIED)
+
+
 def _response_token_usage(response: HttpRuntimeResponse) -> tuple[int, int]:
     content_type = response.headers.get("Content-Type", "")
     if "application/json" in content_type:
@@ -759,28 +969,17 @@ def _response_token_usage(response: HttpRuntimeResponse) -> tuple[int, int]:
                 if isinstance(usage, Mapping):
                     return _usage_pair(usage)
         return (0, 0)
-    if "text/event-stream" in content_type:
-        for line in response.body.decode("utf-8", errors="replace").splitlines():
-            if not line.startswith("data: "):
-                continue
-            try:
-                data = json.loads(line.removeprefix("data: "))
-            except json.JSONDecodeError:
-                continue
-            if isinstance(data, Mapping) and (
-                "prompt_tokens" in data or "completion_tokens" in data
-            ):
-                return _usage_pair(data)
     return (0, 0)
 
 
 def _usage_pair(usage: Mapping[str, Any]) -> tuple[int, int]:
-    try:
-        prompt_tokens = max(int(usage.get("prompt_tokens", 0)), 0)
-        completion_tokens = max(int(usage.get("completion_tokens", 0)), 0)
-    except (TypeError, ValueError):
-        return (0, 0)
-    return (prompt_tokens, completion_tokens)
+    values: list[int] = []
+    for key in ("prompt_tokens", "completion_tokens"):
+        try:
+            values.append(max(int(usage.get(key, 0)), 0))
+        except (TypeError, ValueError):
+            values.append(0)
+    return (values[0], values[1])
 
 
 def _path_parts(path: str) -> list[str]:
@@ -825,6 +1024,23 @@ def _json_response(
         status=status or _status_from_response(response),
         headers={**_base_headers(), "Content-Type": "application/json; charset=utf-8"},
         body=json.dumps(response, ensure_ascii=False).encode("utf-8"),
+    )
+
+
+def request_body_too_large_response(
+    request_id: str | None = None,
+) -> HttpRuntimeResponse:
+    resolved_request_id = _request_id({"x-request-id": request_id or ""})
+    return _json_response(
+        error_response(
+            AppError(
+                code=ErrorCode.REQUEST_BODY_TOO_LARGE,
+                message=(
+                    f"request body must not exceed {MAX_HTTP_BODY_BYTES} bytes"
+                ),
+            ),
+            resolved_request_id,
+        )
     )
 
 
@@ -884,10 +1100,59 @@ def _content_type(path: Path) -> str:
 
 def _base_headers() -> dict[str, str]:
     return {
-        "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Authorization, Content-Type, X-API-Key, X-Request-Id",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+        "Vary": "Origin",
     }
+
+
+def _with_cors_headers(
+    response: HttpRuntimeResponse | HttpRuntimeStreamResponse,
+    *,
+    allowed_origin: str | None,
+) -> HttpRuntimeResponse | HttpRuntimeStreamResponse:
+    headers = dict(response.headers)
+    headers["Vary"] = "Origin"
+    if allowed_origin is not None:
+        headers["Access-Control-Allow-Origin"] = allowed_origin
+    if isinstance(response, HttpRuntimeStreamResponse):
+        return HttpRuntimeStreamResponse(
+            status=response.status,
+            headers=headers,
+            events=response.events,
+        )
+    return HttpRuntimeResponse(
+        status=response.status,
+        headers=headers,
+        body=response.body,
+    )
+
+
+def _allowed_request_origin(
+    origin: str | None,
+    *,
+    host: str | None,
+    allowed_origins: tuple[str, ...],
+) -> str | None:
+    if origin is None:
+        return None
+    normalized_origin = origin.strip().rstrip("/")
+    parsed = urlparse(normalized_origin)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    if host is not None and parsed.netloc.casefold() == host.strip().casefold():
+        return normalized_origin
+    if normalized_origin.casefold() in {
+        allowed.casefold() for allowed in allowed_origins
+    }:
+        return normalized_origin
+    return None
 
 
 def _status_from_response(response: Mapping[str, Any]) -> int:
@@ -900,15 +1165,30 @@ def _status_from_response(response: Mapping[str, Any]) -> int:
         return 500
 
 
-def _sse_body(events: list[Mapping[str, Any]]) -> bytes:
+def sse_event_bytes(event: Mapping[str, Any]) -> bytes:
     lines: list[str] = []
-    for event in events:
-        event_name = str(event.get("event", "message"))
-        data = event.get("data", {})
-        lines.append(f"event: {event_name}")
-        lines.append(f"data: {json.dumps(data, ensure_ascii=False)}")
-        lines.append("")
+    event_name = str(event.get("event", "message"))
+    data = event.get("data", {})
+    lines.append(f"event: {event_name}")
+    lines.append(f"data: {json.dumps(data, ensure_ascii=False)}")
+    lines.append("")
     return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def _stream_event_mappings(first_event: object, rest: Iterable[object]):
+    yield _chat_stream_event_to_mapping(first_event)
+    for event in rest:
+        yield _chat_stream_event_to_mapping(event)
+
+
+def _chat_stream_event_to_mapping(event: object) -> Mapping[str, Any]:
+    if hasattr(event, "to_mapping"):
+        data = event.to_mapping()
+        if isinstance(data, Mapping):
+            return data
+    if isinstance(event, Mapping):
+        return event
+    raise TypeError("stream event must be a mapping")
 
 
 def _int_from_env(
@@ -925,3 +1205,37 @@ def _int_from_env(
 
 def _bool_from_env(value: str) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _cors_origins_from_env(value: str) -> tuple[str, ...]:
+    origins: list[str] = []
+    for raw_origin in value.split(","):
+        origin = raw_origin.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin == "*":
+            raise ValueError("ROLEPLAY_CORS_ORIGINS must not contain '*'")
+        parsed = urlparse(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "ROLEPLAY_CORS_ORIGINS must contain HTTP(S) origins"
+            )
+        if origin not in origins:
+            origins.append(origin)
+    return tuple(origins)
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = host.strip().strip("[]").casefold()
+    if normalized in {"localhost", "localhost."}:
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False

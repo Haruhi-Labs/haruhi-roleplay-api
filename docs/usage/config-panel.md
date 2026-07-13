@@ -36,14 +36,20 @@ http://127.0.0.1:8000/config
 推荐页面分为三块：
 
 1. 顶部环境栏：显示 API base URL、config source、是否支持写回、是否有未保存草稿、最后一次 check 结果。
-2. 左侧分组导航：HTTP、Model、RAG、Embedding、Agent、Backend Context、Session、Secrets、Diff / Check。
+2. 左侧分组导航：默认展示 HTTP、Storage、Simple LLM、Simple RAG、Simple Embedding；Advanced 入口默认折叠专家字段。
 3. 右侧配置表单：按 schema 展示控件，支持创建字段、修改字段、清空字段和保存前 preview。
+
+Simple 不是一套会覆盖用户配置的 profile。它只是按当前 API type 隐藏无关输入：fake 不要求 base URL 和 token，Ollama 不要求 token，OpenAI、DeepSeek、Gemini 显示各自需要的 base URL、model 和 token，Qdrant 显示 RAG endpoint、index 和 token。展开 Advanced 后，原有 registry、兼容字段和底层 provider 参数仍可编辑。
 
 ## 字段分组
 
 | 分组            | 字段                                                                                                              | 说明                                             |
 | --------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| HTTP            | `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`ROLEPLAY_API_KEY`                                                              | 服务监听和管理鉴权                               |
+| HTTP            | `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`ROLEPLAY_API_KEY`、`ROLEPLAY_CORS_ORIGINS`                                     | 服务监听、管理鉴权和浏览器 Origin 白名单         |
+| Storage         | `ACCESS_TOKEN_SQLITE_PATH`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH`     | 默认 SQLite 路径和本地持久化                     |
+| Simple LLM      | `LLM_API_TYPE`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`                                                        | 单模型最小接入面                                 |
+| Simple RAG      | `RAG_API_TYPE`、`RAG_BASE_URL`、`RAG_INDEX`、`RAG_API_KEY`                                                        | local、vector store 或云端 RAG 最小接入面        |
+| Simple Embedding | `EMBEDDING_API_TYPE`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`、`EMBEDDING_API_KEY`、`EMBEDDING_DIMENSIONS`        | embedding 最小接入面                             |
 | Model           | `MODEL_PROVIDER`、`MODEL_NAME`、`MODEL_ALIAS`、`MODEL_TIMEOUT_MS`                                                 | fake/local/cloud model 调试                      |
 | Model Registry  | `MODEL_PROVIDER_REGISTRY`                                                                                         | 高级 JSON 编辑，默认折叠，必须做 JSON 校验       |
 | RAG             | `RAG_PROVIDER`、`RAG_CHUNK_SIZE`、`RAG_VECTOR_BACKEND`、`CHROMA_COLLECTION`、`QDRANT_COLLECTION`                  | RAG provider 和 collection 配置                  |
@@ -51,6 +57,7 @@ http://127.0.0.1:8000/config
 | Agent           | `AGENT_CONTEXT_PLANNER`                                                                                           | `deterministic` 可用；`model` 只显示预留状态     |
 | Backend Context | `BACKEND_CONTEXT_PROVIDER`、`BACKEND_CONTEXT_SOURCES`                                                             | 只用于受控调试                                   |
 | Session         | `SESSION_PROVIDER`、`SESSION_RECENT_LIMIT`、`SESSION_SQLITE_PATH`、`SESSION_POSTGRES_SCHEMA`、`DATABASE_URL` 状态 | session store 和 recent limit                    |
+| Memory          | `MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH`、`MEMORY_SQLITE_BUSY_TIMEOUT_MS`                                         | 长期 memory store                                |
 | Secrets         | `*_API_KEY`、`DATABASE_URL`、`REDIS_URL`                                                                          | 只显示 set/empty/missing，允许 set/replace/clear |
 | Diff / Check    | 草稿 diff 和校验结果                                                                                              | 保存前确认                                       |
 
@@ -101,6 +108,10 @@ http://127.0.0.1:8000/config
 ## 当前实现状态
 
 - 已实现 `/config` 零构建页面。
+- 已实现 Simple/Advanced 视图；默认页面只显示 HTTP、Storage、LLM、RAG 和 Embedding 的最小字段。
+- 已实现 fake、Ollama、OpenAI、DeepSeek、Gemini 和 Qdrant 字段矩阵，API type 变化时自动隐藏无关输入。
+- 已保留 registry 和旧 provider 字段，展开 Advanced 后可继续编辑。
+- Simple 配置默认使用 `.data/sessions.sqlite3` 和 `.data/memories.sqlite3`；显式 storage 配置优先。
 - 已实现 schema、redacted snapshot、单字段 check、整份草稿 check 和 PATCH 写回。
 - 已实现 secret write-only：保存后只显示 `set`、`empty` 或 `missing`。
 - 已实现 `.env` 注释和未知 key 保留；未知 key 只展示 key 和状态，不允许通过 UI 修改。

@@ -6,6 +6,7 @@ import json
 import socket
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from typing import Any, Mapping
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
@@ -86,7 +87,7 @@ class OpenAICompatibleModelProvider:
             error_label=self._error_label,
         )
 
-    def stream(self, request: ModelRequest) -> tuple[ModelStreamEvent, ...]:
+    def stream(self, request: ModelRequest) -> Iterable[ModelStreamEvent]:
         payload = {**_request_payload(request), "stream": True}
         http_request = urllib.request.Request(
             self._endpoint,
@@ -99,13 +100,11 @@ class OpenAICompatibleModelProvider:
                 http_request,
                 timeout=self._timeout_seconds,
             ) as response:
-                return tuple(
-                    _stream_response_events(
-                        response,
-                        request,
-                        provider_name=self.provider_name,
-                        error_label=self._error_label,
-                    )
+                yield from _stream_response_events(
+                    response,
+                    request,
+                    provider_name=self.provider_name,
+                    error_label=self._error_label,
                 )
         except (TimeoutError, socket.timeout) as exc:
             raise AppError(
@@ -179,10 +178,9 @@ def _stream_response_events(
     *,
     provider_name: str,
     error_label: str,
-) -> tuple[ModelStreamEvent, ...]:
+) -> Iterable[ModelStreamEvent]:
     deltas: list[str] = []
-    usage: ModelUsage | None = None
-    events: list[ModelStreamEvent] = []
+    usage_data: Mapping[str, Any] | None = None
 
     for line in _iter_sse_lines(response):
         if line == "[DONE]":
@@ -191,9 +189,9 @@ def _stream_response_events(
         delta = _delta_from_stream_mapping(data)
         if delta:
             deltas.append(delta)
-            events.append(ModelStreamEvent(event="delta", delta=delta))
+            yield ModelStreamEvent(event="delta", delta=delta)
         if isinstance(data.get("usage"), Mapping):
-            usage = _usage_from_mapping(data["usage"], fallback_completion="")
+            usage_data = data["usage"]
 
     reply = "".join(deltas)
     if not reply.strip():
@@ -202,26 +200,26 @@ def _stream_response_events(
             message=f"{error_label} response was invalid.",
         )
 
-    final_usage = usage or ModelUsage(
-        promptTokens=sum(_fake_token_count(message.content) for message in request.messages),
-        completionTokens=_fake_token_count(reply),
+    final_usage = _usage_from_mapping(
+        usage_data,
+        fallback_prompt=sum(
+            _fake_token_count(message.content) for message in request.messages
+        ),
+        fallback_completion=reply,
     )
-    events.append(
-        ModelStreamEvent(
-            event="done",
-            response=ModelResponse(
-                reply=reply,
-                provider=provider_name,
-                model=request.model,
-                usage=final_usage,
-                debug={
-                    "modelProvider": provider_name,
-                    "model": request.model,
-                },
-            ),
-        )
+    yield ModelStreamEvent(
+        event="done",
+        response=ModelResponse(
+            reply=reply,
+            provider=provider_name,
+            model=request.model,
+            usage=final_usage,
+            debug={
+                "modelProvider": provider_name,
+                "model": request.model,
+            },
+        ),
     )
-    return tuple(events)
 
 
 def _iter_sse_lines(response: Any):
@@ -265,7 +263,13 @@ def _response_from_mapping(
         ) from exc
 
     usage_data = data.get("usage", {})
-    usage = _usage_from_mapping(usage_data, fallback_completion=reply)
+    usage = _usage_from_mapping(
+        usage_data,
+        fallback_prompt=sum(
+            _fake_token_count(message.content) for message in request.messages
+        ),
+        fallback_completion=reply,
+    )
     return ModelResponse(
         reply=reply,
         provider=provider_name,
@@ -281,14 +285,25 @@ def _response_from_mapping(
 def _usage_from_mapping(
     data: Any,
     *,
+    fallback_prompt: int,
     fallback_completion: str,
 ) -> ModelUsage:
     usage_data = data if isinstance(data, Mapping) else {}
+    values: dict[str, int] = {}
+    for key, fallback in (
+        ("prompt_tokens", fallback_prompt),
+        ("completion_tokens", _fake_token_count(fallback_completion)),
+    ):
+        if key not in usage_data:
+            values[key] = fallback
+            continue
+        try:
+            values[key] = max(int(usage_data[key]), 0)
+        except (TypeError, ValueError):
+            values[key] = 0
     return ModelUsage(
-        promptTokens=int(usage_data.get("prompt_tokens", 0)),
-        completionTokens=int(
-            usage_data.get("completion_tokens", _fake_token_count(fallback_completion))
-        ),
+        promptTokens=values["prompt_tokens"],
+        completionTokens=values["completion_tokens"],
     )
 
 
