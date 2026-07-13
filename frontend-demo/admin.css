@@ -722,6 +722,12 @@ button:disabled {
   line-height: 1.7;
 }
 
+.lead-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 9px;
+}
+
 .metric-rack {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -981,6 +987,7 @@ button:disabled {
 
 .search-control,
 .select-control,
+.filter-control,
 .dialog-form label,
 .inline-form label {
   display: grid;
@@ -1000,6 +1007,8 @@ button:disabled {
 
 .search-control input,
 .select-control select,
+.filter-control input,
+.filter-control select,
 .dialog-form input,
 .dialog-form select,
 .dialog-form textarea,
@@ -1020,14 +1029,42 @@ button:disabled {
   padding-top: 10px;
 }
 
+.dialog-form textarea.document-content {
+  min-height: 250px;
+  font-family: var(--body-font);
+  line-height: 1.65;
+}
+
 .search-control input:focus,
 .select-control select:focus,
+.filter-control input:focus,
+.filter-control select:focus,
 .dialog-form input:focus,
 .dialog-form select:focus,
 .dialog-form textarea:focus,
 .inline-form input:focus {
   border-color: var(--cyan);
   box-shadow: 0 0 0 3px rgba(45, 127, 150, 0.1);
+}
+
+.resource-toolbar {
+  align-items: flex-end;
+}
+
+.resource-toolbar .secondary-action,
+.resource-toolbar .ghost-action,
+.memory-toolbar .secondary-action,
+.memory-toolbar .ghost-action {
+  flex: 0 0 auto;
+}
+
+.memory-toolbar {
+  flex-wrap: wrap;
+}
+
+.filter-control {
+  min-width: 150px;
+  flex: 1 1 160px;
 }
 
 .table-count {
@@ -1118,6 +1155,31 @@ button:disabled {
   min-height: 30px;
   padding: 0 10px;
   font-size: 11px;
+}
+
+.compact-action {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 10px;
+}
+
+.type-chip {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border: 1px solid #c7e1e7;
+  border-radius: 4px;
+  background: var(--cyan-soft);
+  color: var(--cyan);
+  padding: 0 7px;
+  font-family: var(--utility-font);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.resource-table td:first-child {
+  max-width: 360px;
+  min-width: 240px;
 }
 
 .quota-progress {
@@ -1875,6 +1937,93 @@ button:disabled {
   padding-top: 4px;
 }
 
+.boundary-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 15px;
+  border-left: 3px solid var(--cyan);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 13px 15px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.boundary-note strong {
+  color: var(--ink);
+}
+
+.pagination-bar {
+  display: flex;
+  min-height: 60px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  padding: 10px 18px;
+  color: var(--muted);
+  font-family: var(--utility-font);
+  font-size: 10px;
+}
+
+.pagination-bar > div {
+  display: flex;
+  gap: 8px;
+}
+
+.pagination-bar .ghost-action {
+  min-height: 32px;
+  padding: 0 11px;
+}
+
+.search-results {
+  display: grid;
+  gap: 10px;
+  padding: 18px 24px 24px;
+}
+
+.search-hit {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper-muted);
+  padding: 14px;
+}
+
+.search-hit header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+}
+
+.search-hit header strong,
+.search-hit header small {
+  display: block;
+}
+
+.search-hit header small {
+  margin-top: 4px;
+  color: var(--faint);
+  font-family: var(--utility-font);
+  font-size: 9px;
+}
+
+.result-index {
+  color: var(--cyan);
+  font-family: var(--utility-font);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.search-hit p {
+  margin: 11px 0 0 31px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
 .empty-state,
 .loading-state,
 .error-state {
@@ -2085,6 +2234,14 @@ button:disabled {
     flex-direction: column;
   }
 
+  .lead-actions {
+    width: 100%;
+  }
+
+  .lead-actions > * {
+    flex: 1;
+  }
+
   .metric-rack {
     grid-template-columns: 1fr;
   }
@@ -2105,7 +2262,8 @@ button:disabled {
   }
 
   .search-control,
-  .select-control {
+  .select-control,
+  .filter-control {
     width: 100%;
   }
 
@@ -2148,6 +2306,15 @@ button:disabled {
   .persona-card footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .pagination-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .boundary-note {
+    grid-template-columns: 1fr;
   }
 }
 

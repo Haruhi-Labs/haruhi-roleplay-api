@@ -6,6 +6,15 @@ const state = {
   tokens: null,
   personas: null,
   usageDays: 30,
+  ragAppId: "",
+  memoryFilters: {
+    appId: "",
+    userId: "",
+    characterId: "",
+    memoryType: "",
+    limit: 50,
+    offset: 0,
+  },
 };
 
 const routes = {
@@ -223,6 +232,10 @@ async function renderRoute({ force = false } = {}) {
       await renderPersonas();
     } else if (state.route === "models") {
       await renderModels();
+    } else if (state.route === "rag") {
+      await renderRag();
+    } else if (state.route === "memory") {
+      await renderMemory();
     } else if (state.route === "settings") {
       await renderSettingsSummary();
     } else {
@@ -1197,6 +1210,469 @@ function providerLabel(value) {
     deepseek: "DeepSeek",
     gemini: "Gemini",
   }[value] || value;
+}
+
+async function renderRag() {
+  const query = state.ragAppId
+    ? `?app_id=${encodeURIComponent(state.ragAppId)}`
+    : "";
+  const [data, personaData] = await Promise.all([
+    request(`/v1/admin/rag/documents${query}`),
+    request("/v1/admin/personas"),
+  ]);
+  state.personas = personaData.characters || [];
+  const documents = data.items || [];
+  const chunkCount = documents.reduce(
+    (sum, item) => sum + Number(item.chunk_count || 0),
+    0,
+  );
+  const appCount = new Set(documents.map((item) => item.app_id).filter(Boolean)).size;
+  const characterCount = new Set(documents.map((item) => item.character_id)).size;
+  els.routeView.innerHTML = `
+    <div class="page-lead">
+      <div><h2>知识文档与检索</h2><p>这里直接管理当前 RAG Provider 中的真实文档。所有检索与删除都保留 App 隔离边界。</p></div>
+      <div class="lead-actions"><button id="testRagButton" class="secondary-action" type="button">检索测试</button><button id="importRagButton" class="primary-action" type="button">导入文档</button></div>
+    </div>
+    <section class="metric-rack compact-metrics">
+      ${metricCell("知识文档", formatNumber(data.count), state.ragAppId ? `应用 ${state.ragAppId}` : "全部应用")}
+      ${metricCell("索引分块", formatNumber(chunkCount), "当前列表中的实际 chunks")}
+      ${metricCell("应用 / 角色", `${formatNumber(appCount)} / ${formatNumber(characterCount)}`, "知识隔离范围")}
+      ${metricCell("RAG Provider", data.provider || "unknown", "当前运行时检索后端")}
+    </section>
+    <section class="surface data-surface">
+      <form id="ragFilterForm" class="table-toolbar resource-toolbar">
+        <label class="search-control"><span>按应用筛选</span><input name="app_id" value="${escapeHtml(state.ragAppId)}" placeholder="留空查看全部应用" /></label>
+        <button class="secondary-action" type="submit">应用筛选</button>
+        ${state.ragAppId ? '<button id="clearRagFilter" class="ghost-action" type="button">清除</button>' : ""}
+        <span class="table-count">${formatNumber(documents.length)} 个文档</span>
+      </form>
+      <div class="table-wrap">
+        ${documents.length ? ragDocumentTable(documents) : tableEmpty("当前范围没有知识文档", "导入一份经过角色知识边界校验的资料，或调整 App 筛选。")}
+      </div>
+    </section>
+    <div class="boundary-note"><strong>隔离边界</strong><span>文档以 App ID 和 Document ID 联合定位；删除只作用于当前应用，不会跨租户匹配同名文档。</span></div>
+  `;
+  document.querySelector("#ragFilterForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.ragAppId = String(new FormData(event.currentTarget).get("app_id") || "").trim();
+    renderRoute();
+  });
+  document.querySelector("#clearRagFilter")?.addEventListener("click", () => {
+    state.ragAppId = "";
+    renderRoute();
+  });
+  document.querySelector("#importRagButton").addEventListener("click", showRagImportDialog);
+  document.querySelector("#testRagButton").addEventListener("click", showRagSearchDialog);
+  els.routeView.querySelectorAll("[data-delete-rag]").forEach((button) => {
+    button.addEventListener("click", () => deleteRagDocument(button));
+  });
+  markSynced();
+}
+
+function ragDocumentTable(documents) {
+  return `
+    <table class="data-table resource-table">
+      <thead><tr><th>文档</th><th>作用域</th><th>知识边界</th><th>分块</th><th>Provider</th><th></th></tr></thead>
+      <tbody>${documents.map((item) => `
+        <tr>
+          <td><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.content_preview || "无内容预览")}</small></td>
+          <td><strong>${escapeHtml(item.app_id || "Legacy unscoped")}</strong><small>${escapeHtml(item.document_id)}</small></td>
+          <td><span class="type-chip">${escapeHtml(item.source_type)}</span><small>${escapeHtml(item.character_id)} · ${escapeHtml(item.persona_mode || "角色通用")} · ${escapeHtml(item.timeline)}</small></td>
+          <td class="numeric">${formatNumber(item.chunk_count)}</td>
+          <td>${escapeHtml(item.provider || "—")}<small>${escapeHtml(item.language)} · 剧透 ${formatNumber(item.spoiler_level)}</small></td>
+          <td class="row-action"><button class="danger-action compact-action" type="button" data-delete-rag data-app-id="${escapeHtml(item.app_id || "")}" data-document-id="${escapeHtml(item.document_id)}" data-title="${escapeHtml(item.title)}"${item.app_id ? "" : " disabled"}>删除</button></td>
+        </tr>
+      `).join("")}</tbody>
+    </table>
+  `;
+}
+
+async function deleteRagDocument(button) {
+  const appId = button.dataset.appId;
+  const documentId = button.dataset.documentId;
+  const confirmed = await confirmAction({
+    title: "删除知识文档",
+    message: `将从应用 ${appId} 的实际检索后端删除“${button.dataset.title}”及其全部分块。此操作无法撤销。`,
+    confirmLabel: "删除全部分块",
+  });
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    const data = await request(
+      `/v1/admin/rag/documents/${encodeURIComponent(documentId)}?app_id=${encodeURIComponent(appId)}`,
+      { method: "DELETE" },
+    );
+    showToast(`已删除 ${formatNumber(data.removed_chunks)} 个知识分块。`);
+    await renderRag();
+  } catch (error) {
+    showToast(error.message, true);
+    button.disabled = false;
+  }
+}
+
+function showRagImportDialog() {
+  const firstCharacter = state.personas?.[0];
+  const firstPreset = firstCharacter?.presets?.[0];
+  const dialog = openDialog(`
+    <div class="dialog-head"><div><p class="eyebrow">Knowledge ingest</p><h2>导入 RAG 文档</h2><p>元数据会经过角色和 Persona 知识边界校验。</p></div><button class="dialog-close" type="button" data-close aria-label="关闭">×</button></div>
+    <form id="ragImportForm" class="dialog-form">
+      <label><span>App ID</span><input name="app_id" required value="${escapeHtml(state.ragAppId)}" placeholder="例如 roleplay-web" /></label>
+      <label><span>Document ID <small>可留空自动生成</small></span><input name="document_id" placeholder="例如 haruhi-club-guide" /></label>
+      <label class="full-span"><span>文档标题</span><input name="title" required /></label>
+      <label><span>角色</span><select name="character_id" required>${ragCharacterOptions(state.personas || [])}</select></label>
+      <label><span>Persona 模式</span><select name="persona_mode">${ragPresetOptions(firstCharacter)}</select></label>
+      <label><span>时间线</span><input name="timeline" required value="${escapeHtml(firstPreset?.timeline || "")}" /></label>
+      <label><span>来源类型</span><input name="source_type" required value="${escapeHtml(firstPreset?.ragPolicy?.sourceTypes?.[0] || "character_profile")}" /></label>
+      <label><span>剧透等级</span><input name="spoiler_level" type="number" min="0" required value="${escapeHtml(firstPreset?.knowledgeBoundary?.spoilerLevel ?? 0)}" /></label>
+      <label><span>语言</span><select name="language"><option value="zh-CN">zh-CN</option><option value="ja-JP">ja-JP</option><option value="en-US">en-US</option></select></label>
+      <label><span>信任等级 <small>可选</small></span><input name="trust_level" placeholder="例如 curated" /></label>
+      <label class="full-span"><span>扩展 Metadata <small>JSON 对象，可选</small></span><textarea name="metadata" spellcheck="false" placeholder='{"source":"internal-wiki"}'></textarea></label>
+      <label class="full-span"><span>文档正文</span><textarea class="document-content" name="content" required placeholder="粘贴经过授权和审核的知识文本"></textarea></label>
+      <div class="dialog-notice"><i></i><p>文档会写入当前 RAG Provider。请避免导入密钥、个人敏感数据或未经授权的长篇版权文本。</p></div>
+      <div class="dialog-actions"><button class="ghost-action" type="button" data-close>取消</button><button class="primary-action" type="submit">校验并导入</button></div>
+    </form>
+  `);
+  dialog.classList.add("is-wide");
+  const form = dialog.querySelector("#ragImportForm");
+  bindRagPersonaFields(form);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = form.querySelector("[type=submit]");
+    submit.disabled = true;
+    try {
+      const values = new FormData(form);
+      const documentId = String(values.get("document_id") || "").trim();
+      const trustLevel = String(values.get("trust_level") || "").trim();
+      const metadataText = String(values.get("metadata") || "").trim();
+      const payload = {
+        app_id: String(values.get("app_id") || "").trim(),
+        title: String(values.get("title") || "").trim(),
+        character_id: String(values.get("character_id") || "").trim(),
+        persona_mode: String(values.get("persona_mode") || "").trim() || null,
+        timeline: String(values.get("timeline") || "").trim(),
+        source_type: String(values.get("source_type") || "").trim(),
+        spoiler_level: Number(values.get("spoiler_level")),
+        language: String(values.get("language") || "zh-CN"),
+        trust_level: trustLevel || null,
+        metadata: metadataText ? parseJsonField(metadataText, "扩展 Metadata") : {},
+        content: String(values.get("content") || "").trim(),
+      };
+      if (documentId) payload.document_id = documentId;
+      const result = await request("/v1/admin/rag/documents", { method: "POST", body: payload });
+      state.ragAppId = payload.app_id;
+      dialog.close();
+      showToast(`文档已导入，共 ${formatNumber(result.chunk_count)} 个分块。`);
+      await renderRag();
+    } catch (error) {
+      showDialogError(form, error.message);
+      submit.disabled = false;
+    }
+  });
+}
+
+function ragCharacterOptions(items) {
+  return items.map((item) => `<option value="${escapeHtml(item.character.characterId)}">${escapeHtml(item.character.displayName)}</option>`).join("");
+}
+
+function ragPresetOptions(item) {
+  return (item?.presets || []).map((preset) => `<option value="${escapeHtml(preset.personaMode)}">${escapeHtml(preset.displayName)} · ${escapeHtml(preset.timeline)}</option>`).join("");
+}
+
+function bindRagPersonaFields(form) {
+  const characterSelect = form.querySelector("[name=character_id]");
+  const presetSelect = form.querySelector("[name=persona_mode]");
+  const applyPreset = () => {
+    const character = (state.personas || []).find(
+      (item) => item.character.characterId === characterSelect.value,
+    );
+    const preset = (character?.presets || []).find(
+      (item) => item.personaMode === presetSelect.value,
+    );
+    if (!preset) return;
+    const timelineField = form.querySelector("[name=timeline], [name=timelines]");
+    const sourceField = form.querySelector("[name=source_type], [name=source_types]");
+    const spoilerField = form.querySelector(
+      "[name=spoiler_level], [name=spoiler_level_max]",
+    );
+    if (timelineField) timelineField.value = preset.timeline || "";
+    if (sourceField) {
+      const sourceTypes = preset.ragPolicy?.sourceTypes || [];
+      sourceField.value = sourceField.name === "source_type"
+        ? sourceTypes[0] || "character_profile"
+        : sourceTypes.join(", ");
+    }
+    if (spoilerField) {
+      spoilerField.value = preset.knowledgeBoundary?.spoilerLevel ?? 0;
+    }
+  };
+  characterSelect.addEventListener("change", () => {
+    const character = (state.personas || []).find(
+      (item) => item.character.characterId === characterSelect.value,
+    );
+    presetSelect.innerHTML = ragPresetOptions(character);
+    applyPreset();
+  });
+  presetSelect.addEventListener("change", applyPreset);
+}
+
+function showRagSearchDialog() {
+  const firstCharacter = state.personas?.[0];
+  const firstPreset = firstCharacter?.presets?.[0];
+  const dialog = openDialog(`
+    <div class="dialog-head"><div><p class="eyebrow">Retrieval probe</p><h2>检索测试</h2><p>使用与业务请求相同的 App 隔离和 metadata filter。</p></div><button class="dialog-close" type="button" data-close aria-label="关闭">×</button></div>
+    <form id="ragSearchForm" class="dialog-form">
+      <label><span>App ID</span><input name="app_id" required value="${escapeHtml(state.ragAppId)}" /></label>
+      <label><span>测试用户 ID</span><input name="user_id" required value="admin-retrieval-probe" /></label>
+      <label><span>角色</span><select name="character_id" required>${ragCharacterOptions(state.personas || [])}</select></label>
+      <label><span>Persona 模式</span><select name="persona_mode" required>${ragPresetOptions(firstCharacter)}</select></label>
+      <label class="full-span"><span>检索问题</span><input name="query" required placeholder="输入希望从知识库召回的问题" /></label>
+      <label><span>返回数量</span><input name="top_k" type="number" min="1" max="20" value="5" required /></label>
+      <label><span>最大剧透等级 <small>可选</small></span><input name="spoiler_level_max" type="number" min="0" value="${escapeHtml(firstPreset?.knowledgeBoundary?.spoilerLevel ?? "")}" /></label>
+      <label><span>来源类型 <small>逗号分隔，可选</small></span><input name="source_types" value="${escapeHtml(firstPreset?.ragPolicy?.sourceTypes?.join(", ") || "")}" /></label>
+      <label><span>时间线 <small>逗号分隔，可选</small></span><input name="timelines" value="${escapeHtml(firstPreset?.timeline || "")}" /></label>
+      <label><span>语言</span><select name="language"><option value="zh-CN">zh-CN</option><option value="ja-JP">ja-JP</option><option value="en-US">en-US</option></select></label>
+      <div class="dialog-actions"><button class="ghost-action" type="button" data-close>取消</button><button class="primary-action" type="submit">执行检索</button></div>
+    </form>
+  `);
+  const form = dialog.querySelector("#ragSearchForm");
+  bindRagPersonaFields(form);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = form.querySelector("[type=submit]");
+    submit.disabled = true;
+    try {
+      const values = new FormData(form);
+      const spoilerValue = String(values.get("spoiler_level_max") || "").trim();
+      const payload = {
+        app_id: String(values.get("app_id") || "").trim(),
+        user_id: String(values.get("user_id") || "").trim(),
+        character_id: String(values.get("character_id") || "").trim(),
+        persona_mode: String(values.get("persona_mode") || "").trim(),
+        query: String(values.get("query") || "").trim(),
+        top_k: Number(values.get("top_k")),
+        filters: {
+          source_types: splitList(values.get("source_types"), ","),
+          timelines: splitList(values.get("timelines"), ","),
+          language: String(values.get("language") || "zh-CN"),
+        },
+      };
+      if (spoilerValue) payload.filters.spoiler_level_max = Number(spoilerValue);
+      const result = await request("/v1/admin/rag/search", { method: "POST", body: payload });
+      dialog.innerHTML = `
+        <div class="dialog-head"><div><p class="eyebrow">Retrieval result</p><h2>${formatNumber(result.hit_count)} 个命中</h2><p>${escapeHtml(result.provider)} · 原始 ${formatNumber(result.raw_hit_count)} · 过滤后 ${formatNumber(result.filtered_hit_count)}</p></div><button class="dialog-close" type="button" data-close aria-label="关闭">×</button></div>
+        <div class="search-results">${result.chunks?.length ? result.chunks.map(ragSearchHit).join("") : tableEmpty("没有检索命中", "尝试放宽时间线、来源类型或剧透等级过滤。")}</div>
+        <div class="dialog-actions"><button class="primary-action" type="button" data-close>完成</button></div>
+      `;
+      bindDialogClose(dialog);
+    } catch (error) {
+      showDialogError(form, error.message);
+      submit.disabled = false;
+    }
+  });
+}
+
+function ragSearchHit(item, index) {
+  return `
+    <article class="search-hit">
+      <header><span class="result-index">${String(index + 1).padStart(2, "0")}</span><div><strong>${escapeHtml(item.title || item.document_id)}</strong><small>${escapeHtml(item.document_id)} · ${escapeHtml(item.source_type)} · ${escapeHtml(item.timeline)}</small></div><span class="numeric">${Number(item.score || 0).toFixed(3)}</span></header>
+      <p>${escapeHtml(item.content)}</p>
+    </article>
+  `;
+}
+
+async function renderMemory() {
+  const filters = state.memoryFilters;
+  const params = new URLSearchParams({
+    limit: String(filters.limit),
+    offset: String(filters.offset),
+  });
+  if (filters.appId) params.set("app_id", filters.appId);
+  if (filters.userId) params.set("user_id", filters.userId);
+  if (filters.characterId) params.set("character_id", filters.characterId);
+  if (filters.memoryType) params.set("type", filters.memoryType);
+  const data = await request(`/v1/admin/memories?${params}`);
+  const items = data.items || [];
+  const appCount = new Set(items.map((item) => item.app_id)).size;
+  const userCount = new Set(items.map((item) => item.user_id)).size;
+  const averageConfidence = items.length
+    ? items.reduce((sum, item) => sum + Number(item.confidence || 0), 0) / items.length
+    : 0;
+  els.routeView.innerHTML = `
+    <div class="page-lead">
+      <div><h2>长期记忆审查</h2><p>记忆是经过策略确认的稳定上下文，不等同于聊天记录。管理员可以审查来源、置信度和作用域。</p></div>
+      <button id="createMemoryButton" class="primary-action" type="button">人工写入记忆</button>
+    </div>
+    <section class="metric-rack compact-metrics">
+      ${metricCell("匹配记忆", formatNumber(data.total), "当前全部筛选结果")}
+      ${metricCell("本页应用 / 用户", `${formatNumber(appCount)} / ${formatNumber(userCount)}`, "当前页隔离主体")}
+      ${metricCell("平均置信度", formatPercent(averageConfidence), "当前页记忆")}
+      ${metricCell("Memory Provider", data.provider || "unknown", "当前运行时存储")}
+    </section>
+    <section class="surface data-surface">
+      <form id="memoryFilterForm" class="table-toolbar memory-toolbar">
+        <label class="filter-control"><span>App ID</span><input name="app_id" value="${escapeHtml(filters.appId)}" placeholder="全部应用" /></label>
+        <label class="filter-control"><span>用户 ID</span><input name="user_id" value="${escapeHtml(filters.userId)}" placeholder="全部用户" /></label>
+        <label class="filter-control"><span>角色 ID</span><input name="character_id" value="${escapeHtml(filters.characterId)}" placeholder="全部角色" /></label>
+        <label class="filter-control"><span>记忆类型</span><select name="type">${memoryTypeOptions(filters.memoryType, true)}</select></label>
+        <button class="secondary-action" type="submit">筛选</button>
+        <button id="clearMemoryFilter" class="ghost-action" type="button">重置</button>
+      </form>
+      <div class="table-wrap">
+        ${items.length ? memoryTable(items) : tableEmpty("没有符合条件的长期记忆", "调整筛选条件，或人工写入一条经过确认的稳定记忆。")}
+      </div>
+      ${memoryPagination(data)}
+    </section>
+    <div class="boundary-note"><strong>隐私原则</strong><span>长期记忆可能包含用户偏好和关系信息。只在必要时查看，并避免将临时对话或敏感身份信息人工固化。</span></div>
+  `;
+  document.querySelector("#memoryFilterForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    state.memoryFilters = {
+      ...state.memoryFilters,
+      appId: String(values.get("app_id") || "").trim(),
+      userId: String(values.get("user_id") || "").trim(),
+      characterId: String(values.get("character_id") || "").trim(),
+      memoryType: String(values.get("type") || ""),
+      offset: 0,
+    };
+    renderRoute();
+  });
+  document.querySelector("#clearMemoryFilter").addEventListener("click", () => {
+    state.memoryFilters = { ...state.memoryFilters, appId: "", userId: "", characterId: "", memoryType: "", offset: 0 };
+    renderRoute();
+  });
+  document.querySelector("#createMemoryButton").addEventListener("click", showMemoryCreateDialog);
+  els.routeView.querySelectorAll("[data-delete-memory]").forEach((button) => {
+    button.addEventListener("click", () => deleteMemoryItem(button));
+  });
+  document.querySelector("[data-memory-page=previous]")?.addEventListener("click", () => {
+    state.memoryFilters.offset = Math.max(0, filters.offset - filters.limit);
+    renderRoute();
+  });
+  document.querySelector("[data-memory-page=next]")?.addEventListener("click", () => {
+    state.memoryFilters.offset = filters.offset + filters.limit;
+    renderRoute();
+  });
+  markSynced();
+}
+
+function memoryTable(items) {
+  return `
+    <table class="data-table resource-table">
+      <thead><tr><th>记忆内容</th><th>作用域</th><th>类型</th><th>置信度</th><th>更新时间</th><th></th></tr></thead>
+      <tbody>${items.map((item) => `
+        <tr>
+          <td><strong>${escapeHtml(item.content)}</strong><small>${escapeHtml(item.reason || "未记录写入原因")}</small></td>
+          <td><strong>${escapeHtml(item.app_id)} / ${escapeHtml(item.user_id)}</strong><small>${escapeHtml(item.character_id)} · ${escapeHtml(item.persona_mode || "角色通用")}</small></td>
+          <td><span class="type-chip">${escapeHtml(memoryTypeLabel(item.type))}</span></td>
+          <td><strong>${formatPercent(item.confidence)}</strong><small>${escapeHtml(item.memory_id)}</small></td>
+          <td>${formatDate(item.updated_at)}</td>
+          <td class="row-action"><button class="danger-action compact-action" type="button" data-delete-memory data-memory-id="${escapeHtml(item.memory_id)}" data-scope="${escapeHtml(`${item.app_id} / ${item.user_id} / ${item.character_id}`)}" data-content="${escapeHtml(String(item.content).slice(0, 120))}">删除</button></td>
+        </tr>
+      `).join("")}</tbody>
+    </table>
+  `;
+}
+
+function memoryPagination(data) {
+  if (!data.total) return "";
+  const start = data.offset + 1;
+  const end = Math.min(data.offset + data.count, data.total);
+  return `
+    <div class="pagination-bar"><span>第 ${formatNumber(start)}–${formatNumber(end)} 条，共 ${formatNumber(data.total)} 条</span><div><button class="ghost-action" type="button" data-memory-page="previous"${data.offset <= 0 ? " disabled" : ""}>上一页</button><button class="ghost-action" type="button" data-memory-page="next"${data.offset + data.count >= data.total ? " disabled" : ""}>下一页</button></div></div>
+  `;
+}
+
+function showMemoryCreateDialog() {
+  const filters = state.memoryFilters;
+  const dialog = openDialog(`
+    <div class="dialog-head"><div><p class="eyebrow">Manual memory</p><h2>人工写入长期记忆</h2><p>仅写入已确认、稳定且低敏感的事实或偏好。</p></div><button class="dialog-close" type="button" data-close aria-label="关闭">×</button></div>
+    <form id="memoryCreateForm" class="dialog-form">
+      <label><span>App ID</span><input name="app_id" required value="${escapeHtml(filters.appId)}" /></label>
+      <label><span>用户 ID</span><input name="user_id" required value="${escapeHtml(filters.userId)}" /></label>
+      <label><span>角色 ID</span><input name="character_id" required value="${escapeHtml(filters.characterId)}" /></label>
+      <label><span>Persona 模式</span><input name="persona_mode" required /></label>
+      <label><span>记忆类型</span><select name="type">${memoryTypeOptions(filters.memoryType)}</select></label>
+      <label><span>置信度</span><input name="confidence" type="number" min="0" max="1" step="0.05" value="0.9" required /></label>
+      <label class="full-span"><span>记忆内容</span><textarea name="content" required placeholder="例如：用户偏好先列出计划，再开始角色扮演。"></textarea></label>
+      <label class="full-span"><span>写入原因</span><input name="reason" required placeholder="说明信息来源及为何适合作为长期记忆" /></label>
+      <div class="dialog-notice"><i></i><p>人工写入会绕过聊天中的自动策略判定，因此必须由管理员完成内容和作用域复核。</p></div>
+      <div class="dialog-actions"><button class="ghost-action" type="button" data-close>取消</button><button class="primary-action" type="submit">确认写入</button></div>
+    </form>
+  `);
+  const form = dialog.querySelector("#memoryCreateForm");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = form.querySelector("[type=submit]");
+    submit.disabled = true;
+    try {
+      const values = new FormData(form);
+      const payload = {
+        app_id: String(values.get("app_id") || "").trim(),
+        user_id: String(values.get("user_id") || "").trim(),
+        character_id: String(values.get("character_id") || "").trim(),
+        persona_mode: String(values.get("persona_mode") || "").trim(),
+        type: String(values.get("type") || ""),
+        confidence: Number(values.get("confidence")),
+        content: String(values.get("content") || "").trim(),
+        reason: String(values.get("reason") || "").trim(),
+      };
+      await request("/v1/admin/memories", { method: "POST", body: payload });
+      state.memoryFilters = { ...state.memoryFilters, appId: payload.app_id, userId: payload.user_id, offset: 0 };
+      dialog.close();
+      showToast("长期记忆已写入。");
+      await renderMemory();
+    } catch (error) {
+      showDialogError(form, error.message);
+      submit.disabled = false;
+    }
+  });
+}
+
+async function deleteMemoryItem(button) {
+  const confirmed = await confirmAction({
+    title: "删除长期记忆",
+    message: `将删除作用域 ${button.dataset.scope} 下的记忆“${button.dataset.content}”。后续对话将不再读取它。`,
+    confirmLabel: "永久删除",
+  });
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    await request(`/v1/admin/memories/${encodeURIComponent(button.dataset.memoryId)}`, {
+      method: "DELETE",
+    });
+    showToast("长期记忆已删除。");
+    const remainingOnPage = els.routeView.querySelectorAll("[data-delete-memory]").length;
+    if (remainingOnPage === 1 && state.memoryFilters.offset > 0) {
+      state.memoryFilters.offset = Math.max(0, state.memoryFilters.offset - state.memoryFilters.limit);
+    }
+    await renderMemory();
+  } catch (error) {
+    showToast(error.message, true);
+    button.disabled = false;
+  }
+}
+
+function memoryTypeOptions(selected = "", includeAll = false) {
+  const types = [
+    "user_preference",
+    "relationship",
+    "roleplay_fact",
+    "safety_preference",
+    "interaction_summary",
+  ];
+  const allOption = includeAll ? '<option value="">全部类型</option>' : "";
+  return allOption + types.map((type) => `<option value="${type}"${type === selected ? " selected" : ""}>${escapeHtml(memoryTypeLabel(type))}</option>`).join("");
+}
+
+function memoryTypeLabel(type) {
+  return {
+    user_preference: "用户偏好",
+    relationship: "关系约定",
+    roleplay_fact: "角色扮演事实",
+    safety_preference: "安全偏好",
+    interaction_summary: "互动摘要",
+  }[type] || type;
 }
 
 async function renderSettingsSummary() {
