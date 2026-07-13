@@ -14,6 +14,7 @@ from haruhi_roleplay_api.infrastructure.http_runtime import (  # noqa: E402
 from haruhi_roleplay_api.infrastructure.http_server import (  # noqa: E402
     RoleplayRequestHandler,
     _RequestBodyTooLargeError,
+    _RoleplayThreadingHTTPServer,
     _validate_server_settings,
     _write_response,
 )
@@ -79,6 +80,19 @@ class OversizedBodyHandler:
 
 
 class HttpServerStreamTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Windows bind behavior")
+    def test_windows_bind_rejects_second_server_on_same_port(self) -> None:
+        with _RoleplayThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            RoleplayRequestHandler,
+        ) as first_server:
+            port = first_server.server_address[1]
+            with self.assertRaises(OSError):
+                _RoleplayThreadingHTTPServer(
+                    ("127.0.0.1", port),
+                    RoleplayRequestHandler,
+                )
+
     def test_loopback_bind_does_not_require_admin_key(self) -> None:
         _validate_server_settings(HttpRuntimeSettings(host="127.0.0.1"))
         _validate_server_settings(HttpRuntimeSettings(host="::1"))

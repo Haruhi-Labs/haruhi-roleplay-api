@@ -271,6 +271,25 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         )
         self.assertEqual(body["data"]["usage"]["provider"], "fake")
 
+    def test_post_chat_accepts_minimal_frontend_body(self) -> None:
+        request_body = chat_body()
+        request_body.pop("capabilities")
+        request_body.pop("generation")
+
+        response = runtime().handle(
+            method="POST",
+            target="/v1/chat",
+            headers={"content-type": "application/json"},
+            body=json_body(request_body),
+        )
+        body = json_response(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["data"]["rag"], {"enabled": False})
+        self.assertEqual(body["data"]["memory"], {"enabled": False})
+        self.assertIsNone(body["data"]["debug"])
+
     def test_post_chat_stream_returns_sse_events(self) -> None:
         response = runtime().handle(
             method="POST",

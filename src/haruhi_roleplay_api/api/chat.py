@@ -231,9 +231,9 @@ def _capabilities_to_internal(
     value: Any,
     *,
     force_stream: bool = False,
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     if value is None:
-        return {"stream": True} if force_stream else None
+        return {"stream": force_stream}
     if not isinstance(value, Mapping):
         raise DTOValidationError("capabilities must be an object")
     return {
