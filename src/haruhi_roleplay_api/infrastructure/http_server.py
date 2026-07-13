@@ -85,6 +85,7 @@ def run_server(settings: HttpRuntimeSettings | None = None) -> None:
     config_store = RuntimeConfigStore.env_file(project_root=project_root, env=env)
     runtime_env = config_store.env()
     runtime_settings = settings or HttpRuntimeSettings.from_env(runtime_env)
+    _validate_server_settings(runtime_settings)
     RoleplayRequestHandler.runtime = RoleplayHttpRuntime.local(
         project_root=project_root,
         env=env,
@@ -121,7 +122,13 @@ def _settings_env(settings: HttpRuntimeSettings) -> dict[str, str]:
     env["ENABLE_DEBUG_TRACE"] = "true" if settings.debug_trace_enabled else "false"
     if settings.api_key is not None:
         env["ROLEPLAY_API_KEY"] = settings.api_key
+    if settings.cors_allowed_origins:
+        env["ROLEPLAY_CORS_ORIGINS"] = ",".join(settings.cors_allowed_origins)
     return env
+
+
+def _validate_server_settings(settings: HttpRuntimeSettings) -> None:
+    settings.validate_for_bind()
 
 
 def _write_response(
@@ -144,13 +151,21 @@ def _write_stream_response(
     handler: BaseHTTPRequestHandler,
     response: HttpRuntimeStreamResponse,
 ) -> None:
-    handler.send_response(response.status)
-    for key, value in response.headers.items():
-        handler.send_header(key, value)
-    handler.end_headers()
-    for event in response.events:
-        handler.wfile.write(sse_event_bytes(event))
-        handler.wfile.flush()
+    events = iter(response.events)
+    try:
+        handler.send_response(response.status)
+        for key, value in response.headers.items():
+            handler.send_header(key, value)
+        handler.end_headers()
+        for event in events:
+            handler.wfile.write(sse_event_bytes(event))
+            handler.wfile.flush()
+    except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+        return
+    finally:
+        close = getattr(events, "close", None)
+        if callable(close):
+            close()
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@ Copy-Item .env.example .env
 ROLEPLAY_HOST=127.0.0.1
 ROLEPLAY_PORT=8000
 ROLEPLAY_API_KEY=change-me-local-admin-key
+ROLEPLAY_CORS_ORIGINS=
 
 LLM_API_TYPE=fake
 LLM_MODEL=fake-roleplay-model
@@ -205,6 +206,18 @@ ACCESS_TOKEN_SQLITE_PATH=.data/access-tokens.sqlite3
 ROLEPLAY_API_KEY=replace-with-strong-secret
 ```
 
+`ROLEPLAY_HOST` 为 loopback（`127.0.0.1`、`::1`、`localhost`）时允许无管理密钥开发。绑定 `0.0.0.0`、`::` 或其它非 loopback 地址时，启动要求 `ROLEPLAY_API_KEY` 至少 32 字符且不能使用 `change-me`、`replace-with` 等占位值。
+
+浏览器同源调用无需配置 CORS。前端和 API 不同源时，使用逗号分隔的精确 Origin 白名单，不填写路径且不能使用 `*`：
+
+```env
+ROLEPLAY_CORS_ORIGINS=https://app.example.com,https://admin.example.com
+```
+
+该字段修改后需要重启。未携带 `Origin` 的服务间调用继续由 API Key 或 Access Token 鉴权。
+
+配置面板的字段 check 会拒绝 `*`、带路径的 Origin，以及非 loopback 监听配合短密钥或占位密钥的候选配置，避免保存后才在重启时发现错误。
+
 受信任配置页面：
 
 ```text
@@ -218,6 +231,7 @@ http://127.0.0.1:8000/config
 - `PATCH /v1/runtime-config` 只更新允许热切换的非敏感运行参数。
 - Env Config API 可以保存完整受支持字段，但 `restart_required_keys` 仍需重启服务生效。
 - 监听地址、端口、session/memory provider 和数据库路径属于有状态或启动期配置，不能安全地原地替换。
+- `ROLEPLAY_CORS_ORIGINS` 属于启动期配置，不能热切换。
 - provider 配置保存前应先调用 `POST /v1/env-config/check`；保存成功不代表外部 provider 一定可连接，仍需实际 chat 或 RAG smoke。
 
 ## 高级配置何时使用

@@ -7,6 +7,7 @@ import hmac
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
+from ipaddress import ip_address
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Mapping
@@ -103,6 +104,7 @@ class HttpRuntimeSettings:
     port: int = 8000
     api_key: str | None = None
     debug_trace_enabled: bool = True
+    cors_allowed_origins: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "HttpRuntimeSettings":
@@ -113,7 +115,21 @@ class HttpRuntimeSettings:
             debug_trace_enabled=_bool_from_env(
                 env.get("ENABLE_DEBUG_TRACE", "true")
             ),
+            cors_allowed_origins=_cors_origins_from_env(
+                env.get("ROLEPLAY_CORS_ORIGINS", "")
+            ),
         )
+
+    def validate_for_bind(self) -> None:
+        if _is_loopback_host(self.host):
+            return
+        api_key = (self.api_key or "").strip()
+        weak_prefixes = ("change-me", "replace-with", "changeme")
+        if len(api_key) < 32 or api_key.casefold().startswith(weak_prefixes):
+            raise ValueError(
+                "Non-loopback ROLEPLAY_HOST requires a non-placeholder "
+                "ROLEPLAY_API_KEY with at least 32 characters."
+            )
 
 
 class RoleplayHttpRuntime:
@@ -134,6 +150,7 @@ class RoleplayHttpRuntime:
         access_token_store: AccessTokenStore,
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
+        cors_allowed_origins: tuple[str, ...] = (),
     ) -> None:
         self._persona_repository = persona_repository
         self._prompt_builder = prompt_builder
@@ -149,6 +166,7 @@ class RoleplayHttpRuntime:
         self._access_token_store = access_token_store
         self._api_key = api_key
         self._debug_trace_enabled = debug_trace_enabled
+        self._cors_allowed_origins = cors_allowed_origins
 
     @classmethod
     def local(
@@ -161,6 +179,7 @@ class RoleplayHttpRuntime:
         config_store = runtime_config_store or RuntimeConfigStore.in_memory(env)
         runtime_env = config_store.env()
         settings = HttpRuntimeSettings.from_env(runtime_env)
+        settings.validate_for_bind()
         session_settings = SessionStoreSettings.from_mapping(runtime_env)
         return cls(
             persona_repository=LocalPersonaRepository(project_root / "personas"),
@@ -186,6 +205,7 @@ class RoleplayHttpRuntime:
             ),
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
+            cors_allowed_origins=settings.cors_allowed_origins,
         )
 
     @classmethod
@@ -215,8 +235,27 @@ class RoleplayHttpRuntime:
         normalized_headers = _normalized_headers(headers)
         request_id = _request_id(normalized_headers)
         normalized_headers["x-request-id"] = request_id
+        request_origin = normalized_headers.get("origin")
+        allowed_origin = _allowed_request_origin(
+            request_origin,
+            host=normalized_headers.get("host"),
+            allowed_origins=self._cors_allowed_origins,
+        )
+        if request_origin is not None and allowed_origin is None:
+            return _with_cors_headers(
+                _json_response(
+                    error_response(
+                        AppError(code=ErrorCode.AUTH_PERMISSION_DENIED),
+                        request_id,
+                    )
+                ),
+                allowed_origin=None,
+            )
         if len(body) > MAX_HTTP_BODY_BYTES:
-            return request_body_too_large_response(request_id)
+            return _with_cors_headers(
+                request_body_too_large_response(request_id),
+                allowed_origin=allowed_origin,
+            )
         admin_authenticated = bool(
             self._api_key
             and _has_matching_secret(normalized_headers, self._api_key)
@@ -239,9 +278,9 @@ class RoleplayHttpRuntime:
         except AppError as exc:
             response = _json_response(error_response(exc, request_id))
         if access_token is None:
-            return response
+            return _with_cors_headers(response, allowed_origin=allowed_origin)
         if isinstance(response, HttpRuntimeStreamResponse):
-            return HttpRuntimeStreamResponse(
+            response = HttpRuntimeStreamResponse(
                 status=response.status,
                 headers=response.headers,
                 events=self._audited_stream_events(
@@ -254,17 +293,18 @@ class RoleplayHttpRuntime:
                     started_at=started_at,
                 ),
             )
-        self._record_access_token_request(
-            token_id=access_token.tokenId,
-            request_id=request_id,
-            method=method,
-            path=parsed_path,
-            status_code=response.status,
-            started_at=started_at,
-            usage=_response_token_usage(response),
-            error_code=_response_error_code(response),
-        )
-        return response
+        else:
+            self._record_access_token_request(
+                token_id=access_token.tokenId,
+                request_id=request_id,
+                method=method,
+                path=parsed_path,
+                status_code=response.status,
+                started_at=started_at,
+                usage=_response_token_usage(response),
+                error_code=_response_error_code(response),
+            )
+        return _with_cors_headers(response, allowed_origin=allowed_origin)
 
     def _handle_request(
         self,
@@ -703,6 +743,7 @@ class RoleplayHttpRuntime:
             agent_context_planner = build_agent_context_planner_from_env(env)
             session_settings = SessionStoreSettings.from_mapping(env)
             settings = HttpRuntimeSettings.from_env(env)
+            settings.validate_for_bind()
         except Exception as exc:
             app_error = app_error_from_exception(exc)
             return {
@@ -1059,10 +1100,59 @@ def _content_type(path: Path) -> str:
 
 def _base_headers() -> dict[str, str]:
     return {
-        "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Authorization, Content-Type, X-API-Key, X-Request-Id",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+        "Vary": "Origin",
     }
+
+
+def _with_cors_headers(
+    response: HttpRuntimeResponse | HttpRuntimeStreamResponse,
+    *,
+    allowed_origin: str | None,
+) -> HttpRuntimeResponse | HttpRuntimeStreamResponse:
+    headers = dict(response.headers)
+    headers["Vary"] = "Origin"
+    if allowed_origin is not None:
+        headers["Access-Control-Allow-Origin"] = allowed_origin
+    if isinstance(response, HttpRuntimeStreamResponse):
+        return HttpRuntimeStreamResponse(
+            status=response.status,
+            headers=headers,
+            events=response.events,
+        )
+    return HttpRuntimeResponse(
+        status=response.status,
+        headers=headers,
+        body=response.body,
+    )
+
+
+def _allowed_request_origin(
+    origin: str | None,
+    *,
+    host: str | None,
+    allowed_origins: tuple[str, ...],
+) -> str | None:
+    if origin is None:
+        return None
+    normalized_origin = origin.strip().rstrip("/")
+    parsed = urlparse(normalized_origin)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        return None
+    if host is not None and parsed.netloc.casefold() == host.strip().casefold():
+        return normalized_origin
+    if normalized_origin.casefold() in {
+        allowed.casefold() for allowed in allowed_origins
+    }:
+        return normalized_origin
+    return None
 
 
 def _status_from_response(response: Mapping[str, Any]) -> int:
@@ -1115,3 +1205,37 @@ def _int_from_env(
 
 def _bool_from_env(value: str) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _cors_origins_from_env(value: str) -> tuple[str, ...]:
+    origins: list[str] = []
+    for raw_origin in value.split(","):
+        origin = raw_origin.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin == "*":
+            raise ValueError("ROLEPLAY_CORS_ORIGINS must not contain '*'")
+        parsed = urlparse(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "ROLEPLAY_CORS_ORIGINS must contain HTTP(S) origins"
+            )
+        if origin not in origins:
+            origins.append(origin)
+    return tuple(origins)
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = host.strip().strip("[]").casefold()
+    if normalized in {"localhost", "localhost."}:
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False

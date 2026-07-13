@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -193,6 +194,7 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _simple_field("ROLEPLAY_HOST", "HTTP", "string", "HTTP bind host.", default="127.0.0.1"),
     _simple_field("ROLEPLAY_PORT", "HTTP", "int", "HTTP bind port.", default="8000", min_value=1, max_value=65535),
     _simple_field("ROLEPLAY_API_KEY", "HTTP", "secret", "Trusted admin API key.", secret=True, hot_reload=True),
+    _simple_field("ROLEPLAY_CORS_ORIGINS", "HTTP", "string", "Comma-separated trusted browser origins."),
     _field("ENABLE_DEBUG_TRACE", "HTTP", "bool", "Return safe debug trace summaries.", default="true"),
     _simple_field("ACCESS_TOKEN_SQLITE_PATH", "Storage", "path", "SQLite access token ledger path.", default=".data/access-tokens.sqlite3"),
     _simple_field("LLM_API_TYPE", "Simple LLM", "enum", "LLM API type/provider.", default="fake", enum=("fake", "openai", "openai_compatible", "ollama", "deepseek", "gemini")),
@@ -520,6 +522,8 @@ def _check_field(
         errors.append(f"{key} is required")
     if field.valueType in {"string", "path", "url", "identifier", "csv"}:
         _check_text_field(field, value, errors, warnings)
+    if key == "ROLEPLAY_CORS_ORIGINS":
+        _check_cors_origins(value, errors)
     if field.valueType == "int":
         _check_int_field(field, value, errors)
     if field.valueType == "bool":
@@ -566,6 +570,27 @@ def _check_text_field(
         errors.append(f"{field.key} must be a comma-separated single line")
     if field.valueType == "path" and value.startswith("~"):
         warnings.append(f"{field.key} uses a user-home path; prefer explicit paths")
+
+
+def _check_cors_origins(value: str, errors: list[str]) -> None:
+    for raw_origin in value.split(","):
+        origin = raw_origin.strip().rstrip("/")
+        if not origin:
+            continue
+        if origin == "*":
+            errors.append("ROLEPLAY_CORS_ORIGINS must not contain '*'")
+            continue
+        parsed = urlparse(origin)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            errors.append(
+                "ROLEPLAY_CORS_ORIGINS must contain HTTP(S) origins"
+            )
 
 
 def _check_int_field(
@@ -667,6 +692,7 @@ def _contains_inline_secret(value: Any) -> bool:
 def _check_dependencies(env: Mapping[str, str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
     errors: list[str] = []
     warnings: list[str] = []
+    _check_http_gate_dependencies(env, errors)
     _check_simple_llm_dependencies(env, errors)
     _check_simple_embedding_dependencies(env, errors)
     _check_simple_rag_dependencies(env, errors)
@@ -700,6 +726,29 @@ def _check_dependencies(env: Mapping[str, str]) -> tuple[tuple[str, ...], tuple[
     if rag_dimensions and embedding_dimensions and rag_dimensions != embedding_dimensions:
         warnings.append("RAG_EMBEDDING_DIMENSIONS and EMBEDDING_DIMENSIONS differ; vector collections may need rebuild")
     return tuple(errors), tuple(warnings)
+
+
+def _check_http_gate_dependencies(
+    env: Mapping[str, str],
+    errors: list[str],
+) -> None:
+    host = env.get("HOST", env.get("ROLEPLAY_HOST", "127.0.0.1"))
+    normalized_host = host.strip().strip("[]").casefold()
+    if normalized_host in {"localhost", "localhost."}:
+        return
+    try:
+        if ip_address(normalized_host).is_loopback:
+            return
+    except ValueError:
+        pass
+    api_key = env.get("ROLEPLAY_API_KEY", "").strip()
+    if len(api_key) < 32 or api_key.casefold().startswith(
+        ("change-me", "replace-with", "changeme")
+    ):
+        errors.append(
+            "Non-loopback ROLEPLAY_HOST requires a non-placeholder "
+            "ROLEPLAY_API_KEY with at least 32 characters"
+        )
 
 
 def _check_simple_llm_dependencies(

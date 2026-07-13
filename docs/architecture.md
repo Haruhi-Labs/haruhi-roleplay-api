@@ -16,6 +16,8 @@ RAG 还在存储层执行独立的 app 隔离。文档导入时，顶层 `app_id
 
 HTTP runtime 还提供最小资源边界。标准库 server 在读取请求体前检查 `Content-Length`，超过 1 MiB 直接返回 413；runtime 对直接 adapter 调用执行同一字节检查。Chat/RAG domain DTO 再限制消息、文档、ID、`max_tokens` 和 `top_k`，并严格要求 JSON boolean，确保超限请求在 session、RAG、memory 和模型 provider 调用前失败。当前使用集中代码常量，不引入分布式 rate limit 或额外配置面。
 
+HTTP server 还执行最小生产门禁：loopback 监听保留无密钥开发模式；非 loopback 监听必须提供至少 32 字符且不是示例占位值的 `ROLEPLAY_API_KEY`。CORS 默认不允许跨域，只对同源请求或 `ROLEPLAY_CORS_ORIGINS` 精确白名单回显具体 Origin，永不返回 `*`。SSE 客户端断开时 server 会关闭事件迭代器，使审计清理逻辑正常执行。TLS、公网速率限制、连接上限和真实客户端 IP 由 Caddy、Nginx 或云入口负责。
+
 前端只选择业务参数：
 
 - `character_id`

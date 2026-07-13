@@ -250,7 +250,7 @@ class SQLiteAccessTokenStore:
                 SELECT *
                 FROM access_token_request_logs
                 WHERE token_id = ?
-                ORDER BY created_at DESC, log_id DESC
+                ORDER BY created_at DESC, rowid DESC
                 LIMIT ?
                 """,
                 (token_id, clean_limit),

@@ -334,6 +334,13 @@ memory item 字段：
 
 聊天用量优先采用模型 provider 返回的 `prompt_tokens` 和 `completion_tokens`。OpenAI-compatible provider 未返回某个 usage 字段时，服务使用消息或回复长度进行轻量估算；估算不是 tokenizer 精确结果。provider 返回负数或不可解析字段时，该字段按 `0` 记账。SSE provider 错误从 `data.error.code` 写入请求日志，日志不保存 prompt 或回复正文。
 
+## HTTP 生产门禁
+
+- loopback 监听允许本地无密钥开发；非 loopback 监听要求至少 32 字符且不是示例占位值的 `ROLEPLAY_API_KEY`。
+- 未携带 `Origin` 的服务间调用不受 CORS 影响，继续执行 API Key 或 Access Token 鉴权。
+- 浏览器同源请求自动允许；跨域请求的 Origin 必须精确匹配 `ROLEPLAY_CORS_ORIGINS`，否则返回 `403 AUTH_PERMISSION_DENIED`。
+- CORS 响应只回显当前允许的具体 Origin，不返回 `Access-Control-Allow-Origin: *`。
+
 ## 错误码
 
 | 错误码                 | 说明               |

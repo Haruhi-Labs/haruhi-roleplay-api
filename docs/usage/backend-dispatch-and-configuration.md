@@ -94,6 +94,7 @@ Persona 当前固定从项目 `personas/` JSON catalog 读取。PostgreSQL perso
 | ROLEPLAY_HOST                   | 127.0.0.1               | HTTP 监听地址                                                |
 | ROLEPLAY_PORT                   | 8000                    | HTTP 服务端口                                                |
 | ROLEPLAY_API_KEY                | secret                  | 受信任管理密钥，不得提交或回显                               |
+| ROLEPLAY_CORS_ORIGINS           | https://app.example.com | 逗号分隔的浏览器 Origin 精确白名单；不支持 `*`               |
 | ENABLE_DEBUG_TRACE              | true                    | 是否允许 debug trace                                         |
 | AGENT_CONTEXT_PLANNER           | deterministic           | Agent 上下文计划器；当前支持 `deterministic`，`model` 仅预留 |
 | BACKEND_CONTEXT_PROVIDER        | none                    | backend context provider；当前支持 `none`、`fake`            |
@@ -903,7 +904,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 - RAG provider 和 embedding provider 维度必须匹配。
 - cloud provider 的 secret 只检查是否存在，不打印值。
 
-当前没有 `APP_ENV=production` 启动门禁，也不会自动禁止 fake provider。生产部署必须由部署环境显式选择真实 provider，并关闭 debug trace。
+当前不引入 `APP_ENV` profile，也不会自动禁止 fake provider。HTTP server 会拒绝缺少强管理密钥的非 loopback 监听；生产部署仍必须显式选择真实 provider、关闭 debug trace，并通过反向代理提供 TLS 和公网限流。
 
 ## 推荐本地配置
 
@@ -939,7 +940,8 @@ ENABLE_DEBUG_TRACE=true
 ```env
 ROLEPLAY_HOST=0.0.0.0
 ROLEPLAY_PORT=8000
-ROLEPLAY_API_KEY=replace-with-strong-secret
+ROLEPLAY_API_KEY=<at-least-32-random-characters>
+ROLEPLAY_CORS_ORIGINS=https://app.example.com,https://admin.example.com
 LLM_API_TYPE=openai
 LLM_MODEL=gpt-4.1-mini
 LLM_API_KEY=replace-with-secret
@@ -957,7 +959,7 @@ MEMORY_PROVIDER=sqlite
 ENABLE_DEBUG_TRACE=false
 ```
 
-这是受控部署示例，不是生产安全认证。PostgreSQL session adapter 已实现；Memory 当前支持 in-memory 和 SQLite。规则型 SafetyGuard、请求资源上限和完整 app scope 隔离仍按 12.x 卡片推进。
+这是受控部署示例，不是生产安全认证。PostgreSQL session adapter 已实现；Memory 当前支持 in-memory 和 SQLite。请求资源上限、app scope 隔离和最小 HTTP 生产门禁已经实现；规则型 SafetyGuard 仍不在当前最小生产范围。
 
 ## 前端调用时的关键约束
 

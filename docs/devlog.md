@@ -999,3 +999,22 @@
 ### 下一步
 
 - 实现 12.17 Production HTTP Gate；12.11 至 12.16 扩展能力继续延期。
+
+## 2026-07-14：Production HTTP Gate
+
+### 完成
+
+- 非 loopback 监听要求至少 32 字符且不是示例占位值的管理密钥。
+- CORS 改为同源自动允许、跨域精确白名单，不再返回 `*`。
+- SSE 客户端断开时关闭事件迭代器，避免无意义 traceback 并保留审计清理。
+- Compose 端口默认只映射宿主机 loopback，TLS 和公网限流交由反向代理。
+
+### 验证
+
+- HTTP runtime、server、配置 schema、SSE 和 Access Token 定向测试 80 项通过。
+- 完整测试集 267 项通过。
+- `docker compose config --quiet` 通过。
+
+### 下一步
+
+- 保持当前生产边界稳定；12.11 至 12.16 仅在明确要求扩大项目时恢复。

@@ -45,7 +45,7 @@ Simple 不是一套会覆盖用户配置的 profile。它只是按当前 API typ
 
 | 分组            | 字段                                                                                                              | 说明                                             |
 | --------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| HTTP            | `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`ROLEPLAY_API_KEY`                                                              | 服务监听和管理鉴权                               |
+| HTTP            | `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`ROLEPLAY_API_KEY`、`ROLEPLAY_CORS_ORIGINS`                                     | 服务监听、管理鉴权和浏览器 Origin 白名单         |
 | Storage         | `ACCESS_TOKEN_SQLITE_PATH`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH`     | 默认 SQLite 路径和本地持久化                     |
 | Simple LLM      | `LLM_API_TYPE`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`                                                        | 单模型最小接入面                                 |
 | Simple RAG      | `RAG_API_TYPE`、`RAG_BASE_URL`、`RAG_INDEX`、`RAG_API_KEY`                                                        | local、vector store 或云端 RAG 最小接入面        |

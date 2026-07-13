@@ -149,6 +149,42 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
         self.assertNotIn("secret", logs[0].to_mapping())
         self.assertIsNotNone(self.store.get_token(first.token.tokenId).lastUsedAt)
 
+    def test_request_logs_keep_insertion_order_when_timestamps_match(self) -> None:
+        issued = self.store.create_token(
+            app_id="audit-app",
+            name="审计服务",
+            quota_tokens=100,
+        )
+        for request_id in ("req-first", "req-second"):
+            self.store.record_request(
+                token_id=issued.token.tokenId,
+                request_id=request_id,
+                method="GET",
+                path="/health",
+                status_code=200,
+                duration_ms=1,
+            )
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute(
+                """
+                UPDATE access_token_request_logs
+                SET created_at = '2026-07-14T00:00:00+00:00',
+                    log_id = CASE request_id
+                        WHEN 'req-first' THEN 'log-z'
+                        ELSE 'log-a'
+                    END
+                WHERE token_id = ?
+                """,
+                (issued.token.tokenId,),
+            )
+
+        logs = self.store.list_request_logs(issued.token.tokenId)
+
+        self.assertEqual(
+            [log.requestId for log in logs],
+            ["req-second", "req-first"],
+        )
+
     def test_model_usage_is_accumulated_and_quota_is_enforced(self) -> None:
         issued = self.store.create_token(
             app_id="limited-app",

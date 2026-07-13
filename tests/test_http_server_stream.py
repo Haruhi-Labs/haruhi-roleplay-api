@@ -8,12 +8,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from haruhi_roleplay_api.infrastructure.http_runtime import (  # noqa: E402
+    HttpRuntimeSettings,
     HttpRuntimeStreamResponse,
 )
-from haruhi_roleplay_api.infrastructure.http_server import _write_response  # noqa: E402
 from haruhi_roleplay_api.infrastructure.http_server import (  # noqa: E402
     RoleplayRequestHandler,
     _RequestBodyTooLargeError,
+    _validate_server_settings,
+    _write_response,
 )
 from haruhi_roleplay_api.domain.request_limits import (  # noqa: E402
     MAX_HTTP_BODY_BYTES,
@@ -50,6 +52,21 @@ class CapturingHandler:
         self.headers_ended = True
 
 
+class DisconnectingWFile:
+    def write(self, data: bytes) -> int:
+        del data
+        raise BrokenPipeError("client disconnected")
+
+    def flush(self) -> None:
+        return
+
+
+class DisconnectingHandler(CapturingHandler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.wfile = DisconnectingWFile()
+
+
 class ExplodingRFile:
     def read(self, length: int) -> bytes:
         raise AssertionError("oversized request body must not be read")
@@ -62,6 +79,24 @@ class OversizedBodyHandler:
 
 
 class HttpServerStreamTests(unittest.TestCase):
+    def test_loopback_bind_does_not_require_admin_key(self) -> None:
+        _validate_server_settings(HttpRuntimeSettings(host="127.0.0.1"))
+        _validate_server_settings(HttpRuntimeSettings(host="::1"))
+        _validate_server_settings(HttpRuntimeSettings(host="localhost"))
+
+    def test_non_loopback_bind_requires_strong_admin_key(self) -> None:
+        for api_key in (None, "short", "change-me-to-a-long-placeholder-value"):
+            with self.subTest(api_key=api_key):
+                with self.assertRaisesRegex(ValueError, "Non-loopback"):
+                    _validate_server_settings(
+                        HttpRuntimeSettings(host="0.0.0.0", api_key=api_key)
+                    )
+
+    def test_non_loopback_bind_accepts_strong_admin_key(self) -> None:
+        _validate_server_settings(
+            HttpRuntimeSettings(host="0.0.0.0", api_key="a" * 32)
+        )
+
     def test_oversized_content_length_is_rejected_before_read(self) -> None:
         with self.assertRaises(_RequestBodyTooLargeError):
             RoleplayRequestHandler._read_body(OversizedBodyHandler())
@@ -95,6 +130,27 @@ class HttpServerStreamTests(unittest.TestCase):
         self.assertEqual(handler.wfile.flush_count, 2)
         self.assertIn("event: delta", body)
         self.assertIn("event: done", body)
+
+    def test_stream_disconnect_closes_event_iterator_without_raising(self) -> None:
+        handler = DisconnectingHandler()
+        iterator_closed: list[bool] = []
+
+        def events():
+            try:
+                yield {"event": "delta", "data": {"text": "半句"}}
+                yield {"event": "done", "data": {"reply": "半句"}}
+            finally:
+                iterator_closed.append(True)
+
+        response = HttpRuntimeStreamResponse(
+            status=200,
+            headers={"Content-Type": "text/event-stream; charset=utf-8"},
+            events=events(),
+        )
+
+        _write_response(handler, response)
+
+        self.assertEqual(iterator_closed, [True])
 
 
 if __name__ == "__main__":

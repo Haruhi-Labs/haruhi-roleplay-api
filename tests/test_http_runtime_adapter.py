@@ -123,11 +123,34 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
 
     def test_http_runtime_settings_reads_configured_bind_address(self) -> None:
         settings = HttpRuntimeSettings.from_env(
-            {"ROLEPLAY_HOST": "0.0.0.0", "ROLEPLAY_PORT": "8123"}
+            {
+                "ROLEPLAY_HOST": "0.0.0.0",
+                "ROLEPLAY_PORT": "8123",
+                "ROLEPLAY_CORS_ORIGINS": (
+                    "https://app.example.com,http://127.0.0.1:5173"
+                ),
+            }
         )
 
         self.assertEqual(settings.host, "0.0.0.0")
         self.assertEqual(settings.port, 8123)
+        self.assertEqual(
+            settings.cors_allowed_origins,
+            ("https://app.example.com", "http://127.0.0.1:5173"),
+        )
+
+    def test_http_runtime_settings_rejects_wildcard_cors_origin(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must not contain"):
+            HttpRuntimeSettings.from_env({"ROLEPLAY_CORS_ORIGINS": "*"})
+
+    def test_local_runtime_rejects_weak_key_on_public_bind(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Non-loopback"):
+            runtime(
+                {
+                    "ROLEPLAY_HOST": "0.0.0.0",
+                    "ROLEPLAY_API_KEY": "change-me",
+                }
+            )
 
     def test_http_runtime_settings_reads_port_from_env_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -158,7 +181,78 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["request_id"], "req-http-personas")
         self.assertIn("characters", body["data"])
-        self.assertIn("Access-Control-Allow-Origin", response.headers)
+        self.assertNotIn("Access-Control-Allow-Origin", response.headers)
+        self.assertEqual(response.headers["Vary"], "Origin")
+
+    def test_same_origin_request_receives_exact_cors_origin(self) -> None:
+        response = runtime().handle(
+            method="GET",
+            target="/v1/personas",
+            headers={
+                "Host": "127.0.0.1:8000",
+                "Origin": "http://127.0.0.1:8000",
+            },
+        )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Origin"],
+            "http://127.0.0.1:8000",
+        )
+
+    def test_allowed_cross_origin_is_reflected_without_wildcard(self) -> None:
+        app = runtime(
+            {
+                "ROLEPLAY_API_KEY": "secret",
+                "ROLEPLAY_CORS_ORIGINS": "https://admin.example.com",
+            }
+        )
+        response = app.handle(
+            method="GET",
+            target="/v1/runtime-config",
+            headers={
+                **auth_headers(),
+                "Host": "api.example.com",
+                "Origin": "https://admin.example.com",
+            },
+        )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Origin"],
+            "https://admin.example.com",
+        )
+        self.assertNotEqual(response.headers["Access-Control-Allow-Origin"], "*")
+
+        preflight = app.handle(
+            method="OPTIONS",
+            target="/v1/runtime-config",
+            headers={
+                "Host": "api.example.com",
+                "Origin": "https://admin.example.com",
+            },
+        )
+        self.assertEqual(preflight.status, 204)
+        self.assertEqual(
+            preflight.headers["Access-Control-Allow-Origin"],
+            "https://admin.example.com",
+        )
+
+    def test_disallowed_cross_origin_is_rejected_before_management_api(self) -> None:
+        response = runtime({"ROLEPLAY_API_KEY": "secret"}).handle(
+            method="GET",
+            target="/v1/runtime-config",
+            headers={
+                **auth_headers(),
+                "Host": "api.example.com",
+                "Origin": "https://untrusted.example.com",
+            },
+        )
+        body = json_response(response.body)
+
+        self.assertEqual(response.status, 403)
+        self.assertEqual(body["error"]["code"], "AUTH_PERMISSION_DENIED")
+        self.assertNotIn("Access-Control-Allow-Origin", response.headers)
 
     def test_post_chat_returns_fake_model_reply(self) -> None:
         response = runtime().handle(
@@ -519,9 +613,10 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         self.assertNotIn("OPENAI_API_KEY", values)
 
     def test_runtime_config_snapshot_includes_session_config_boundary(self) -> None:
+        api_key = "a" * 32
         app = runtime(
             {
-                "ROLEPLAY_API_KEY": "secret",
+                "ROLEPLAY_API_KEY": api_key,
                 "ROLEPLAY_HOST": "0.0.0.0",
                 "ROLEPLAY_PORT": "8125",
                 "SESSION_PROVIDER": "memory",
@@ -533,7 +628,7 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         response = app.handle(
             method="GET",
             target="/v1/runtime-config",
-            headers=auth_headers(),
+            headers={"Authorization": f"Bearer {api_key}"},
         )
         body = json_response(response.body)
 

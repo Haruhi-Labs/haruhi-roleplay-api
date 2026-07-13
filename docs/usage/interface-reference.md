@@ -397,7 +397,7 @@ item 字段：
 session 相关配置当前分两类：
 
 - `SESSION_RECENT_LIMIT` 属于 `configurable_keys`，可以热更新并影响后续 chat 读取最近消息的数量。
-- `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS`、`SESSION_POSTGRES_SCHEMA`、`MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH` 等属于 `restart_required_keys`，管理前端可以展示，但不能通过 PATCH 热切换。
+- `ROLEPLAY_HOST`、`ROLEPLAY_PORT`、`ROLEPLAY_CORS_ORIGINS`、`SESSION_PROVIDER`、`SESSION_SQLITE_PATH`、`SESSION_TTL_SECONDS`、`SESSION_POSTGRES_SCHEMA`、`MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH` 等属于 `restart_required_keys`，管理前端可以展示，但不能通过 PATCH 热切换。
 
 `DATABASE_URL` 是敏感连接串，不会出现在 `values`、`configurable_keys` 或 `restart_required_keys` 中，也不能通过 PATCH 写入。需要 PostgreSQL session store 时，应由服务端 `.env` 或部署平台 secret 注入。
 
