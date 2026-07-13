@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Protocol
 
 from haruhi_roleplay_api.domain import (
+    MemoryAdminPage,
+    MemoryAdminQuery,
     MemoryDeleteCommand,
+    MemoryId,
     MemoryItem,
     MemoryQuery,
     MemoryReadPolicyInput,
@@ -23,6 +26,12 @@ class MemoryStore(Protocol):
 
     def add_memory(self, command: MemoryWriteCommand) -> MemoryItem:
         """Persist one policy-approved memory item."""
+
+    def admin_list_memories(self, query: MemoryAdminQuery) -> MemoryAdminPage:
+        """Return a filtered and paginated management view."""
+
+    def admin_delete_memory(self, memory_id: MemoryId | str) -> MemoryItem:
+        """Delete one memory by id under administrator authority."""
 
 
 class MemoryPolicyEngine(Protocol):

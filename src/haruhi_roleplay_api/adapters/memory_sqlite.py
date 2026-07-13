@@ -14,6 +14,8 @@ from haruhi_roleplay_api.domain import (
     AppId,
     CharacterId,
     DTOValidationError,
+    MemoryAdminPage,
+    MemoryAdminQuery,
     MemoryDeleteCommand,
     MemoryId,
     MemoryItem,
@@ -169,6 +171,89 @@ class SQLiteMemoryStore:
             )
         return item
 
+    def admin_list_memories(self, query: MemoryAdminQuery) -> MemoryAdminPage:
+        clauses: list[str] = []
+        params: list[object] = []
+        for column, value in (
+            ("app_id", query.appId),
+            ("user_id", query.userId),
+            ("character_id", query.characterId),
+            ("persona_mode", query.personaMode),
+        ):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                params.append(value)
+        if query.memoryType is not None:
+            clauses.append("type = ?")
+            params.append(query.memoryType.value)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._connect() as connection:
+            total = int(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM memories {where_sql}",
+                    tuple(params),
+                ).fetchone()[0]
+            )
+            rows = connection.execute(
+                f"""
+                SELECT
+                    memory_id,
+                    app_id,
+                    user_id,
+                    character_id,
+                    persona_mode,
+                    type,
+                    content,
+                    confidence,
+                    reason,
+                    created_at,
+                    updated_at
+                FROM memories
+                {where_sql}
+                ORDER BY updated_at DESC, memory_order DESC
+                LIMIT ? OFFSET ?
+                """,
+                (*params, query.limit, query.offset),
+            ).fetchall()
+        return MemoryAdminPage(
+            total=total,
+            items=tuple(_memory_from_row(row) for row in rows),
+        )
+
+    def admin_delete_memory(self, memory_id: MemoryId | str) -> MemoryItem:
+        clean_memory_id = str(memory_id)
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    memory_id,
+                    app_id,
+                    user_id,
+                    character_id,
+                    persona_mode,
+                    type,
+                    content,
+                    confidence,
+                    reason,
+                    created_at,
+                    updated_at
+                FROM memories
+                WHERE memory_id = ?
+                """,
+                (clean_memory_id,),
+            ).fetchone()
+            if row is not None:
+                connection.execute(
+                    "DELETE FROM memories WHERE memory_id = ?",
+                    (clean_memory_id,),
+                )
+        if row is None:
+            raise AppError(
+                code=ErrorCode.MEMORY_NOT_FOUND,
+                message="Memory was not found.",
+            )
+        return _memory_from_row(row)
+
     def _initialize_schema(self) -> None:
         if self._path != ":memory:":
             Path(self._path).parent.mkdir(parents=True, exist_ok=True)
@@ -249,4 +334,3 @@ def _sqlite_path(path: str | Path) -> str:
     if not raw_path:
         raise DTOValidationError("MEMORY_SQLITE_PATH must not be empty")
     return raw_path
-

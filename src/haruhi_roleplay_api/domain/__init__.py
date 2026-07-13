@@ -32,6 +32,8 @@ from haruhi_roleplay_api.domain.backend_context import (
 )
 from haruhi_roleplay_api.domain.debug import DebugTrace
 from haruhi_roleplay_api.domain.memory import (
+    MemoryAdminPage,
+    MemoryAdminQuery,
     MemoryDeleteCommand,
     MemoryId,
     MemoryItem,
@@ -107,6 +109,8 @@ __all__ = [
     "IdentityConfig",
     "IssuedAccessToken",
     "KnowledgeBoundary",
+    "MemoryAdminPage",
+    "MemoryAdminQuery",
     "MemoryDeleteCommand",
     "MemoryId",
     "MemoryItem",

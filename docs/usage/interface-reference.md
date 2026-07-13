@@ -383,6 +383,18 @@ item 字段：
 
 上下文不匹配或记忆不存在时返回 `MEMORY_NOT_FOUND`。当前删除是手动管理能力；chat 只会在 `capabilities.memory=true` 时读取有限记忆，并只写入通过 policy 的显式候选。
 
+## 后台 Memory 管理
+
+后台记忆接口只接受管理员密钥或安全后台会话，不接受业务服务令牌：
+
+| Endpoint | 用途 |
+| --- | --- |
+| `GET /v1/admin/memories` | 分页列出长期记忆，可按 `app_id`、`user_id`、`character_id`、`persona_mode`、`type` 过滤 |
+| `POST /v1/admin/memories` | 人工写入一条经过明确确认的长期记忆 |
+| `DELETE /v1/admin/memories/{memory_id}` | 按记忆 ID 删除一条长期记忆 |
+
+列表参数 `limit` 默认为 100、最大 200，`offset` 默认为 0；响应包含 `provider`、`total`、`count`、`limit`、`offset` 和 `items`。人工写入必须提供 `app_id`、`user_id`、`character_id`、`persona_mode`、`type`、`content`、`reason` 和 0–1 的 `confidence`，确保管理员能说明记忆来源和可信度。后台删除拥有跨应用权限，因此界面在执行前必须显示作用域并进行二次确认。
+
 ## Access Token 管理
 
 该组接口接受 `ROLEPLAY_API_KEY`，或后台登录产生的安全会话 Cookie；不接受业务服务令牌。后台会话执行修改操作时还必须提供登录响应中的 CSRF 令牌。完整安全和运维说明见 `docs/usage/access-token-management.md`。

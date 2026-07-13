@@ -31,6 +31,11 @@ from haruhi_roleplay_api.api.admin import (
     get_admin_request_logs,
     get_admin_usage,
 )
+from haruhi_roleplay_api.api.admin_memory import (
+    delete_admin_memory,
+    get_admin_memories,
+    post_admin_memory,
+)
 from haruhi_roleplay_api.api.admin_personas import (
     delete_admin_persona,
     delete_admin_persona_preset,
@@ -468,6 +473,15 @@ class RoleplayHttpRuntime:
                 headers,
                 request_id,
             )
+        if path_parts[:3] == ["v1", "admin", "memories"]:
+            return self._admin_memories(
+                method,
+                path_parts,
+                query,
+                json_body,
+                headers,
+                request_id,
+            )
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "env-config"]:
             return self._env_config(method, path_parts, json_body, headers, request_id)
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "access-tokens"]:
@@ -663,6 +677,40 @@ class RoleplayHttpRuntime:
             response = post_rag_search(
                 body,
                 rag_service=self._rag_service,
+                request_id=request_id,
+            )
+        else:
+            return _not_found_response(request_id)
+        return _json_response(response)
+
+    def _admin_memories(
+        self,
+        method: str,
+        path_parts: list[str],
+        query: Mapping[str, Any],
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        request_id: str,
+    ) -> HttpRuntimeResponse:
+        if not self._is_config_authorized(headers, method=method):
+            return _admin_permission_denied_response(request_id)
+        route = path_parts[3:]
+        if method == "GET" and not route:
+            response = get_admin_memories(
+                query,
+                memory_store=self._memory_store,
+                request_id=request_id,
+            )
+        elif method == "POST" and not route:
+            response = post_admin_memory(
+                body,
+                memory_store=self._memory_store,
+                request_id=request_id,
+            )
+        elif method == "DELETE" and len(route) == 1:
+            response = delete_admin_memory(
+                route[0],
+                memory_store=self._memory_store,
                 request_id=request_id,
             )
         else:
