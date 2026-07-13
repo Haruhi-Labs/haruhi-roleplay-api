@@ -39,6 +39,7 @@ from haruhi_roleplay_api.application.errors import (
     app_error_from_exception,
 )
 from haruhi_roleplay_api.domain import AccessToken, DTOValidationError
+from haruhi_roleplay_api.domain.request_limits import MAX_HTTP_BODY_BYTES
 from haruhi_roleplay_api.infrastructure.agent_planner_factory import (
     build_agent_context_planner_from_env,
 )
@@ -214,6 +215,8 @@ class RoleplayHttpRuntime:
         normalized_headers = _normalized_headers(headers)
         request_id = _request_id(normalized_headers)
         normalized_headers["x-request-id"] = request_id
+        if len(body) > MAX_HTTP_BODY_BYTES:
+            return request_body_too_large_response(request_id)
         admin_authenticated = bool(
             self._api_key
             and _has_matching_secret(normalized_headers, self._api_key)
@@ -972,6 +975,23 @@ def _json_response(
         status=status or _status_from_response(response),
         headers={**_base_headers(), "Content-Type": "application/json; charset=utf-8"},
         body=json.dumps(response, ensure_ascii=False).encode("utf-8"),
+    )
+
+
+def request_body_too_large_response(
+    request_id: str | None = None,
+) -> HttpRuntimeResponse:
+    resolved_request_id = _request_id({"x-request-id": request_id or ""})
+    return _json_response(
+        error_response(
+            AppError(
+                code=ErrorCode.REQUEST_BODY_TOO_LARGE,
+                message=(
+                    f"request body must not exceed {MAX_HTTP_BODY_BYTES} bytes"
+                ),
+            ),
+            resolved_request_id,
+        )
     )
 
 

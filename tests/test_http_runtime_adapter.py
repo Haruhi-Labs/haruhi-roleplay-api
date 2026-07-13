@@ -15,6 +15,9 @@ from haruhi_roleplay_api.infrastructure import (  # noqa: E402
     RoleplayHttpRuntime,
     RuntimeConfigStore,
 )
+from haruhi_roleplay_api.domain.request_limits import (  # noqa: E402
+    MAX_HTTP_BODY_BYTES,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,6 +107,20 @@ def session_body() -> dict:
 
 
 class HttpRuntimeAdapterTests(unittest.TestCase):
+    def test_oversized_body_returns_413(self) -> None:
+        response = runtime().handle(
+            method="POST",
+            target="/v1/chat",
+            headers={"X-Request-Id": "req-body-limit"},
+            body=b"x" * (MAX_HTTP_BODY_BYTES + 1),
+        )
+        body = json_response(response.body)
+
+        self.assertEqual(response.status, 413)
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["error"]["code"], "REQUEST_BODY_TOO_LARGE")
+        self.assertEqual(body["request_id"], "req-body-limit")
+
     def test_http_runtime_settings_reads_configured_bind_address(self) -> None:
         settings = HttpRuntimeSettings.from_env(
             {"ROLEPLAY_HOST": "0.0.0.0", "ROLEPLAY_PORT": "8123"}

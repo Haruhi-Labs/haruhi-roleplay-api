@@ -16,6 +16,9 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
     RagDocumentMetadata,
     RagIngestInput,
 )
+from haruhi_roleplay_api.domain.request_limits import (  # noqa: E402
+    MAX_RAG_CONTENT_LENGTH,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,15 +42,39 @@ def valid_body() -> dict:
     }
 
 
-def call_ingest(body: dict, request_id: str = "req-rag") -> dict:
+def call_ingest(
+    body: dict,
+    request_id: str = "req-rag",
+    rag_ingest_service: object | None = None,
+) -> dict:
     return post_rag_document(
         body,
         persona_repository=LocalPersonaRepository(ROOT / "personas"),
         request_id=request_id,
+        rag_ingest_service=rag_ingest_service,
     )
 
 
+class ExplodingRagIngestService:
+    def ingest(self, *args: object, **kwargs: object) -> object:
+        raise AssertionError("RAG ingest provider should not be called")
+
+
 class RagMetadataValidationTests(unittest.TestCase):
+    def test_oversized_content_fails_before_rag_provider(self) -> None:
+        body = valid_body()
+        body["content"] = "x" * (MAX_RAG_CONTENT_LENGTH + 1)
+
+        response = call_ingest(
+            body,
+            request_id="req-rag-content-limit",
+            rag_ingest_service=ExplodingRagIngestService(),
+        )
+
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "VALIDATION_ERROR")
+        self.assertIn("content must be at most", response["error"]["message"])
+
     def test_valid_metadata_passes(self) -> None:
         response = call_ingest(valid_body(), request_id="req-rag-valid")
 

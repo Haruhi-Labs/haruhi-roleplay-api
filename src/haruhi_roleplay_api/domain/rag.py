@@ -14,6 +14,13 @@ from haruhi_roleplay_api.domain.chat import (
     PersonaModeId,
     UserId,
 )
+from haruhi_roleplay_api.domain.request_limits import (
+    MAX_ID_LENGTH,
+    MAX_RAG_CONTENT_LENGTH,
+    MAX_RAG_QUERY_LENGTH,
+    MAX_RAG_TITLE_LENGTH,
+    MAX_RAG_TOP_K,
+)
 
 
 RagDocumentId = NewType("RagDocumentId", str)
@@ -22,11 +29,20 @@ RagChunkId = NewType("RagChunkId", str)
 SUPPORTED_RAG_LANGUAGES = {"zh-CN", "ja-JP", "en-US"}
 
 
-def _require_non_empty(value: str | None, field_name: str) -> str:
+def _require_non_empty(
+    value: Any,
+    field_name: str,
+    *,
+    max_length: int | None = None,
+) -> str:
     if value is None:
         raise DTOValidationError(f"{field_name} is required")
     if not isinstance(value, str) or not value.strip():
         raise DTOValidationError(f"{field_name} must be a non-empty string")
+    if max_length is not None and len(value) > max_length:
+        raise DTOValidationError(
+            f"{field_name} must be at most {max_length} characters"
+        )
     return value
 
 
@@ -52,16 +68,28 @@ class RagDocumentMetadata:
     def from_mapping(cls, data: Mapping[str, Any]) -> "RagDocumentMetadata":
         return cls(
             appId=(
-                AppId(_require_non_empty(data.get("appId"), "appId"))
+                AppId(
+                    _require_non_empty(
+                        data.get("appId"), "appId", max_length=MAX_ID_LENGTH
+                    )
+                )
                 if data.get("appId") is not None
                 else None
             ),
             characterId=CharacterId(
-                _require_non_empty(data.get("characterId"), "characterId")
+                _require_non_empty(
+                    data.get("characterId"),
+                    "characterId",
+                    max_length=MAX_ID_LENGTH,
+                )
             ),
             personaMode=(
                 PersonaModeId(
-                    _require_non_empty(data.get("personaMode"), "personaMode")
+                    _require_non_empty(
+                        data.get("personaMode"),
+                        "personaMode",
+                        max_length=MAX_ID_LENGTH,
+                    )
                 )
                 if data.get("personaMode") is not None
                 else None
@@ -76,11 +104,21 @@ class RagDocumentMetadata:
 
     def __post_init__(self) -> None:
         if self.appId is not None:
-            _require_non_empty(str(self.appId), "appId")
-        _require_non_empty(str(self.characterId), "characterId")
+            _require_non_empty(
+                str(self.appId), "appId", max_length=MAX_ID_LENGTH
+            )
+        _require_non_empty(
+            str(self.characterId), "characterId", max_length=MAX_ID_LENGTH
+        )
         if self.personaMode is not None:
-            _require_non_empty(str(self.personaMode), "personaMode")
+            _require_non_empty(
+                str(self.personaMode), "personaMode", max_length=MAX_ID_LENGTH
+            )
         _require_non_empty(self.timeline, "timeline")
+        if isinstance(self.spoilerLevel, bool) or not isinstance(
+            self.spoilerLevel, int
+        ):
+            raise DTOValidationError("spoilerLevel must be an integer")
         if self.spoilerLevel < 0:
             raise DTOValidationError("spoilerLevel must be >= 0")
         _require_non_empty(self.language, "language")
@@ -115,11 +153,17 @@ class RagIngestInput:
     documentId: RagDocumentId | None = None
 
     def __post_init__(self) -> None:
-        _require_non_empty(str(self.appId), "appId")
+        _require_non_empty(str(self.appId), "appId", max_length=MAX_ID_LENGTH)
         if self.documentId is not None:
-            _require_non_empty(str(self.documentId), "documentId")
-        _require_non_empty(self.title, "title")
-        _require_non_empty(self.content, "content")
+            _require_non_empty(
+                str(self.documentId), "documentId", max_length=MAX_ID_LENGTH
+            )
+        _require_non_empty(
+            self.title, "title", max_length=MAX_RAG_TITLE_LENGTH
+        )
+        _require_non_empty(
+            self.content, "content", max_length=MAX_RAG_CONTENT_LENGTH
+        )
         if not isinstance(self.metadata, RagDocumentMetadata):
             raise DTOValidationError("metadata must be RagDocumentMetadata")
         if self.metadata.appId is None:
@@ -147,6 +191,8 @@ class RagIngestResult:
 def _spoiler_level(value: Any) -> int:
     if value is None:
         raise DTOValidationError("spoilerLevel is required")
+    if isinstance(value, bool):
+        raise DTOValidationError("spoilerLevel must be an integer")
     try:
         return int(value)
     except (TypeError, ValueError) as exc:
@@ -163,8 +209,15 @@ class RagRetrieveFilters:
     def __post_init__(self) -> None:
         _non_empty_string_tuple(self.sourceTypes, "filters.sourceTypes")
         _non_empty_string_tuple(self.timelines, "filters.timelines")
-        if self.spoilerLevelMax is not None and self.spoilerLevelMax < 0:
-            raise DTOValidationError("filters.spoilerLevelMax must be >= 0")
+        if self.spoilerLevelMax is not None:
+            if isinstance(self.spoilerLevelMax, bool) or not isinstance(
+                self.spoilerLevelMax, int
+            ):
+                raise DTOValidationError(
+                    "filters.spoilerLevelMax must be an integer"
+                )
+            if self.spoilerLevelMax < 0:
+                raise DTOValidationError("filters.spoilerLevelMax must be >= 0")
         if self.language is not None:
             _require_non_empty(self.language, "filters.language")
             if self.language not in SUPPORTED_RAG_LANGUAGES:
@@ -224,15 +277,27 @@ class RagRetrieveInput:
     debug: bool = False
 
     def __post_init__(self) -> None:
-        _require_non_empty(str(self.appId), "appId")
-        _require_non_empty(str(self.userId), "userId")
-        _require_non_empty(str(self.characterId), "characterId")
-        _require_non_empty(str(self.personaMode), "personaMode")
-        _require_non_empty(self.query, "query")
+        _require_non_empty(str(self.appId), "appId", max_length=MAX_ID_LENGTH)
+        _require_non_empty(str(self.userId), "userId", max_length=MAX_ID_LENGTH)
+        _require_non_empty(
+            str(self.characterId), "characterId", max_length=MAX_ID_LENGTH
+        )
+        _require_non_empty(
+            str(self.personaMode), "personaMode", max_length=MAX_ID_LENGTH
+        )
+        _require_non_empty(
+            self.query, "query", max_length=MAX_RAG_QUERY_LENGTH
+        )
+        if isinstance(self.topK, bool) or not isinstance(self.topK, int):
+            raise DTOValidationError("topK must be an integer")
         if self.topK <= 0:
             raise DTOValidationError("topK must be positive")
+        if self.topK > MAX_RAG_TOP_K:
+            raise DTOValidationError(f"topK must be at most {MAX_RAG_TOP_K}")
         if not isinstance(self.filters, RagRetrieveFilters):
             raise DTOValidationError("filters must be RagRetrieveFilters")
+        if not isinstance(self.debug, bool):
+            raise DTOValidationError("debug must be a boolean")
 
 
 @dataclass(frozen=True, kw_only=True)

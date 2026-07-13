@@ -11,6 +11,13 @@ from haruhi_roleplay_api.infrastructure.http_runtime import (  # noqa: E402
     HttpRuntimeStreamResponse,
 )
 from haruhi_roleplay_api.infrastructure.http_server import _write_response  # noqa: E402
+from haruhi_roleplay_api.infrastructure.http_server import (  # noqa: E402
+    RoleplayRequestHandler,
+    _RequestBodyTooLargeError,
+)
+from haruhi_roleplay_api.domain.request_limits import (  # noqa: E402
+    MAX_HTTP_BODY_BYTES,
+)
 
 
 class CapturingWFile:
@@ -43,7 +50,22 @@ class CapturingHandler:
         self.headers_ended = True
 
 
+class ExplodingRFile:
+    def read(self, length: int) -> bytes:
+        raise AssertionError("oversized request body must not be read")
+
+
+class OversizedBodyHandler:
+    def __init__(self) -> None:
+        self.headers = {"Content-Length": str(MAX_HTTP_BODY_BYTES + 1)}
+        self.rfile = ExplodingRFile()
+
+
 class HttpServerStreamTests(unittest.TestCase):
+    def test_oversized_content_length_is_rejected_before_read(self) -> None:
+        with self.assertRaises(_RequestBodyTooLargeError):
+            RoleplayRequestHandler._read_body(OversizedBodyHandler())
+
     def test_stream_response_writes_each_sse_event_without_content_length(self) -> None:
         handler = CapturingHandler()
         done_seen_before_second_yield: list[bool] = []

@@ -21,6 +21,20 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | error     | 失败时返回    |
 | request_id | 请求追踪 ID  |
 
+### 请求资源上限
+
+| 输入 | 上限 | 超限响应 |
+| ---- | ---- | -------- |
+| HTTP request body | 1 MiB | `413 REQUEST_BODY_TOO_LARGE` |
+| Chat/RAG 请求 ID | 128 字符 | `400 VALIDATION_ERROR` |
+| Chat `message` | 16,000 字符 | `400 VALIDATION_ERROR` |
+| `generation.max_tokens` | 8,192 | `400 VALIDATION_ERROR` |
+| RAG `title` / `query` | 256 / 4,000 字符 | `400 VALIDATION_ERROR` |
+| RAG `content` | 500,000 字符 | `400 VALIDATION_ERROR` |
+| RAG `top_k` | 20 | `400 VALIDATION_ERROR` |
+
+Boolean 参数必须使用 JSON `true` / `false`，不要传字符串。当前限制是服务端集中常量，不通过 `.env` 调整，也不等同于按用户或令牌计数的 rate limit。
+
 ## Chat: POST /v1/chat
 
 用途：发送一次非流式角色扮演请求。
@@ -59,7 +73,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | ----------------- | ------- | ----------------------------------------------------------------------------------- |
 | model             | string  | 服务端白名单模型别名，例如 `haruhi-ollama`；不能传 provider 名、base URL 或真实密钥 |
 | temperature       | number  | 随机性                                                                              |
-| max_tokens        | number  | 最大输出 token                                                                      |
+| max_tokens        | number  | 最大输出 token，范围 1 到 8,192                                                      |
 | top_p             | number  | nucleus sampling 参数                                                               |
 | presence_penalty  | number  | 话题重复惩罚                                                                        |
 | frequency_penalty | number  | 词频重复惩罚                                                                        |
@@ -254,7 +268,7 @@ character 字段：
 | character_id | 是   | 角色 ID          |
 | persona_mode | 是   | 角色 preset      |
 | query        | 是   | 检索 query       |
-| top_k        | 是   | 返回数量         |
+| top_k        | 是   | 返回数量，范围 1 到 20 |
 | filters      | 否   | metadata filter  |
 | debug        | 否   | 是否返回调试信息 |
 
@@ -489,6 +503,7 @@ check 成功执行时即使配置无效也返回 `ok=true`，并在 `data.valid=
 | error.code             | 说明                  |
 | ---------------------- | --------------------- |
 | VALIDATION_ERROR       | 参数错误              |
+| REQUEST_BODY_TOO_LARGE | HTTP 请求体超过 1 MiB |
 | AUTH_INVALID_API_KEY   | API Key 无效          |
 | AUTH_PERMISSION_DENIED | 权限不足              |
 | ACCESS_TOKEN_NOT_FOUND | 访问令牌不存在        |

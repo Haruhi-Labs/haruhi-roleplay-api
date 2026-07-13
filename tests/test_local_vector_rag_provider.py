@@ -25,6 +25,7 @@ from haruhi_roleplay_api.infrastructure import (  # noqa: E402
     RagProviderSettings,
     build_rag_service,
 )
+from haruhi_roleplay_api.domain.request_limits import MAX_RAG_TOP_K  # noqa: E402
 
 
 def ingest_input(
@@ -89,7 +90,36 @@ class FakeChromaCollection:
         return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
 
 
+class ExplodingRagService:
+    def retrieve(self, *args: object, **kwargs: object) -> object:
+        raise AssertionError("RAG provider should not be called")
+
+
 class LocalVectorRagProviderTests(unittest.TestCase):
+    def test_rag_search_limits_fail_before_provider(self) -> None:
+        base = {
+            "app_id": "web",
+            "user_id": "user-1",
+            "character_id": "haruhi",
+            "persona_mode": "mid_late_haruhi",
+            "query": "社团 活动",
+            "top_k": 3,
+        }
+        for field_name, value, message in (
+            ("top_k", MAX_RAG_TOP_K + 1, "topK must be at most"),
+            ("debug", "false", "debug must be a boolean"),
+        ):
+            with self.subTest(field_name=field_name):
+                response = post_rag_search(
+                    {**base, field_name: value},
+                    rag_service=ExplodingRagService(),
+                    request_id="req-rag-search-limit",
+                )
+
+                self.assertFalse(response["ok"])
+                self.assertEqual(response["error"]["code"], "VALIDATION_ERROR")
+                self.assertIn(message, response["error"]["message"])
+
     def test_local_vector_rag_ingests_and_retrieves_chunks(self) -> None:
         service = LocalVectorRagService(chunk_size=24)
 

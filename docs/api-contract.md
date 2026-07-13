@@ -20,6 +20,21 @@
 | error.details | 可选调试信息   |
 | request_id    | 请求 ID        |
 
+## 请求资源上限
+
+| 输入 | 上限 |
+| ---- | ---- |
+| HTTP request body | 1 MiB（1,048,576 bytes） |
+| Chat/RAG 请求中的 ID | 128 字符 |
+| `message` | 16,000 字符 |
+| `generation.max_tokens` | 8,192 |
+| RAG `title` | 256 字符 |
+| RAG search `query` | 4,000 字符 |
+| RAG document `content` | 500,000 字符 |
+| RAG `top_k` | 20 |
+
+超过 HTTP body 字节上限时返回 HTTP 413 和 `REQUEST_BODY_TOO_LARGE`。JSON 已被读取后发现字段长度、数值范围或类型错误时返回 HTTP 400 和 `VALIDATION_ERROR`。`capabilities.*`、`generation.allow_narration` 和 RAG `debug` 必须是真正的 JSON boolean，字符串 `"true"`、`"false"` 不会被隐式转换。
+
 ## Chat
 
 ### POST /v1/chat
@@ -320,6 +335,7 @@ memory item 字段：
 | 错误码                 | 说明               |
 | ---------------------- | ------------------ |
 | VALIDATION_ERROR       | 参数错误           |
+| REQUEST_BODY_TOO_LARGE | HTTP 请求体超过 1 MiB |
 | AUTH_INVALID_API_KEY   | API Key 无效       |
 | AUTH_PERMISSION_DENIED | 权限不足           |
 | PERSONA_NOT_FOUND      | 角色不存在         |

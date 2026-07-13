@@ -133,7 +133,7 @@ def _rag_retrieve_input_from_body(body: Mapping[str, Any]) -> RagRetrieveInput:
         query=_require_non_empty(body.get("query"), "query"),
         topK=_top_k(body.get("top_k", 5)),
         filters=_rag_retrieve_filters_from_body(body.get("filters", {})),
-        debug=bool(body.get("debug", False)),
+        debug=_boolean(body.get("debug", False), "debug"),
     )
 
 
@@ -144,7 +144,7 @@ def _rag_retrieve_filters_from_body(data: Any) -> RagRetrieveFilters:
         sourceTypes=_string_tuple(data.get("source_types", ())),
         timelines=_string_tuple(data.get("timelines", ())),
         spoilerLevelMax=(
-            int(data["spoiler_level_max"])
+            _integer(data["spoiler_level_max"], "filters.spoiler_level_max")
             if data.get("spoiler_level_max") is not None
             else None
         ),
@@ -170,10 +170,22 @@ def _rag_retrieve_output_to_data(result: RagRetrieveOutput) -> dict[str, Any]:
 
 
 def _top_k(value: Any) -> int:
+    return _integer(value, "top_k")
+
+
+def _integer(value: Any, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise DTOValidationError(f"{field_name} must be an integer")
     try:
         return int(value)
     except (TypeError, ValueError) as exc:
-        raise DTOValidationError("top_k must be an integer") from exc
+        raise DTOValidationError(f"{field_name} must be an integer") from exc
+
+
+def _boolean(value: Any, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise DTOValidationError(f"{field_name} must be a boolean")
+    return value
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

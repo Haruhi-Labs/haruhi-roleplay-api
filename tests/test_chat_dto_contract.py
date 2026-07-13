@@ -13,9 +13,15 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
     ChatInput,
     ChatOutput,
     DTOValidationError,
+    GenerationConfig,
     PersonaModeId,
     RequestId,
     UserId,
+)
+from haruhi_roleplay_api.domain.request_limits import (  # noqa: E402
+    MAX_CHAT_MESSAGE_LENGTH,
+    MAX_GENERATION_TOKENS,
+    MAX_ID_LENGTH,
 )
 
 
@@ -80,6 +86,47 @@ class ChatDTOContractTests(unittest.TestCase):
         self.assertTrue(capabilities.safetyFilter)
         self.assertFalse(capabilities.debugTrace)
         self.assertFalse(capabilities.stream)
+
+    def test_chat_message_and_id_length_limits(self) -> None:
+        base = {
+            "appId": "web",
+            "userId": "user-1",
+            "characterId": "haruhi",
+            "personaMode": "mid_late_haruhi",
+            "message": "hello",
+            "language": "zh-CN",
+            "capabilities": {},
+        }
+        for field_name, value, error_field in (
+            ("message", "x" * (MAX_CHAT_MESSAGE_LENGTH + 1), "message"),
+            ("appId", "x" * (MAX_ID_LENGTH + 1), "appId"),
+        ):
+            with self.subTest(field_name=field_name):
+                data = {**base, field_name: value}
+                with self.assertRaisesRegex(
+                    DTOValidationError,
+                    rf"{error_field} must be at most",
+                ):
+                    ChatInput.from_mapping(data)
+
+    def test_generation_max_tokens_limit(self) -> None:
+        with self.assertRaisesRegex(
+            DTOValidationError,
+            "generation.maxTokens must be at most",
+        ):
+            GenerationConfig(maxTokens=MAX_GENERATION_TOKENS + 1)
+
+    def test_boolean_strings_are_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            DTOValidationError,
+            "capabilities.rag must be a boolean",
+        ):
+            CapabilityConfig.from_mapping({"rag": "false"})
+        with self.assertRaisesRegex(
+            DTOValidationError,
+            "generation.allowNarration must be a boolean",
+        ):
+            GenerationConfig.from_mapping({"allowNarration": "false"})
 
     def test_chat_output_minimal_contract(self) -> None:
         output = ChatOutput(

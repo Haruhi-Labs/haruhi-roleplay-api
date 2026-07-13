@@ -7,14 +7,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import ClassVar
 
+from haruhi_roleplay_api.domain.request_limits import MAX_HTTP_BODY_BYTES
 from haruhi_roleplay_api.infrastructure.http_runtime import (
     HttpRuntimeResponse,
     HttpRuntimeSettings,
     HttpRuntimeStreamResponse,
     RoleplayHttpRuntime,
+    request_body_too_large_response,
     sse_event_bytes,
 )
 from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
+
+
+class _RequestBodyTooLargeError(ValueError):
+    pass
 
 
 class RoleplayRequestHandler(BaseHTTPRequestHandler):
@@ -40,11 +46,19 @@ class RoleplayRequestHandler(BaseHTTPRequestHandler):
         return
 
     def _handle_request(self) -> None:
+        try:
+            body = self._read_body()
+        except _RequestBodyTooLargeError:
+            response = request_body_too_large_response(
+                self.headers.get("X-Request-Id")
+            )
+            _write_response(self, response)
+            return
         response = self.runtime.handle(
             method=self.command,
             target=self.path,
             headers=_headers(self),
-            body=self._read_body(),
+            body=body,
         )
         _write_response(self, response)
 
@@ -58,6 +72,8 @@ class RoleplayRequestHandler(BaseHTTPRequestHandler):
             return b""
         if length <= 0:
             return b""
+        if length > MAX_HTTP_BODY_BYTES:
+            raise _RequestBodyTooLargeError
         return self.rfile.read(length)
 
 

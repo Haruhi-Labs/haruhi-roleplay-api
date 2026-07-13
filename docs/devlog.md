@@ -923,3 +923,23 @@
 ### 下一步
 
 - 实现 12.05，为 HTTP body、chat message、RAG 文档、`top_k` 和 `max_tokens` 增加资源上限。
+
+## 2026-07-13：Request Resource Limits
+
+### 完成
+
+- 集中定义 HTTP body、ID、chat message、RAG 文档/query 和生成参数的保守默认上限。
+- 标准库 HTTP server 在读取前拒绝超过 1 MiB 的 `Content-Length`，runtime direct call 执行同一检查。
+- 新增 `REQUEST_BODY_TOO_LARGE`，body 超限返回 413；DTO 字段超限继续返回 400 `VALIDATION_ERROR`。
+- Chat/RAG DTO 严格校验 boolean、`top_k` 和 `max_tokens`，不再把字符串 `"false"` 当作 true。
+- 超限请求在模型或 RAG provider 调用前失败，不增加依赖、环境变量或分布式限流系统。
+
+### 验证
+
+- Chat/RAG/HTTP/error 定向测试 65 项通过。
+- 完整测试集 248 项通过。
+- 覆盖 HTTP 预读拒绝、message/content/ID、`top_k`、`max_tokens`、boolean 类型和 provider 未调用。
+
+### 下一步
+
+- 实现 12.06，收束普通用户看到的 LLM、Embedding 和 RAG 配置面。

@@ -412,6 +412,7 @@ DELETE /v1/memory/{user_id}/{memory_id}?app_id=web-demo&character_id=haruhi&pers
 | `AUTH_INVALID_API_KEY`                         | 本地 demo 提示 API key 错误；生产前端不应看到 |
 | `AUTH_PERMISSION_DENIED`                       | 管理接口权限不足                              |
 | `VALIDATION_ERROR`                             | 标记表单或请求参数错误                        |
+| `REQUEST_BODY_TOO_LARGE`                       | 阻止提交并提示缩短消息或 RAG 文档             |
 | `PERSONA_NOT_FOUND` / `PERSONA_MODE_NOT_FOUND` | 重新加载 persona catalog                      |
 | `SESSION_NOT_FOUND` / `SESSION_EXPIRED`        | 新建 session 并提示用户                       |
 | `RAG_PROVIDER_ERROR`                           | 降级为无 RAG 或提示后台配置错误               |

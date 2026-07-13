@@ -16,6 +16,10 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
     ModelResponse,
     ModelUsage,
 )
+from haruhi_roleplay_api.domain.request_limits import (  # noqa: E402
+    MAX_CHAT_MESSAGE_LENGTH,
+    MAX_GENERATION_TOKENS,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +94,28 @@ def call_chat(
 
 
 class FakeRagRetrieveTests(unittest.TestCase):
+    def test_invalid_resource_limits_do_not_call_model_provider(self) -> None:
+        for field_name in ("message", "max_tokens"):
+            with self.subTest(field_name=field_name):
+                body = chat_body(rag=False)
+                if field_name == "message":
+                    body["message"] = "x" * (MAX_CHAT_MESSAGE_LENGTH + 1)
+                else:
+                    body["generation"]["max_tokens"] = (
+                        MAX_GENERATION_TOKENS + 1
+                    )
+                router = RecordingModelRouter()
+
+                response = call_chat(
+                    body,
+                    model_router=router,
+                    rag_service=None,
+                )
+
+                self.assertFalse(response["ok"])
+                self.assertEqual(response["error"]["code"], "VALIDATION_ERROR")
+                self.assertEqual(router.calls, [])
+
     def test_rag_false_does_not_call_rag_service(self) -> None:
         router = RecordingModelRouter()
 

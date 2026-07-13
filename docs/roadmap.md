@@ -62,8 +62,8 @@ Phase A 到 K 的主要能力已经实现。当前项目已进入“可被前端
 
 1. 同步正式契约与实际 runtime，避免公开不存在的接口和配置。
 2. Access Token 单一 app scope、业务请求强制校验和 RAG 存储层 app 隔离已完成。
-3. 增加请求体、消息、RAG 文档和流式输出的资源上限。
-4. 收束后端简单配置面，确保单 provider 用户不需要理解 registry。
+3. HTTP body、消息、RAG 文档、`top_k` 和 `max_tokens` 资源上限已完成。
+4. 下一步收束后端简单配置面，确保单 provider 用户不需要理解 registry。
 5. 改善配置事务性和热更新时的有状态资源保留。
 6. 进一步化简普通聊天前端契约。
 

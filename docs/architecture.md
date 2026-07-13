@@ -14,6 +14,8 @@ HTTP Adapter 在进入 Orchestrator 前完成 `ROLEPLAY_API_KEY` 或服务 Acces
 
 RAG 还在存储层执行独立的 app 隔离。文档导入时，顶层 `app_id` 会写入每个 chunk 的 metadata；local、内存向量和 Faiss 在统一 metadata filter 中比较 app，Chroma 和 Qdrant 同时在持久化 payload 与查询 filter 中使用 `app_id`。内部 chunk/point ID 也包含 app scope，因此不同应用可以使用相同的公开 `document_id`，但不会覆盖或检索到彼此的数据。缺少 `app_id` 的旧向量记录不会自动归属或参与检索。
 
+HTTP runtime 还提供最小资源边界。标准库 server 在读取请求体前检查 `Content-Length`，超过 1 MiB 直接返回 413；runtime 对直接 adapter 调用执行同一字节检查。Chat/RAG domain DTO 再限制消息、文档、ID、`max_tokens` 和 `top_k`，并严格要求 JSON boolean，确保超限请求在 session、RAG、memory 和模型 provider 调用前失败。当前使用集中代码常量，不引入分布式 rate limit 或额外配置面。
+
 前端只选择业务参数：
 
 - `character_id`
