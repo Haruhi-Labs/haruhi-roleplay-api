@@ -218,6 +218,23 @@ character 字段：
 
 以上是当前 catalog 中真实公开的 preset。其它角色和春日模式属于后续卡片，不应作为当前可调用值。
 
+## 后台角色管理
+
+后台角色接口接受管理员密钥或安全后台会话，不接受业务服务令牌：
+
+| Endpoint | 用途 |
+| --- | --- |
+| `GET /v1/admin/personas` | 读取包含 draft/private 的完整角色与 Persona 配置 |
+| `GET /v1/admin/personas/{character_id}` | 读取单个角色及其全部模式 |
+| `POST /v1/admin/personas` | 使用 `character` 和 `presets` 原子创建角色 |
+| `PATCH /v1/admin/personas/{character_id}` | 更新角色元数据，不允许直接改模式清单 |
+| `DELETE /v1/admin/personas/{character_id}` | 删除角色及受管 JSON 文件 |
+| `POST /v1/admin/personas/{character_id}/presets` | 新建模式并同步角色清单 |
+| `PATCH /v1/admin/personas/{character_id}/presets/{persona_mode}` | 更新完整模式配置 |
+| `DELETE /v1/admin/personas/{character_id}/presets/{persona_mode}` | 删除非默认模式并同步角色清单 |
+
+角色和模式 ID 只能包含字母、数字、下划线和连字符，不能用路径片段。写入前会通过领域 schema 完整校验，并通过同目录临时文件原子替换；默认模式不能直接删除。角色目录包含未知文件、子目录或符号链接时，整角色删除会被拒绝，避免后台误删非受管数据。
+
 ## RAG: POST /v1/rag/documents
 
 用途：校验 RAG 文档 metadata，并在服务端注入 RAG provider 时写入本地或云端索引。

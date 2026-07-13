@@ -31,6 +31,16 @@ from haruhi_roleplay_api.api.admin import (
     get_admin_request_logs,
     get_admin_usage,
 )
+from haruhi_roleplay_api.api.admin_personas import (
+    delete_admin_persona,
+    delete_admin_persona_preset,
+    get_admin_persona,
+    get_admin_personas,
+    patch_admin_persona,
+    patch_admin_persona_preset,
+    post_admin_persona,
+    post_admin_persona_preset,
+)
 from haruhi_roleplay_api.api.chat import iter_chat_stream_events, post_chat
 from haruhi_roleplay_api.api.memory import delete_memory, get_memory
 from haruhi_roleplay_api.api.personas import get_personas
@@ -437,6 +447,14 @@ class RoleplayHttpRuntime:
                     request_id=request_id,
                 )
             )
+        if path_parts[:3] == ["v1", "admin", "personas"]:
+            return self._admin_personas(
+                method,
+                path_parts,
+                json_body,
+                headers,
+                request_id,
+            )
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "env-config"]:
             return self._env_config(method, path_parts, json_body, headers, request_id)
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "access-tokens"]:
@@ -528,6 +546,73 @@ class RoleplayHttpRuntime:
             },
             status=404,
         )
+
+    def _admin_personas(
+        self,
+        method: str,
+        path_parts: list[str],
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        request_id: str,
+    ) -> HttpRuntimeResponse:
+        if not self._is_config_authorized(headers, method=method):
+            return _admin_permission_denied_response(request_id)
+        route = path_parts[3:]
+        if method == "GET" and not route:
+            response = get_admin_personas(
+                repository=self._persona_repository,
+                request_id=request_id,
+            )
+        elif method == "POST" and not route:
+            response = post_admin_persona(
+                body,
+                repository=self._persona_repository,
+                request_id=request_id,
+            )
+        elif len(route) == 1 and method == "GET":
+            response = get_admin_persona(
+                route[0],
+                repository=self._persona_repository,
+                request_id=request_id,
+            )
+        elif len(route) == 1 and method == "PATCH":
+            response = patch_admin_persona(
+                route[0],
+                body,
+                repository=self._persona_repository,
+                request_id=request_id,
+            )
+        elif len(route) == 1 and method == "DELETE":
+            response = delete_admin_persona(
+                route[0],
+                repository=self._persona_repository,
+                request_id=request_id,
+            )
+        elif len(route) == 2 and route[1] == "presets" and method == "POST":
+            response = post_admin_persona_preset(
+                route[0],
+                body,
+                repository=self._persona_repository,
+                request_id=request_id,
+            )
+        elif len(route) == 3 and route[1] == "presets" and method == "PATCH":
+            response = patch_admin_persona_preset(
+                route[0],
+                route[2],
+                body,
+                repository=self._persona_repository,
+                request_id=request_id,
+            )
+        elif len(route) == 3 and route[1] == "presets" and method == "DELETE":
+            response = delete_admin_persona_preset(
+                route[0],
+                route[2],
+                repository=self._persona_repository,
+                request_id=request_id,
+            )
+        else:
+            return _not_found_response(request_id)
+        return _json_response(response)
 
     def _stream_chat(
         self,
