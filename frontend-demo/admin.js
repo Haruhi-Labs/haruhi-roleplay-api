@@ -29,6 +29,8 @@ const state = {
   configGroup: "",
   configAdvanced: false,
   configCheck: null,
+  auditActor: "all",
+  auditOutcome: "all",
 };
 
 const routes = {
@@ -76,6 +78,11 @@ const routes = {
     eyebrow: "部署与运行",
     title: "系统配置",
     description: "安全维护运行配置、存储与外部服务密钥。",
+  },
+  audit: {
+    eyebrow: "安全与问责",
+    title: "安全审计",
+    description: "追踪后台登录与资源变更，不记录密钥或业务正文。",
   },
 };
 
@@ -257,6 +264,8 @@ async function renderRoute({ force = false } = {}) {
       await renderRag();
     } else if (state.route === "memory") {
       await renderMemory();
+    } else if (state.route === "audit") {
+      await renderAudit();
     } else if (state.route === "settings") {
       await renderSettings();
     } else {
@@ -1884,6 +1893,102 @@ function memoryTypeLabel(type) {
     safety_preference: "安全偏好",
     interaction_summary: "互动摘要",
   }[type] || type;
+}
+
+async function renderAudit() {
+  const data = await request("/v1/admin/audit-logs?limit=200");
+  const items = data.items || [];
+  const visible = items.filter((item) => {
+    const actorMatches = state.auditActor === "all" || item.actor === state.auditActor;
+    const outcomeMatches = state.auditOutcome === "all" || item.outcome === state.auditOutcome;
+    return actorMatches && outcomeMatches;
+  });
+  const failed = items.filter((item) => item.outcome === "failed").length;
+  const browserEvents = items.filter((item) => item.actor === "admin_session").length;
+  const loginFailures = items.filter(
+    (item) => item.action === "admin.login" && item.outcome === "failed",
+  ).length;
+  els.routeView.innerHTML = `
+    <div class="page-lead">
+      <div><h2>管理员安全审计</h2><p>记录后台登录、配置和资源变更的安全摘要。审计账本不保存密码、密钥、文档、记忆或对话正文。</p></div>
+      <span class="status-badge">持久化审计</span>
+    </div>
+    <section class="metric-rack compact-metrics">
+      ${metricCell("最近事件", formatNumber(items.length), "最多读取最近 200 条")}
+      ${metricCell("失败事件", formatNumber(failed), "权限、校验或资源错误")}
+      ${metricCell("浏览器会话动作", formatNumber(browserEvents), "通过安全 Cookie + CSRF")}
+      ${metricCell("登录失败", formatNumber(loginFailures), "用于发现异常尝试")}
+    </section>
+    <section class="surface data-surface">
+      <div class="table-toolbar">
+        <label class="select-control"><span>管理主体</span><select id="auditActorFilter"><option value="all">全部主体</option><option value="admin_session"${state.auditActor === "admin_session" ? " selected" : ""}>浏览器会话</option><option value="admin_key"${state.auditActor === "admin_key" ? " selected" : ""}>管理员密钥</option><option value="anonymous"${state.auditActor === "anonymous" ? " selected" : ""}>匿名请求</option><option value="service_token"${state.auditActor === "service_token" ? " selected" : ""}>服务令牌</option></select></label>
+        <label class="select-control"><span>结果</span><select id="auditOutcomeFilter"><option value="all">全部结果</option><option value="success"${state.auditOutcome === "success" ? " selected" : ""}>成功</option><option value="failed"${state.auditOutcome === "failed" ? " selected" : ""}>失败</option></select></label>
+        <span class="table-count">显示 ${formatNumber(visible.length)} / ${formatNumber(items.length)}</span>
+      </div>
+      <div class="table-wrap">${visible.length ? adminAuditTable(visible) : tableEmpty("没有符合条件的审计事件", "调整主体或结果筛选条件。")}</div>
+    </section>
+    <div class="boundary-note"><strong>审计范围</strong><span>事件包含主体类型、动作、资源安全 ID、请求 ID、HTTP 结果和时间。审计写入失败不会掩盖原管理操作结果，并会在服务端错误日志中留下记录。</span></div>
+  `;
+  document.querySelector("#auditActorFilter").addEventListener("change", (event) => {
+    state.auditActor = event.currentTarget.value;
+    renderAudit();
+  });
+  document.querySelector("#auditOutcomeFilter").addEventListener("change", (event) => {
+    state.auditOutcome = event.currentTarget.value;
+    renderAudit();
+  });
+  markSynced();
+}
+
+function adminAuditTable(items) {
+  return `
+    <table class="data-table audit-table">
+      <thead><tr><th>时间</th><th>主体</th><th>动作</th><th>资源</th><th>结果</th><th>请求 ID</th></tr></thead>
+      <tbody>${items.map((item) => `
+        <tr>
+          <td>${formatDate(item.created_at)}</td>
+          <td><strong>${escapeHtml(adminActorLabel(item.actor))}</strong><small>${escapeHtml(item.actor)}</small></td>
+          <td><strong>${escapeHtml(adminActionLabel(item.action))}</strong><small>${escapeHtml(item.action)}</small></td>
+          <td><span class="type-chip">${escapeHtml(item.resource_type)}</span><small>${escapeHtml(item.resource_id || "未在 URL 中提供")}</small></td>
+          <td>${httpStatusBadge(item)}<small>${escapeHtml(item.outcome === "success" ? "成功" : "失败")}</small></td>
+          <td class="numeric">${escapeHtml(item.request_id)}</td>
+        </tr>
+      `).join("")}</tbody>
+    </table>
+  `;
+}
+
+function adminActorLabel(actor) {
+  return {
+    admin_session: "浏览器管理会话",
+    admin_key: "管理员 API Key",
+    anonymous: "匿名请求",
+    service_token: "业务服务令牌",
+  }[actor] || actor;
+}
+
+function adminActionLabel(action) {
+  return {
+    "admin.login": "登录后台",
+    "admin.logout": "退出后台",
+    "service_token.create": "签发服务令牌",
+    "service_token.update": "调整令牌额度",
+    "service_token.revoke": "吊销服务令牌",
+    "persona.create": "创建角色",
+    "persona.update": "更新角色",
+    "persona.delete": "删除角色",
+    "persona_mode.create": "创建 Persona 模式",
+    "persona_mode.update": "更新 Persona 模式",
+    "persona_mode.delete": "删除 Persona 模式",
+    "config.update": "更新系统配置",
+    "runtime_config.update": "更新运行配置",
+    "rag_document.import": "导入知识文档",
+    "rag_document.delete": "删除知识文档",
+    "rag.search": "执行 RAG 检索测试",
+    "memory.create": "人工写入记忆",
+    "memory.delete": "删除长期记忆",
+    "session.close": "关闭运行会话",
+  }[action] || action;
 }
 
 async function renderSettings() {
