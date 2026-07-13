@@ -15,6 +15,14 @@ const state = {
     limit: 50,
     offset: 0,
   },
+  sessionFilters: {
+    appId: "",
+    userId: "",
+    characterId: "",
+    status: "",
+    limit: 50,
+    offset: 0,
+  },
 };
 
 const routes = {
@@ -27,6 +35,11 @@ const routes = {
     eyebrow: "可观测性",
     title: "用量分析",
     description: "按服务、模型与时间观察请求和 Token 消耗。",
+  },
+  sessions: {
+    eyebrow: "连续上下文",
+    title: "运行会话",
+    description: "盘点连续会话作用域、活跃状态与消息数量。",
   },
   tokens: {
     eyebrow: "调用凭证",
@@ -228,6 +241,8 @@ async function renderRoute({ force = false } = {}) {
       await renderTokens();
     } else if (state.route === "usage") {
       await renderUsage();
+    } else if (state.route === "sessions") {
+      await renderSessions();
     } else if (state.route === "personas") {
       await renderPersonas();
     } else if (state.route === "models") {
@@ -328,6 +343,136 @@ async function renderOverview(force) {
   `;
   bindRouteLinks();
   markSynced();
+}
+
+async function renderSessions() {
+  const filters = state.sessionFilters;
+  const params = new URLSearchParams({
+    limit: String(filters.limit),
+    offset: String(filters.offset),
+  });
+  if (filters.appId) params.set("app_id", filters.appId);
+  if (filters.userId) params.set("user_id", filters.userId);
+  if (filters.characterId) params.set("character_id", filters.characterId);
+  if (filters.status) params.set("status", filters.status);
+  const data = await request(`/v1/admin/sessions?${params}`);
+  const items = data.items || [];
+  const activeCount = items.filter((item) => item.status === "active").length;
+  const messageCount = items.reduce(
+    (sum, item) => sum + Number(item.message_count || 0),
+    0,
+  );
+  const appCount = new Set(items.map((item) => item.app_id)).size;
+  els.routeView.innerHTML = `
+    <div class="page-lead">
+      <div><h2>连续会话运行状态</h2><p>后台只展示作用域、生命周期和消息数量，不读取用户与角色的对话正文。</p></div>
+      <span class="status-badge">${escapeHtml(data.provider)} provider</span>
+    </div>
+    <section class="metric-rack compact-metrics">
+      ${metricCell("匹配会话", formatNumber(data.total), "当前全部筛选结果")}
+      ${metricCell("本页活跃", formatNumber(activeCount), `当前页 ${formatNumber(items.length)} 条`)}
+      ${metricCell("本页消息", formatNumber(messageCount), "仅统计数量，不展示正文")}
+      ${metricCell("本页应用", formatNumber(appCount), "独立 App 作用域")}
+    </section>
+    <section class="surface data-surface">
+      <form id="sessionFilterForm" class="table-toolbar memory-toolbar">
+        <label class="filter-control"><span>App ID</span><input name="app_id" value="${escapeHtml(filters.appId)}" placeholder="全部应用" /></label>
+        <label class="filter-control"><span>用户 ID</span><input name="user_id" value="${escapeHtml(filters.userId)}" placeholder="全部用户" /></label>
+        <label class="filter-control"><span>角色 ID</span><input name="character_id" value="${escapeHtml(filters.characterId)}" placeholder="全部角色" /></label>
+        <label class="filter-control"><span>状态</span><select name="status"><option value="">全部状态</option><option value="active"${filters.status === "active" ? " selected" : ""}>活跃</option><option value="closed"${filters.status === "closed" ? " selected" : ""}>已关闭</option><option value="expired"${filters.status === "expired" ? " selected" : ""}>已过期</option></select></label>
+        <button class="secondary-action" type="submit">筛选</button>
+        <button id="clearSessionFilter" class="ghost-action" type="button">重置</button>
+      </form>
+      <div class="table-wrap">
+        ${items.length ? sessionTable(items) : tableEmpty("没有符合条件的运行会话", "调整作用域或状态筛选；业务服务创建连续会话后会显示在这里。")}
+      </div>
+      ${sessionPagination(data)}
+    </section>
+    <div class="boundary-note"><strong>最小暴露</strong><span>会话列表不提供消息正文查看。关闭只改变生命周期状态，不删除审计或长期记忆。</span></div>
+  `;
+  document.querySelector("#sessionFilterForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    state.sessionFilters = {
+      ...state.sessionFilters,
+      appId: String(values.get("app_id") || "").trim(),
+      userId: String(values.get("user_id") || "").trim(),
+      characterId: String(values.get("character_id") || "").trim(),
+      status: String(values.get("status") || ""),
+      offset: 0,
+    };
+    renderRoute();
+  });
+  document.querySelector("#clearSessionFilter").addEventListener("click", () => {
+    state.sessionFilters = {
+      ...state.sessionFilters,
+      appId: "",
+      userId: "",
+      characterId: "",
+      status: "",
+      offset: 0,
+    };
+    renderRoute();
+  });
+  els.routeView.querySelectorAll("[data-close-session]").forEach((button) => {
+    button.addEventListener("click", () => closeRuntimeSession(button));
+  });
+  document.querySelector("[data-session-page=previous]")?.addEventListener("click", () => {
+    state.sessionFilters.offset = Math.max(0, filters.offset - filters.limit);
+    renderRoute();
+  });
+  document.querySelector("[data-session-page=next]")?.addEventListener("click", () => {
+    state.sessionFilters.offset = filters.offset + filters.limit;
+    renderRoute();
+  });
+  markSynced();
+}
+
+function sessionTable(items) {
+  return `
+    <table class="data-table resource-table">
+      <thead><tr><th>会话</th><th>调用作用域</th><th>角色上下文</th><th>消息</th><th>生命周期</th><th></th></tr></thead>
+      <tbody>${items.map((item) => `
+        <tr>
+          <td><strong>${escapeHtml(item.session_id)}</strong><small>创建于 ${formatDate(item.created_at)}</small></td>
+          <td><strong>${escapeHtml(item.app_id)}</strong><small>${escapeHtml(item.user_id)}</small></td>
+          <td><strong>${escapeHtml(item.character_id)}</strong><small>${escapeHtml(item.persona_mode)}</small></td>
+          <td class="numeric">${formatNumber(item.message_count)}</td>
+          <td>${statusBadge(item.status)}<small>更新 ${formatDate(item.updated_at)} · 过期 ${formatDate(item.expires_at, "未设置")}</small></td>
+          <td class="row-action">${item.status === "active" ? `<button class="danger-action compact-action" type="button" data-close-session data-session-id="${escapeHtml(item.session_id)}" data-scope="${escapeHtml(`${item.app_id} / ${item.user_id}`)}">关闭</button>` : ""}</td>
+        </tr>
+      `).join("")}</tbody>
+    </table>
+  `;
+}
+
+function sessionPagination(data) {
+  if (!data.total) return "";
+  const start = data.offset + 1;
+  const end = Math.min(data.offset + data.count, data.total);
+  return `
+    <div class="pagination-bar"><span>第 ${formatNumber(start)}–${formatNumber(end)} 条，共 ${formatNumber(data.total)} 条</span><div><button class="ghost-action" type="button" data-session-page="previous"${data.offset <= 0 ? " disabled" : ""}>上一页</button><button class="ghost-action" type="button" data-session-page="next"${data.offset + data.count >= data.total ? " disabled" : ""}>下一页</button></div></div>
+  `;
+}
+
+async function closeRuntimeSession(button) {
+  const confirmed = await confirmAction({
+    title: "关闭运行会话",
+    message: `将关闭 ${button.dataset.scope} 下的连续会话 ${button.dataset.sessionId}。后续请求不能再读取或追加此会话。`,
+    confirmLabel: "关闭会话",
+  });
+  if (!confirmed) return;
+  button.disabled = true;
+  try {
+    await request(`/v1/admin/sessions/${encodeURIComponent(button.dataset.sessionId)}`, {
+      method: "DELETE",
+    });
+    showToast("运行会话已关闭。");
+    await renderSessions();
+  } catch (error) {
+    showToast(error.message, true);
+    button.disabled = false;
+  }
 }
 
 async function renderTokens() {
@@ -1786,8 +1931,17 @@ function bindRouteLinks() {
 }
 
 function statusBadge(status) {
-  const label = status === "active" ? "活跃" : status === "revoked" ? "已吊销" : status;
-  const className = status === "active" ? "" : " is-danger";
+  const label = {
+    active: "活跃",
+    revoked: "已吊销",
+    closed: "已关闭",
+    expired: "已过期",
+  }[status] || status;
+  const className = status === "active"
+    ? ""
+    : status === "closed"
+      ? " is-muted"
+      : " is-danger";
   return `<span class="status-badge${className}">${escapeHtml(label)}</span>`;
 }
 
