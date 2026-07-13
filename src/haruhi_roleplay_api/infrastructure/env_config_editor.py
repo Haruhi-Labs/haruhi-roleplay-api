@@ -153,6 +153,9 @@ _RESTART_KEYS = {
 _HOT_RELOAD_KEYS = {
     *RUNTIME_CONFIG_KEYS,
     "ROLEPLAY_API_KEY",
+    "ROLEPLAY_ADMIN_SESSION_TTL_SECONDS",
+    "ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS",
+    "ROLEPLAY_ADMIN_COOKIE_SECURE",
     "LLM_API_KEY",
     "RAG_API_KEY",
     "OPENAI_API_KEY",
@@ -195,6 +198,9 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _simple_field("ROLEPLAY_PORT", "HTTP", "int", "HTTP bind port.", default="8000", min_value=1, max_value=65535),
     _simple_field("ROLEPLAY_API_KEY", "HTTP", "secret", "Trusted admin API key.", secret=True, hot_reload=True),
     _simple_field("ROLEPLAY_CORS_ORIGINS", "HTTP", "string", "Comma-separated trusted browser origins."),
+    _field("ROLEPLAY_ADMIN_SESSION_TTL_SECONDS", "HTTP", "int", "Maximum admin login session lifetime in seconds.", default="28800", min_value=300, hot_reload=True),
+    _field("ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS", "HTTP", "int", "Admin session idle timeout in seconds.", default="1800", min_value=60, hot_reload=True),
+    _field("ROLEPLAY_ADMIN_COOKIE_SECURE", "HTTP", "bool", "Only send the admin session cookie over HTTPS.", default="false", hot_reload=True),
     _field("ENABLE_DEBUG_TRACE", "HTTP", "bool", "Return safe debug trace summaries.", default="true"),
     _simple_field("ACCESS_TOKEN_SQLITE_PATH", "Storage", "path", "SQLite access token ledger path.", default=".data/access-tokens.sqlite3"),
     _simple_field("LLM_API_TYPE", "Simple LLM", "enum", "LLM API type/provider.", default="fake", enum=("fake", "openai", "openai_compatible", "ollama", "deepseek", "gemini")),
@@ -734,6 +740,13 @@ def _check_http_gate_dependencies(
 ) -> None:
     host = env.get("HOST", env.get("ROLEPLAY_HOST", "127.0.0.1"))
     normalized_host = host.strip().strip("[]").casefold()
+    ttl = _positive_int_or_none(env.get("ROLEPLAY_ADMIN_SESSION_TTL_SECONDS"))
+    idle = _positive_int_or_none(env.get("ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS"))
+    if ttl is not None and idle is not None and idle > ttl:
+        errors.append(
+            "ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS must not exceed "
+            "ROLEPLAY_ADMIN_SESSION_TTL_SECONDS"
+        )
     if normalized_host in {"localhost", "localhost."}:
         return
     try:
@@ -748,6 +761,17 @@ def _check_http_gate_dependencies(
         errors.append(
             "Non-loopback ROLEPLAY_HOST requires a non-placeholder "
             "ROLEPLAY_API_KEY with at least 32 characters"
+        )
+    secure_cookie = env.get("ROLEPLAY_ADMIN_COOKIE_SECURE")
+    if secure_cookie is not None and secure_cookie.strip().casefold() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        errors.append(
+            "Non-loopback ROLEPLAY_HOST requires "
+            "ROLEPLAY_ADMIN_COOKIE_SECURE=true"
         )
 
 
@@ -828,6 +852,16 @@ def _has_any(env: Mapping[str, str], keys: tuple[str, ...]) -> bool:
 
 def _normalized(value: str) -> str:
     return value.strip().lower().replace("-", "_")
+
+
+def _positive_int_or_none(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _change_summary(

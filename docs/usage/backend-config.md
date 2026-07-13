@@ -219,6 +219,16 @@ ROLEPLAY_API_KEY=replace-with-strong-secret
 
 `ROLEPLAY_HOST` 为 loopback（`127.0.0.1`、`::1`、`localhost`）时允许无管理密钥开发。绑定 `0.0.0.0`、`::` 或其它非 loopback 地址时，启动要求 `ROLEPLAY_API_KEY` 至少 32 字符且不能使用 `change-me`、`replace-with` 等占位值。
 
+后台登录不会把管理密钥保存在浏览器存储中。登录成功后使用 `HttpOnly`、`SameSite=Strict` 的短期会话 Cookie，修改类管理请求还必须携带独立 CSRF 令牌。默认总有效期为 8 小时、空闲有效期为 30 分钟；公网 HTTPS 部署必须启用安全 Cookie：
+
+```env
+ROLEPLAY_ADMIN_SESSION_TTL_SECONDS=28800
+ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS=1800
+ROLEPLAY_ADMIN_COOKIE_SECURE=true
+```
+
+同一来源连续登录失败 5 次后会进入短时限流。管理 API 仍保留 `ROLEPLAY_API_KEY` Header 方式供受信任的自动化脚本使用。
+
 浏览器同源调用无需配置 CORS。前端和 API 不同源时，使用逗号分隔的精确 Origin 白名单，不填写路径且不能使用 `*`：
 
 ```env

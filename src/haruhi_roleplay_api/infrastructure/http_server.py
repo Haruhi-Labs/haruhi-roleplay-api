@@ -122,7 +122,10 @@ def run_server(settings: HttpRuntimeSettings | None = None) -> None:
 
 
 def _headers(handler: BaseHTTPRequestHandler) -> dict[str, str]:
-    return {key.lower(): value for key, value in handler.headers.items()}
+    headers = {key.lower(): value for key, value in handler.headers.items()}
+    # 客户端地址由 HTTP server 覆盖，不能信任同名外部请求头。
+    headers["x-roleplay-client-ip"] = str(handler.client_address[0])
+    return headers
 
 
 def _project_root() -> Path:
@@ -134,6 +137,15 @@ def _settings_env(settings: HttpRuntimeSettings) -> dict[str, str]:
     env["ROLEPLAY_HOST"] = settings.host
     env["ROLEPLAY_PORT"] = str(settings.port)
     env["ENABLE_DEBUG_TRACE"] = "true" if settings.debug_trace_enabled else "false"
+    env["ROLEPLAY_ADMIN_SESSION_TTL_SECONDS"] = str(
+        settings.admin_session_ttl_seconds
+    )
+    env["ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS"] = str(
+        settings.admin_session_idle_seconds
+    )
+    env["ROLEPLAY_ADMIN_COOKIE_SECURE"] = (
+        "true" if settings.admin_cookie_secure else "false"
+    )
     if settings.api_key is not None:
         env["ROLEPLAY_API_KEY"] = settings.api_key
     if settings.cors_allowed_origins:

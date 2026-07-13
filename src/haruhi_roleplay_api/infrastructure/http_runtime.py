@@ -7,6 +7,7 @@ import hmac
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
+from http.cookies import SimpleCookie
 from ipaddress import ip_address
 from pathlib import Path
 from time import perf_counter
@@ -43,6 +44,10 @@ from haruhi_roleplay_api.domain import AccessToken, DTOValidationError
 from haruhi_roleplay_api.domain.request_limits import MAX_HTTP_BODY_BYTES
 from haruhi_roleplay_api.infrastructure.agent_planner_factory import (
     build_agent_context_planner_from_env,
+)
+from haruhi_roleplay_api.infrastructure.admin_auth import (
+    ADMIN_SESSION_COOKIE,
+    AdminSessionManager,
 )
 from haruhi_roleplay_api.infrastructure.backend_context_provider_factory import (
     build_backend_context_provider_from_env,
@@ -105,11 +110,15 @@ class HttpRuntimeSettings:
     api_key: str | None = None
     debug_trace_enabled: bool = True
     cors_allowed_origins: tuple[str, ...] = ()
+    admin_session_ttl_seconds: int = 28_800
+    admin_session_idle_seconds: int = 1_800
+    admin_cookie_secure: bool = True
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "HttpRuntimeSettings":
+        host = env.get("HOST", env.get("ROLEPLAY_HOST", "127.0.0.1"))
         return cls(
-            host=env.get("HOST", env.get("ROLEPLAY_HOST", "127.0.0.1")),
+            host=host,
             port=_int_from_env(env, "PORT", "ROLEPLAY_PORT", default=8000),
             api_key=env.get("ROLEPLAY_API_KEY"),
             debug_trace_enabled=_bool_from_env(
@@ -118,9 +127,32 @@ class HttpRuntimeSettings:
             cors_allowed_origins=_cors_origins_from_env(
                 env.get("ROLEPLAY_CORS_ORIGINS", "")
             ),
+            admin_session_ttl_seconds=_int_from_env(
+                env,
+                "ROLEPLAY_ADMIN_SESSION_TTL_SECONDS",
+                default=28_800,
+            ),
+            admin_session_idle_seconds=_int_from_env(
+                env,
+                "ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS",
+                default=1_800,
+            ),
+            admin_cookie_secure=(
+                _bool_from_env(env["ROLEPLAY_ADMIN_COOKIE_SECURE"])
+                if "ROLEPLAY_ADMIN_COOKIE_SECURE" in env
+                else not _is_loopback_host(host)
+            ),
         )
 
     def validate_for_bind(self) -> None:
+        if self.admin_session_ttl_seconds < 300:
+            raise ValueError("ROLEPLAY_ADMIN_SESSION_TTL_SECONDS must be at least 300")
+        if self.admin_session_idle_seconds < 60:
+            raise ValueError("ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS must be at least 60")
+        if self.admin_session_idle_seconds > self.admin_session_ttl_seconds:
+            raise ValueError(
+                "ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS must not exceed session TTL"
+            )
         if _is_loopback_host(self.host):
             return
         api_key = (self.api_key or "").strip()
@@ -129,6 +161,11 @@ class HttpRuntimeSettings:
             raise ValueError(
                 "Non-loopback ROLEPLAY_HOST requires a non-placeholder "
                 "ROLEPLAY_API_KEY with at least 32 characters."
+            )
+        if not self.admin_cookie_secure:
+            raise ValueError(
+                "Non-loopback ROLEPLAY_HOST requires "
+                "ROLEPLAY_ADMIN_COOKIE_SECURE=true."
             )
 
 
@@ -148,6 +185,8 @@ class RoleplayHttpRuntime:
         runtime_config_store: RuntimeConfigStore,
         env_config_editor: EnvConfigEditor,
         access_token_store: AccessTokenStore,
+        admin_session_manager: AdminSessionManager | None = None,
+        admin_cookie_secure: bool = False,
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
         cors_allowed_origins: tuple[str, ...] = (),
@@ -165,6 +204,10 @@ class RoleplayHttpRuntime:
         self._env_config_editor = env_config_editor
         self._access_token_store = access_token_store
         self._api_key = api_key
+        self._admin_sessions = admin_session_manager or AdminSessionManager(
+            password=api_key
+        )
+        self._admin_cookie_secure = admin_cookie_secure
         self._debug_trace_enabled = debug_trace_enabled
         self._cors_allowed_origins = cors_allowed_origins
 
@@ -203,6 +246,12 @@ class RoleplayHttpRuntime:
             access_token_store=SQLiteAccessTokenStore(
                 path=_access_token_path(project_root, runtime_env)
             ),
+            admin_session_manager=AdminSessionManager(
+                password=settings.api_key,
+                ttl_seconds=settings.admin_session_ttl_seconds,
+                idle_timeout_seconds=settings.admin_session_idle_seconds,
+            ),
+            admin_cookie_secure=settings.admin_cookie_secure,
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
             cors_allowed_origins=settings.cors_allowed_origins,
@@ -323,19 +372,24 @@ class RoleplayHttpRuntime:
             return static_response
         if method == "OPTIONS":
             return _empty_response(204)
-        if not self._is_authorized(headers):
+        path_parts = _path_parts(parsed.path)
+        query = _query_params(parsed.query)
+        json_body = _json_body(body, request_id)
+        if isinstance(json_body, HttpRuntimeResponse):
+            return json_body
+        if path_parts == ["v1", "admin", "session"]:
+            return self._admin_session(method, json_body, headers, request_id)
+
+        admin_session = self._admin_session_from_headers(headers)
+        if not self._is_authorized(headers) and not (
+            _is_admin_management_route(path_parts) and admin_session is not None
+        ):
             return _json_response(
                 error_response(
                     AppError(code=ErrorCode.AUTH_INVALID_API_KEY),
                     request_id,
                 ),
             )
-
-        path_parts = _path_parts(parsed.path)
-        query = _query_params(parsed.query)
-        json_body = _json_body(body, request_id)
-        if isinstance(json_body, HttpRuntimeResponse):
-            return json_body
         if access_token is not None:
             _enforce_access_token_app_scope(
                 access_token,
@@ -583,7 +637,7 @@ class RoleplayHttpRuntime:
         headers: Mapping[str, str],
         request_id: str,
     ) -> HttpRuntimeResponse:
-        if not self._is_config_authorized(headers):
+        if not self._is_config_authorized(headers, method=method):
             return _json_response(
                 error_response(
                     AppError(
@@ -653,7 +707,7 @@ class RoleplayHttpRuntime:
         headers: Mapping[str, str],
         request_id: str,
     ) -> HttpRuntimeResponse:
-        if not self._is_config_authorized(headers):
+        if not self._is_config_authorized(headers, method=method):
             return _json_response(
                 error_response(
                     AppError(
@@ -760,6 +814,12 @@ class RoleplayHttpRuntime:
         self._agent_context_planner = agent_context_planner
         self._session_recent_limit = session_settings.recentMessageLimit
         self._api_key = settings.api_key
+        self._admin_sessions = AdminSessionManager(
+            password=settings.api_key,
+            ttl_seconds=settings.admin_session_ttl_seconds,
+            idle_timeout_seconds=settings.admin_session_idle_seconds,
+        )
+        self._admin_cookie_secure = settings.admin_cookie_secure
         self._debug_trace_enabled = settings.debug_trace_enabled
         return {"status": "applied", "applied_keys": list(hot_reload_keys)}
 
@@ -770,7 +830,7 @@ class RoleplayHttpRuntime:
         headers: Mapping[str, str],
         request_id: str,
     ) -> HttpRuntimeResponse:
-        if not self._is_config_authorized(headers):
+        if not self._is_config_authorized(headers, method=method):
             return _json_response(
                 error_response(
                     AppError(
@@ -813,6 +873,12 @@ class RoleplayHttpRuntime:
                 self._agent_context_planner = agent_context_planner
                 self._session_recent_limit = session_settings.recentMessageLimit
                 self._api_key = settings.api_key
+                self._admin_sessions = AdminSessionManager(
+                    password=settings.api_key,
+                    ttl_seconds=settings.admin_session_ttl_seconds,
+                    idle_timeout_seconds=settings.admin_session_idle_seconds,
+                )
+                self._admin_cookie_secure = settings.admin_cookie_secure
                 self._debug_trace_enabled = settings.debug_trace_enabled
             except Exception as exc:
                 return _json_response(error_response(exc, request_id))
@@ -845,10 +911,123 @@ class RoleplayHttpRuntime:
             self._access_token_from_headers(headers) is not None
         )
 
-    def _is_config_authorized(self, headers: Mapping[str, str]) -> bool:
-        if not self._api_key:
+    def _is_config_authorized(
+        self,
+        headers: Mapping[str, str],
+        *,
+        method: str,
+    ) -> bool:
+        if self._api_key and _has_matching_secret(headers, self._api_key):
+            return True
+        session = self._admin_session_from_headers(headers)
+        if session is None:
             return False
-        return _has_matching_secret(headers, self._api_key)
+        if method.upper() in {"GET", "HEAD", "OPTIONS"}:
+            return True
+        return self._admin_sessions.verify_csrf(
+            session,
+            headers.get("x-csrf-token"),
+        )
+
+    def _admin_session(
+        self,
+        method: str,
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        request_id: str,
+    ) -> HttpRuntimeResponse:
+        if method == "POST":
+            password = body.get("password")
+            if not isinstance(password, str) or not password:
+                return _json_response(
+                    error_response(
+                        DTOValidationError("password must be a non-empty string"),
+                        request_id,
+                    )
+                )
+            issued = self._admin_sessions.login(
+                password=password,
+                client_id=headers.get("x-roleplay-client-ip", "unknown"),
+            )
+            response = _json_response(
+                {
+                    "ok": True,
+                    "data": {
+                        "authenticated": True,
+                        "csrf_token": issued.csrf_token,
+                        "expires_in": issued.expires_in,
+                    },
+                    "request_id": request_id,
+                },
+                status=201,
+            )
+            return _with_response_headers(
+                response,
+                {
+                    "Set-Cookie": _admin_cookie(
+                        issued.secret,
+                        max_age=issued.expires_in,
+                        secure=self._admin_cookie_secure,
+                    )
+                },
+            )
+
+        secret = _admin_session_secret(headers)
+        session = self._admin_sessions.authenticate(secret)
+        if session is None:
+            return _json_response(
+                error_response(
+                    AppError(code=ErrorCode.AUTH_INVALID_API_KEY),
+                    request_id,
+                )
+            )
+        if method == "GET":
+            return _json_response(
+                {
+                    "ok": True,
+                    "data": {
+                        "authenticated": True,
+                        "csrf_token": session.csrf_token,
+                    },
+                    "request_id": request_id,
+                }
+            )
+        if method == "DELETE":
+            if not self._admin_sessions.verify_csrf(
+                session,
+                headers.get("x-csrf-token"),
+            ):
+                return _json_response(
+                    error_response(
+                        AppError(
+                            code=ErrorCode.AUTH_PERMISSION_DENIED,
+                            message="后台请求缺少有效的 CSRF 令牌。",
+                        ),
+                        request_id,
+                    )
+                )
+            self._admin_sessions.logout(secret)
+            response = _json_response(
+                {
+                    "ok": True,
+                    "data": {"authenticated": False},
+                    "request_id": request_id,
+                }
+            )
+            return _with_response_headers(
+                response,
+                {
+                    "Set-Cookie": _admin_cookie(
+                        "",
+                        max_age=0,
+                        secure=self._admin_cookie_secure,
+                    )
+                },
+            )
+        return _not_found_response(request_id)
+
+    def _admin_session_from_headers(self, headers: Mapping[str, str]):
+        return self._admin_sessions.authenticate(_admin_session_secret(headers))
 
     def _access_token_from_headers(self, headers: Mapping[str, str]):
         for credential in _credentials(headers):
@@ -897,6 +1076,43 @@ def _credentials(headers: Mapping[str, str]) -> tuple[str, ...]:
     if value and value not in values:
         values.append(value)
     return tuple(values)
+
+
+def _admin_session_secret(headers: Mapping[str, str]) -> str | None:
+    raw_cookie = headers.get("cookie", "")
+    if not raw_cookie:
+        return None
+    cookie = SimpleCookie()
+    try:
+        cookie.load(raw_cookie)
+    except Exception:
+        return None
+    morsel = cookie.get(ADMIN_SESSION_COOKIE)
+    return morsel.value if morsel is not None else None
+
+
+def _admin_cookie(secret: str, *, max_age: int, secure: bool) -> str:
+    cookie = SimpleCookie()
+    cookie[ADMIN_SESSION_COOKIE] = secret
+    morsel = cookie[ADMIN_SESSION_COOKIE]
+    morsel["path"] = "/"
+    morsel["httponly"] = True
+    morsel["samesite"] = "Strict"
+    morsel["max-age"] = str(max_age)
+    if secure:
+        morsel["secure"] = True
+    return morsel.OutputString()
+
+
+def _is_admin_management_route(path_parts: list[str]) -> bool:
+    if path_parts[:2] in (
+        ["v1", "env-config"],
+        ["v1", "access-tokens"],
+    ):
+        return True
+    if path_parts == ["v1", "runtime-config"]:
+        return True
+    return path_parts[:2] == ["v1", "admin"]
 
 
 def _has_matching_secret(headers: Mapping[str, str], expected: str) -> bool:
@@ -1027,6 +1243,31 @@ def _json_response(
     )
 
 
+def _with_response_headers(
+    response: HttpRuntimeResponse,
+    headers: Mapping[str, str],
+) -> HttpRuntimeResponse:
+    return HttpRuntimeResponse(
+        status=response.status,
+        headers={**response.headers, **headers},
+        body=response.body,
+    )
+
+
+def _not_found_response(request_id: str) -> HttpRuntimeResponse:
+    return _json_response(
+        {
+            "ok": False,
+            "error": {
+                "code": "NOT_FOUND",
+                "message": "Route was not found.",
+            },
+            "request_id": request_id,
+        },
+        status=404,
+    )
+
+
 def request_body_too_large_response(
     request_id: str | None = None,
 ) -> HttpRuntimeResponse:
@@ -1100,8 +1341,21 @@ def _content_type(path: Path) -> str:
 
 def _base_headers() -> dict[str, str]:
     return {
-        "Access-Control-Allow-Headers": "Authorization, Content-Type, X-API-Key, X-Request-Id",
+        "Access-Control-Allow-Headers": (
+            "Authorization, Content-Type, X-API-Key, X-CSRF-Token, X-Request-Id"
+        ),
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+        "Content-Security-Policy": (
+            "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+            "form-action 'self'; object-src 'none'; img-src 'self' data:; "
+            "font-src 'self'; style-src 'self'; script-src 'self'; "
+            "connect-src 'self'"
+        ),
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
         "Vary": "Origin",
     }
 
