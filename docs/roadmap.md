@@ -64,8 +64,8 @@ Phase A 到 K 的主要能力已经实现。当前项目已进入“可被前端
 2. Access Token 单一 app scope、业务请求强制校验和 RAG 存储层 app 隔离已完成。
 3. HTTP body、消息、RAG 文档、`top_k` 和 `max_tokens` 资源上限已完成。
 4. 后端简单配置面已收束；单 provider 用户默认只看到 LLM、Embedding、RAG、HTTP 和 SQLite Storage essentials。
-5. 下一步改善配置事务性和热更新时的有状态资源保留。
-6. 进一步化简普通聊天前端契约。
+5. 普通聊天前端契约已化简；默认不再传 provider alias 或完整 generation。
+6. 下一步修复 Access Token 计量正确性；配置事务性仅在启用在线配置写入时继续实现。
 
 额外角色、SafetyGuard、真实 backend context adapter 和 model-backed planner 在上述 P0 边界完成后逐卡实现。
 

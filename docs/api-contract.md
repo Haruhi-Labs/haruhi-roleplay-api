@@ -52,9 +52,11 @@
 | persona_mode | 是   | 角色 preset    |
 | message      | 是   | 用户输入       |
 | language     | 是   | 输出语言       |
-| capabilities | 是   | 能力开关       |
+| capabilities | 否   | 能力开关       |
 | generation   | 否   | 生成参数       |
 | metadata     | 否   | 调用方透传对象 |
+
+省略 `capabilities` 时默认关闭 RAG、memory、连续会话和 debug，并保持 `safety_filter=true`。省略 `generation` 或 `generation.model` 时使用服务端 router 的 default alias；普通前端不需要知道 provider、base URL、token 或 model alias。
 
 当 `capabilities.continuous_session=true` 时，`session_id` 必须来自 `POST /v1/sessions` 创建的 active session，并且与当前 `app_id`、`user_id`、`character_id`、`persona_mode` 匹配。
 

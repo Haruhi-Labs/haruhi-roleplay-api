@@ -74,10 +74,13 @@
               <span>Mode</span>
               <select id="modeSelect"></select>
             </label>
-            <label class="select-field model-field">
-              <span>Model</span>
-              <input id="modelInput" type="text" value="fake-roleplay-model" autocomplete="off" />
-            </label>
+            <details class="chat-advanced">
+              <summary>Advanced</summary>
+              <label class="select-field model-field">
+                <span>Model alias</span>
+                <input id="modelInput" type="text" placeholder="Server default" autocomplete="off" />
+              </label>
+            </details>
           </div>
         </header>
 
@@ -86,7 +89,7 @@
           <label><input id="sessionToggle" type="checkbox" /> Session</label>
           <label><input id="ragToggle" type="checkbox" /> RAG</label>
           <label><input id="memoryToggle" type="checkbox" /> Memory</label>
-          <label><input id="debugToggle" type="checkbox" checked /> Debug</label>
+          <label><input id="debugToggle" type="checkbox" /> Debug</label>
         </div>
 
         <section id="messageList" class="message-list" aria-live="polite"></section>

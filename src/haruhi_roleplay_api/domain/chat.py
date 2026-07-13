@@ -60,7 +60,7 @@ class CapabilityConfig:
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any] | None) -> "CapabilityConfig":
         if data is None:
-            raise DTOValidationError("capabilities is required")
+            return cls()
         if not isinstance(data, Mapping):
             raise DTOValidationError("capabilities must be an object")
         return cls(

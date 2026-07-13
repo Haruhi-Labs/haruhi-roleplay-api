@@ -50,9 +50,11 @@ Boolean 参数必须使用 JSON `true` / `false`，不要传字符串。当前�
 | persona_mode | 是   | 角色 preset，例如 `mid_late_haruhi`              |
 | message      | 是   | 用户输入                                         |
 | language     | 是   | `zh-CN`、`ja-JP`、`en-US`                        |
-| capabilities | 是   | 能力开关                                         |
+| capabilities | 否   | 能力开关                                         |
 | generation   | 否   | 模型生成参数                                     |
 | metadata     | 否   | 调用方透传对象                                   |
+
+省略 `capabilities` 时，RAG、memory、连续会话和 debug 默认关闭，`safety_filter` 默认开启。省略 `generation` 或 `generation.model` 时，服务端使用 model router 的 default alias。普通前端不传 provider type、base URL、token 或 model alias；高级调用方仍可传服务端白名单 alias 和生成参数。
 
 ### capabilities
 
@@ -120,7 +122,7 @@ Boolean 参数必须使用 JSON `true` / `false`，不要传字符串。当前�
 
 ## Chat Stream: POST /v1/chat/stream
 
-用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，服务端会把 `capabilities.stream` 强制视为 true。模型开始前失败时返回普通错误响应；模型开始后失败时返回 `error` event。
+用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，即使省略 `capabilities`，服务端也会把 stream 强制视为 true。模型开始前失败时返回普通错误响应；模型开始后失败时返回 `error` event。
 
 框架无关 handler 可用 `data.events` 数组表达事件；当前 HTTP runtime 会把 provider 增量惰性编码为端到端 SSE。
 

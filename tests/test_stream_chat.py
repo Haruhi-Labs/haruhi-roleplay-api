@@ -110,6 +110,21 @@ def call_stream(
 
 
 class StreamChatTests(unittest.TestCase):
+    def test_stream_chat_accepts_minimal_frontend_body(self) -> None:
+        body = stream_body()
+        body.pop("capabilities")
+        body.pop("generation")
+
+        response = call_stream(body, model_router=StreamingRouter())
+        events = response["data"]["events"]
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(
+            [event["event"] for event in events],
+            ["start", "delta", "delta", "usage", "done"],
+        )
+        self.assertEqual(events[3]["data"]["model"], "streaming-model")
+
     def test_stream_chat_returns_start_delta_usage_and_done_events(self) -> None:
         response = call_stream(stream_body(), model_router=StreamingRouter())
 

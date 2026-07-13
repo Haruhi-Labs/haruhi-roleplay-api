@@ -22,10 +22,10 @@ HTTP runtime 还提供最小资源边界。标准库 server 在读取请求体�
 - `persona_mode`
 - `message`
 - `session_id`
-- `capabilities`
-- `generation`
+- 真正启用的 `capabilities`
+- 高级调用方可选的 `generation`
 
-前端不直接选择数据库、向量库、embedding provider 或真实模型厂商。
+普通前端不直接选择数据库、向量库、embedding provider、真实模型厂商或 model alias；省略 generation 时由 model router 选择 default alias。
 
 ## 分层
 

@@ -29,6 +29,8 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 | sources      | API 返回       | 展示 RAG 来源          |
 | debug        | 开发环境返回   | 调试，不给普通用户展示 |
 
+普通消息请求可以省略 `capabilities` 和 `generation`。只有启用 RAG、memory、连续会话或 debug 时才发送对应能力；模型默认由服务端配置决定。
+
 ## UI 角色和 Preset 选择
 
 前端不要硬编码三种春日模式。推荐启动时或进入页面时调用 `GET /v1/personas`，拿到可展示的角色和 preset catalog。
@@ -105,7 +107,7 @@ Demo 功能：
 - 调用 `POST /v1/rag/documents` 导入最小资料片段。
 - 展示 RAG source 摘要；debug 摘要默认折叠，仅用于开发排查。
 
-Demo 默认使用同源 API。若本地服务配置了 `ROLEPLAY_API_KEY`，需要在 demo 的 API Key 输入框中临时填写；该值只保存在当前页面内存，不写入 localStorage。
+Demo 默认使用同源 API。若本地服务配置了 `ROLEPLAY_API_KEY`，需要在 demo 的 API Key 输入框中临时填写；该值只保存在当前页面内存，不写入 localStorage。Model alias 默认隐藏且留空，只有高级调用方展开 Advanced 后才填写。
 
 ## 前端展示规则
 

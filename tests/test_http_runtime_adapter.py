@@ -314,6 +314,8 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
         self.assertIn("Haruhi Roleplay Demo", body)
+        self.assertIn('<details class="chat-advanced">', body)
+        self.assertIn('placeholder="Server default"', body)
 
     def test_demo_static_asset_is_served(self) -> None:
         response = runtime().handle(method="GET", target="/demo/app.js", headers={})
@@ -325,6 +327,9 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
             "text/javascript; charset=utf-8",
         )
         self.assertIn("loadCatalog", body)
+        self.assertIn("buildChatRequest", body)
+        self.assertIn("await reader.cancel()", body)
+        self.assertNotIn("fake-roleplay-model", body)
 
     def test_demo_static_route_rejects_path_traversal(self) -> None:
         response = runtime().handle(

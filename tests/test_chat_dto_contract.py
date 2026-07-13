@@ -35,7 +35,6 @@ class ChatDTOContractTests(unittest.TestCase):
                 "personaMode": "mid_late_haruhi",
                 "message": "今天有什么计划？",
                 "language": "zh-CN",
-                "capabilities": {},
             }
         )
 
@@ -47,6 +46,7 @@ class ChatDTOContractTests(unittest.TestCase):
         self.assertFalse(chat_input.capabilities.memory)
         self.assertFalse(chat_input.capabilities.continuousSession)
         self.assertTrue(chat_input.capabilities.safetyFilter)
+        self.assertIsNone(chat_input.generation.model)
         self.assertEqual(chat_input.generation.temperature, 0.8)
         self.assertEqual(chat_input.generation.maxTokens, 800)
 

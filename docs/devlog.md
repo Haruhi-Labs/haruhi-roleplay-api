@@ -963,3 +963,22 @@
 ### 下一步
 
 - 实现 12.07 配置写入事务性。
+
+## 2026-07-13：Minimal Frontend Chat Contract
+
+### 完成
+
+- `/v1/chat` 和 `/v1/chat/stream` 允许省略 `capabilities` 与 `generation`。
+- 缺省能力关闭 RAG、memory、连续会话和 debug；流式路由仍强制 stream。
+- 缺省 model 时使用 router default alias，普通前端不再绑定 fake、Ollama 或云模型名称。
+- demo 使用共享 request builder，只发送启用的能力；model alias 移入默认折叠的 Advanced。
+
+### 验证
+
+- Chat DTO、Chat API、Stream Chat 和 HTTP runtime 定向测试 49 项通过。
+- 完整测试集 252 项通过。
+- 浏览器 smoke 通过：Advanced 默认折叠，model alias 留空时使用服务端 default alias，SSE `done` 后 Send 恢复可用。
+
+### 下一步
+
+- 实现 12.10 Access Token 计量正确性。

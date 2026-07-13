@@ -319,8 +319,22 @@ textarea:focus {
   gap: 10px;
 }
 
-.model-field {
+.chat-advanced {
   width: min(240px, 28vw);
+}
+
+.chat-advanced > summary {
+  min-height: 38px;
+  padding: 10px 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.model-field {
+  width: 100%;
+  margin-top: 6px;
 }
 
 .toggle-bar {
@@ -544,6 +558,7 @@ textarea:focus {
     flex-direction: column;
   }
 
+  .chat-advanced,
   .model-field {
     width: 100%;
   }

@@ -46,6 +46,17 @@ def minimal_chat_body() -> dict:
     }
 
 
+def minimal_frontend_chat_body() -> dict:
+    return {
+        "app_id": "web",
+        "user_id": "user-1",
+        "character_id": "haruhi",
+        "persona_mode": "mid_late_haruhi",
+        "message": "今天有什么计划？",
+        "language": "zh-CN",
+    }
+
+
 def fake_model_router() -> ModelProviderRegistryRouter:
     return ModelProviderRegistryRouter(
         providers={"fake": FakeModelProvider()},
@@ -71,6 +82,18 @@ def call_chat(body: dict, request_id: str = "req-chat") -> dict:
 
 
 class ChatApiV1Tests(unittest.TestCase):
+    def test_minimal_frontend_body_uses_safe_and_router_defaults(self) -> None:
+        response = call_chat(minimal_frontend_chat_body())
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(
+            response["data"]["reply"],
+            "[fake:fake-roleplay-model] 今天有什么计划？",
+        )
+        self.assertEqual(response["data"]["rag"], {"enabled": False})
+        self.assertEqual(response["data"]["memory"], {"enabled": False})
+        self.assertIsNone(response["data"]["debug"])
+
     def test_valid_chat_request_returns_reply(self) -> None:
         response = call_chat(minimal_chat_body(), request_id="req-chat-1")
 
