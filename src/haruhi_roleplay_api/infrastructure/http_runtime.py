@@ -366,6 +366,8 @@ class RoleplayHttpRuntime:
                 if _admin_session_secret(normalized_headers)
                 else "anonymous"
             )
+            if action == "admin.login" and response.status < 400:
+                actor = "admin_session"
             self._record_admin_event(
                 actor=actor,
                 action=action,
