@@ -228,6 +228,40 @@ class AccessTokenAdminApiTests(unittest.TestCase):
         self.assertEqual(logs["items"][0]["path"], "/v1/personas")
         self.assertEqual(logs["items"][0]["status_code"], 200)
 
+    def test_admin_can_view_global_usage_and_recent_request_logs(self) -> None:
+        created = self.issue_service_token(app_id="usage-app")
+        service_headers = {"Authorization": f"Bearer {created['token']}"}
+        self.request("GET", "/v1/personas", headers=service_headers)
+
+        usage_response = self.request("GET", "/v1/admin/usage?days=7")
+        logs_response = self.request("GET", "/v1/admin/request-logs?limit=10")
+        usage = response_json(usage_response.body)["data"]
+        logs = response_json(logs_response.body)["data"]
+
+        self.assertEqual(usage_response.status, 200)
+        self.assertEqual(usage["period_days"], 7)
+        self.assertEqual(usage["request_count"], 1)
+        self.assertEqual(usage["services"][0]["app_id"], "usage-app")
+        self.assertEqual(len(usage["daily"]), 7)
+        self.assertEqual(logs_response.status, 200)
+        self.assertEqual(logs["count"], 1)
+        self.assertEqual(logs["items"][0]["path"], "/v1/personas")
+
+    def test_service_token_cannot_read_global_admin_usage(self) -> None:
+        created = self.issue_service_token(app_id="usage-app")
+
+        response = self.request(
+            "GET",
+            "/v1/admin/usage",
+            headers={"Authorization": f"Bearer {created['token']}"},
+        )
+
+        self.assertEqual(response.status, 403)
+        self.assertEqual(
+            response_json(response.body)["error"]["code"],
+            "AUTH_PERMISSION_DENIED",
+        )
+
     def test_service_token_cannot_call_management_api(self) -> None:
         created = response_json(
             self.request(

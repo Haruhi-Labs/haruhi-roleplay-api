@@ -3,7 +3,11 @@
 from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
     AccessTokenRequestLog,
+    AccessTokenRouteUsage,
+    AccessTokenServiceUsage,
     AccessTokenStatus,
+    AccessTokenUsageBucket,
+    AccessTokenUsageOverview,
     IssuedAccessToken,
 )
 
@@ -81,7 +85,11 @@ from haruhi_roleplay_api.domain.model import (
 __all__ = [
     "AccessToken",
     "AccessTokenRequestLog",
+    "AccessTokenRouteUsage",
+    "AccessTokenServiceUsage",
     "AccessTokenStatus",
+    "AccessTokenUsageBucket",
+    "AccessTokenUsageOverview",
     "AppId",
     "BackendContextFact",
     "BackendContextRequest",

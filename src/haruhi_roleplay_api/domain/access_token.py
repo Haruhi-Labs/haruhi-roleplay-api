@@ -139,6 +139,122 @@ class AccessTokenRequestLog:
         }
 
 
+@dataclass(frozen=True, kw_only=True)
+class AccessTokenUsageBucket:
+    date: str
+    requestCount: int
+    errorCount: int
+    promptTokens: int
+    completionTokens: int
+    totalTokens: int
+    averageDurationMs: int
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "date": self.date,
+            "request_count": self.requestCount,
+            "error_count": self.errorCount,
+            "prompt_tokens": self.promptTokens,
+            "completion_tokens": self.completionTokens,
+            "total_tokens": self.totalTokens,
+            "average_duration_ms": self.averageDurationMs,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccessTokenServiceUsage:
+    tokenId: str
+    appId: str | None
+    name: str
+    status: AccessTokenStatus
+    requestCount: int
+    errorCount: int
+    promptTokens: int
+    completionTokens: int
+    totalTokens: int
+    averageDurationMs: int
+    lastUsedAt: str | None
+
+    @property
+    def errorRate(self) -> float:
+        if self.requestCount == 0:
+            return 0.0
+        return self.errorCount / self.requestCount
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "token_id": self.tokenId,
+            "app_id": self.appId,
+            "name": self.name,
+            "status": self.status.value,
+            "request_count": self.requestCount,
+            "error_count": self.errorCount,
+            "error_rate": self.errorRate,
+            "prompt_tokens": self.promptTokens,
+            "completion_tokens": self.completionTokens,
+            "total_tokens": self.totalTokens,
+            "average_duration_ms": self.averageDurationMs,
+            "last_used_at": self.lastUsedAt,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccessTokenRouteUsage:
+    method: str
+    path: str
+    requestCount: int
+    errorCount: int
+    totalTokens: int
+    averageDurationMs: int
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "method": self.method,
+            "path": self.path,
+            "request_count": self.requestCount,
+            "error_count": self.errorCount,
+            "total_tokens": self.totalTokens,
+            "average_duration_ms": self.averageDurationMs,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccessTokenUsageOverview:
+    periodDays: int
+    requestCount: int
+    errorCount: int
+    promptTokens: int
+    completionTokens: int
+    totalTokens: int
+    averageDurationMs: int
+    activeServiceCount: int
+    daily: tuple[AccessTokenUsageBucket, ...]
+    services: tuple[AccessTokenServiceUsage, ...]
+    routes: tuple[AccessTokenRouteUsage, ...]
+
+    @property
+    def errorRate(self) -> float:
+        if self.requestCount == 0:
+            return 0.0
+        return self.errorCount / self.requestCount
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "period_days": self.periodDays,
+            "request_count": self.requestCount,
+            "error_count": self.errorCount,
+            "error_rate": self.errorRate,
+            "prompt_tokens": self.promptTokens,
+            "completion_tokens": self.completionTokens,
+            "total_tokens": self.totalTokens,
+            "average_duration_ms": self.averageDurationMs,
+            "active_service_count": self.activeServiceCount,
+            "daily": [item.to_mapping() for item in self.daily],
+            "services": [item.to_mapping() for item in self.services],
+            "routes": [item.to_mapping() for item in self.routes],
+        }
+
+
 def _require_non_empty(value: str | None, field_name: str) -> str:
     if value is None or not isinstance(value, str) or not value.strip():
         raise DTOValidationError(f"{field_name} must be a non-empty string")

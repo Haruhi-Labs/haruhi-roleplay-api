@@ -6,6 +6,7 @@ from haruhi_roleplay_api.domain import (
     AccessToken,
     AccessTokenRequestLog,
     IssuedAccessToken,
+    AccessTokenUsageOverview,
 )
 from haruhi_roleplay_api.ports import AccessTokenStore
 
@@ -78,3 +79,19 @@ class ListAccessTokenRequestLogs:
         limit: int,
     ) -> tuple[AccessTokenRequestLog, ...]:
         return self._store.list_request_logs(token_id, limit=limit)
+
+
+class ListAllAccessTokenRequestLogs:
+    def __init__(self, store: AccessTokenStore) -> None:
+        self._store = store
+
+    def execute(self, *, limit: int) -> tuple[AccessTokenRequestLog, ...]:
+        return self._store.list_all_request_logs(limit=limit)
+
+
+class GetAccessTokenUsageOverview:
+    def __init__(self, store: AccessTokenStore) -> None:
+        self._store = store
+
+    def execute(self, *, days: int) -> AccessTokenUsageOverview:
+        return self._store.usage_overview(days=days)

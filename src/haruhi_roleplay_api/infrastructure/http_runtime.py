@@ -27,6 +27,10 @@ from haruhi_roleplay_api.api.access_tokens import (
     patch_access_token,
     post_access_token,
 )
+from haruhi_roleplay_api.api.admin import (
+    get_admin_request_logs,
+    get_admin_usage,
+)
 from haruhi_roleplay_api.api.chat import iter_chat_stream_events, post_chat
 from haruhi_roleplay_api.api.memory import delete_memory, get_memory
 from haruhi_roleplay_api.api.personas import get_personas
@@ -412,6 +416,26 @@ class RoleplayHttpRuntime:
         if method == "GET" and path_parts == ["v1", "personas"]:
             return _json_response(
                 get_personas(self._persona_repository, request_id),
+            )
+        if method == "GET" and path_parts == ["v1", "admin", "usage"]:
+            if not self._is_config_authorized(headers, method=method):
+                return _admin_permission_denied_response(request_id)
+            return _json_response(
+                get_admin_usage(
+                    query,
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if method == "GET" and path_parts == ["v1", "admin", "request-logs"]:
+            if not self._is_config_authorized(headers, method=method):
+                return _admin_permission_denied_response(request_id)
+            return _json_response(
+                get_admin_request_logs(
+                    query,
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
             )
         if len(path_parts) >= 2 and path_parts[:2] == ["v1", "env-config"]:
             return self._env_config(method, path_parts, json_body, headers, request_id)
@@ -1267,6 +1291,18 @@ def _not_found_response(request_id: str) -> HttpRuntimeResponse:
             "request_id": request_id,
         },
         status=404,
+    )
+
+
+def _admin_permission_denied_response(request_id: str) -> HttpRuntimeResponse:
+    return _json_response(
+        error_response(
+            AppError(
+                code=ErrorCode.AUTH_PERMISSION_DENIED,
+                message="该接口需要有效的后台管理会话。",
+            ),
+            request_id,
+        )
     )
 
 

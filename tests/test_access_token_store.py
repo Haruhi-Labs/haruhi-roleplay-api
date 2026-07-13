@@ -228,6 +228,59 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
         self.assertIsNone(unlimited.quotaTokens)
         self.assertIsNone(unlimited.remainingTokens)
 
+    def test_global_usage_aggregates_daily_service_and_route_metrics(self) -> None:
+        first = self.store.create_token(
+            app_id="app-one",
+            name="服务一",
+            quota_tokens=1000,
+        )
+        second = self.store.create_token(
+            app_id="app-two",
+            name="服务二",
+            quota_tokens=None,
+        )
+        self.store.record_request(
+            token_id=first.token.tokenId,
+            request_id="req-chat",
+            method="POST",
+            path="/v1/chat",
+            status_code=200,
+            duration_ms=20,
+            prompt_tokens=7,
+            completion_tokens=3,
+        )
+        self.store.record_request(
+            token_id=second.token.tokenId,
+            request_id="req-error",
+            method="POST",
+            path="/v1/chat",
+            status_code=502,
+            duration_ms=40,
+            error_code="MODEL_PROVIDER_ERROR",
+        )
+
+        overview = self.store.usage_overview(days=7)
+        logs = self.store.list_all_request_logs(limit=10)
+
+        self.assertEqual(overview.periodDays, 7)
+        self.assertEqual(overview.requestCount, 2)
+        self.assertEqual(overview.errorCount, 1)
+        self.assertEqual(overview.errorRate, 0.5)
+        self.assertEqual(overview.totalTokens, 10)
+        self.assertEqual(overview.averageDurationMs, 30)
+        self.assertEqual(overview.activeServiceCount, 2)
+        self.assertEqual(len(overview.daily), 7)
+        self.assertEqual(overview.daily[-1].requestCount, 2)
+        self.assertEqual({item.appId for item in overview.services}, {"app-one", "app-two"})
+        self.assertEqual(overview.routes[0].path, "/v1/chat")
+        self.assertEqual(len(logs), 2)
+
+    def test_usage_period_is_bounded(self) -> None:
+        with self.assertRaisesRegex(DTOValidationError, "between 1 and 90"):
+            self.store.usage_overview(days=0)
+        with self.assertRaisesRegex(DTOValidationError, "between 1 and 90"):
+            self.store.usage_overview(days=91)
+
     def test_legacy_database_migration_preserves_token_usage_and_logs(self) -> None:
         self.temp_dir.cleanup()
         self.temp_dir = tempfile.TemporaryDirectory()

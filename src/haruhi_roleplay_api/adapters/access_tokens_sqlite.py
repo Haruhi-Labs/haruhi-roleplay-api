@@ -6,7 +6,7 @@ import hashlib
 import secrets
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterator
 from uuid import uuid4
@@ -16,7 +16,11 @@ from haruhi_roleplay_api.domain import DTOValidationError
 from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
     AccessTokenRequestLog,
+    AccessTokenRouteUsage,
+    AccessTokenServiceUsage,
     AccessTokenStatus,
+    AccessTokenUsageBucket,
+    AccessTokenUsageOverview,
     IssuedAccessToken,
 )
 
@@ -257,6 +261,135 @@ class SQLiteAccessTokenStore:
             ).fetchall()
         return tuple(_request_log_from_row(row) for row in rows)
 
+    def list_all_request_logs(
+        self,
+        *,
+        limit: int = 50,
+    ) -> tuple[AccessTokenRequestLog, ...]:
+        clean_limit = _bounded_limit(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM access_token_request_logs
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                (clean_limit,),
+            ).fetchall()
+        return tuple(_request_log_from_row(row) for row in rows)
+
+    def usage_overview(self, *, days: int = 30) -> AccessTokenUsageOverview:
+        clean_days = _bounded_days(days)
+        today = _utc_now().date()
+        first_day = today - timedelta(days=clean_days - 1)
+        cutoff = datetime.combine(first_day, datetime.min.time(), tzinfo=UTC).isoformat()
+        with self._connect() as connection:
+            summary = connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS request_count,
+                    COALESCE(SUM(CASE WHEN status_code >= 400 OR error_code IS NOT NULL THEN 1 ELSE 0 END), 0) AS error_count,
+                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(ROUND(AVG(duration_ms)), 0) AS average_duration_ms,
+                    COUNT(DISTINCT token_id) AS active_service_count
+                FROM access_token_request_logs
+                WHERE created_at >= ?
+                """,
+                (cutoff,),
+            ).fetchone()
+            daily_rows = connection.execute(
+                """
+                SELECT
+                    substr(created_at, 1, 10) AS usage_date,
+                    COUNT(*) AS request_count,
+                    SUM(CASE WHEN status_code >= 400 OR error_code IS NOT NULL THEN 1 ELSE 0 END) AS error_count,
+                    SUM(prompt_tokens) AS prompt_tokens,
+                    SUM(completion_tokens) AS completion_tokens,
+                    SUM(total_tokens) AS total_tokens,
+                    ROUND(AVG(duration_ms)) AS average_duration_ms
+                FROM access_token_request_logs
+                WHERE created_at >= ?
+                GROUP BY usage_date
+                ORDER BY usage_date
+                """,
+                (cutoff,),
+            ).fetchall()
+            service_rows = connection.execute(
+                """
+                SELECT
+                    token.token_id,
+                    token.app_id,
+                    token.name,
+                    token.status,
+                    COUNT(log.log_id) AS request_count,
+                    COALESCE(SUM(CASE WHEN log.status_code >= 400 OR log.error_code IS NOT NULL THEN 1 ELSE 0 END), 0) AS error_count,
+                    COALESCE(SUM(log.prompt_tokens), 0) AS prompt_tokens,
+                    COALESCE(SUM(log.completion_tokens), 0) AS completion_tokens,
+                    COALESCE(SUM(log.total_tokens), 0) AS total_tokens,
+                    COALESCE(ROUND(AVG(log.duration_ms)), 0) AS average_duration_ms,
+                    MAX(log.created_at) AS period_last_used_at
+                FROM access_tokens AS token
+                LEFT JOIN access_token_request_logs AS log
+                    ON log.token_id = token.token_id AND log.created_at >= ?
+                GROUP BY token.token_id
+                ORDER BY total_tokens DESC, request_count DESC, token.name
+                """,
+                (cutoff,),
+            ).fetchall()
+            route_rows = connection.execute(
+                """
+                SELECT
+                    method,
+                    path,
+                    COUNT(*) AS request_count,
+                    SUM(CASE WHEN status_code >= 400 OR error_code IS NOT NULL THEN 1 ELSE 0 END) AS error_count,
+                    SUM(total_tokens) AS total_tokens,
+                    ROUND(AVG(duration_ms)) AS average_duration_ms
+                FROM access_token_request_logs
+                WHERE created_at >= ?
+                GROUP BY method, path
+                ORDER BY request_count DESC, total_tokens DESC, method, path
+                LIMIT 20
+                """,
+                (cutoff,),
+            ).fetchall()
+
+        daily_by_date = {
+            str(row["usage_date"]): _usage_bucket_from_row(row)
+            for row in daily_rows
+        }
+        daily = tuple(
+            daily_by_date.get(
+                (first_day + timedelta(days=offset)).isoformat(),
+                AccessTokenUsageBucket(
+                    date=(first_day + timedelta(days=offset)).isoformat(),
+                    requestCount=0,
+                    errorCount=0,
+                    promptTokens=0,
+                    completionTokens=0,
+                    totalTokens=0,
+                    averageDurationMs=0,
+                ),
+            )
+            for offset in range(clean_days)
+        )
+        return AccessTokenUsageOverview(
+            periodDays=clean_days,
+            requestCount=int(summary["request_count"]),
+            errorCount=int(summary["error_count"]),
+            promptTokens=int(summary["prompt_tokens"]),
+            completionTokens=int(summary["completion_tokens"]),
+            totalTokens=int(summary["total_tokens"]),
+            averageDurationMs=int(summary["average_duration_ms"]),
+            activeServiceCount=int(summary["active_service_count"]),
+            daily=daily,
+            services=tuple(_service_usage_from_row(row) for row in service_rows),
+            routes=tuple(_route_usage_from_row(row) for row in route_rows),
+        )
+
     def _initialize_schema(self) -> None:
         if self._path != ":memory:":
             Path(self._path).parent.mkdir(parents=True, exist_ok=True)
@@ -371,6 +504,49 @@ def _request_log_from_row(row: sqlite3.Row) -> AccessTokenRequestLog:
     )
 
 
+def _usage_bucket_from_row(row: sqlite3.Row) -> AccessTokenUsageBucket:
+    return AccessTokenUsageBucket(
+        date=str(row["usage_date"]),
+        requestCount=int(row["request_count"]),
+        errorCount=int(row["error_count"]),
+        promptTokens=int(row["prompt_tokens"]),
+        completionTokens=int(row["completion_tokens"]),
+        totalTokens=int(row["total_tokens"]),
+        averageDurationMs=int(row["average_duration_ms"]),
+    )
+
+
+def _service_usage_from_row(row: sqlite3.Row) -> AccessTokenServiceUsage:
+    return AccessTokenServiceUsage(
+        tokenId=str(row["token_id"]),
+        appId=(str(row["app_id"]) if row["app_id"] is not None else None),
+        name=str(row["name"]),
+        status=AccessTokenStatus(str(row["status"])),
+        requestCount=int(row["request_count"]),
+        errorCount=int(row["error_count"]),
+        promptTokens=int(row["prompt_tokens"]),
+        completionTokens=int(row["completion_tokens"]),
+        totalTokens=int(row["total_tokens"]),
+        averageDurationMs=int(row["average_duration_ms"]),
+        lastUsedAt=(
+            str(row["period_last_used_at"])
+            if row["period_last_used_at"] is not None
+            else None
+        ),
+    )
+
+
+def _route_usage_from_row(row: sqlite3.Row) -> AccessTokenRouteUsage:
+    return AccessTokenRouteUsage(
+        method=str(row["method"]),
+        path=str(row["path"]),
+        requestCount=int(row["request_count"]),
+        errorCount=int(row["error_count"]),
+        totalTokens=int(row["total_tokens"]),
+        averageDurationMs=int(row["average_duration_ms"]),
+    )
+
+
 def _sqlite_path(path: str | Path) -> str:
     value = str(path)
     if not value.strip():
@@ -408,6 +584,18 @@ def _bounded_limit(value: int) -> int:
     if parsed <= 0:
         raise DTOValidationError("limit must be a positive integer")
     return min(parsed, 200)
+
+
+def _bounded_days(value: int) -> int:
+    if isinstance(value, bool):
+        raise DTOValidationError("days must be an integer between 1 and 90")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise DTOValidationError("days must be an integer between 1 and 90") from exc
+    if not 1 <= parsed <= 90:
+        raise DTOValidationError("days must be an integer between 1 and 90")
+    return parsed
 
 
 def _optional_future_timestamp(value: str | None) -> str | None:

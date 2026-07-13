@@ -355,7 +355,7 @@ item 字段：
 
 ## Access Token 管理
 
-该组接口只接受 `ROLEPLAY_API_KEY`，不接受服务令牌。完整安全和运维说明见 `docs/usage/access-token-management.md`。
+该组接口接受 `ROLEPLAY_API_KEY`，或后台登录产生的安全会话 Cookie；不接受业务服务令牌。后台会话执行修改操作时还必须提供登录响应中的 CSRF 令牌。完整安全和运维说明见 `docs/usage/access-token-management.md`。
 
 | Endpoint | 请求 | 用途 |
 | --- | --- | --- |
@@ -375,6 +375,17 @@ item 字段：
 令牌详情中的用量字段包括 `quota_tokens`、`prompt_tokens`、`completion_tokens`、`total_tokens` 和 `remaining_tokens`。额度耗尽后的聊天请求返回 HTTP 429 和 `ACCESS_TOKEN_QUOTA_EXCEEDED`。
 
 模型 provider 返回 usage 时使用真实值；OpenAI-compatible 响应缺少 usage 字段时，服务按消息和回复长度进行 fallback 估算。负数或不可解析的单个 usage 字段按 `0` 处理。流式 provider 失败时，请求日志记录 SSE `data.error.code`，不会记录消息或回复正文。
+
+## 后台用量与全局审计
+
+该组接口只接受管理员密钥或安全后台会话，不接受业务服务令牌：
+
+| Endpoint | 查询参数 | 用途 |
+| --- | --- | --- |
+| `GET /v1/admin/usage` | `days`，默认 30，范围 1–90 | 返回请求数、错误率、Token 构成、平均耗时、每日趋势、逐服务和逐路由聚合 |
+| `GET /v1/admin/request-logs` | `limit`，默认 50，最大 200 | 返回所有服务令牌最近的请求审计日志 |
+
+用量数据来自服务令牌审计账本，只统计所选 UTC 日期窗口内的业务服务请求。每日趋势会补齐无请求日期；逐服务结果包含零请求服务，便于管理员发现尚未使用或已停用的调用方。日志仍不保存 Header、令牌明文、请求正文、用户消息或模型回复。
 
 ## Runtime Config: GET /v1/runtime-config
 

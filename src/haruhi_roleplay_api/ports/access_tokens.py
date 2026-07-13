@@ -7,6 +7,7 @@ from typing import Protocol
 from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
     AccessTokenRequestLog,
+    AccessTokenUsageOverview,
     IssuedAccessToken,
 )
 
@@ -67,3 +68,13 @@ class AccessTokenStore(Protocol):
         limit: int = 50,
     ) -> tuple[AccessTokenRequestLog, ...]:
         """按时间倒序读取令牌请求日志。"""
+
+    def list_all_request_logs(
+        self,
+        *,
+        limit: int = 50,
+    ) -> tuple[AccessTokenRequestLog, ...]:
+        """按时间倒序读取所有服务令牌的请求日志。"""
+
+    def usage_overview(self, *, days: int = 30) -> AccessTokenUsageOverview:
+        """聚合指定时间窗口内的整体、逐服务和逐路由用量。"""
