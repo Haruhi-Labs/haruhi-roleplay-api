@@ -943,3 +943,23 @@
 ### 下一步
 
 - 实现 12.06，收束普通用户看到的 LLM、Embedding 和 RAG 配置面。
+
+## 2026-07-13：Simple Config Surface
+
+### 完成
+
+- `/config` 默认只显示 HTTP、Storage、Simple LLM、Simple RAG 和 Simple Embedding，Advanced 默认折叠。
+- schema 增加字段级 `advanced` 标记和 provider 字段矩阵，不新增配置 profile 系统。
+- 单模型配置使用 `LLM_MODEL` 即可生成内部 route alias，registry 和高级 provider 配置继续保留并具有更高优先级。
+- Simple provider 配置默认补齐 SQLite session/memory 与可见数据路径；显式 storage 配置仍优先。
+- `.env.example` 收束为 fake model、hash embedding、local RAG 和 SQLite storage 的最小本地配置。
+
+### 验证
+
+- Simple facade、env editor、memory/session factory 和 HTTP adapter 定向测试 63 项通过。
+- 完整测试集 250 项通过。
+- `/config` 浏览器 smoke 通过：默认不显示高级字段，API type 字段矩阵、Advanced 展开和 SQLite Storage 路径符合预期。
+
+### 下一步
+
+- 实现 12.07 配置写入事务性。

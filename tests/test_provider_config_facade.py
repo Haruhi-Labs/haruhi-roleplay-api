@@ -21,6 +21,7 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
 )
 from haruhi_roleplay_api.infrastructure import (  # noqa: E402
     EmbeddingProviderSettings,
+    MemoryStoreSettings,
     ModelProviderSettings,
     RagProviderSettings,
     RoleplayHttpRuntime,
@@ -62,6 +63,37 @@ def model_messages() -> tuple[ModelMessage, ...]:
 
 
 class ProviderConfigFacadeTests(unittest.TestCase):
+    def test_common_simple_llm_presets_build_registry_without_model_alias(self) -> None:
+        cases = (
+            ("fake", "fake-roleplay-model"),
+            ("ollama", "qwen2.5:7b"),
+            ("openai", "gpt-test"),
+            ("deepseek", "deepseek-chat"),
+            ("gemini", "gemini-test"),
+        )
+        for api_type, model in cases:
+            with self.subTest(api_type=api_type):
+                env = apply_provider_config_facade(
+                    {
+                        "LLM_API_TYPE": api_type,
+                        "LLM_BASE_URL": "https://provider.example/v1",
+                        "LLM_MODEL": model,
+                        "LLM_API_KEY": "test-secret",
+                    }
+                )
+                registry = json.loads(env["MODEL_PROVIDER_REGISTRY"])
+
+                self.assertEqual(registry["default_alias"], model)
+                self.assertEqual(
+                    registry["providers"]["llm-main"]["type"],
+                    api_type,
+                )
+                self.assertEqual(
+                    registry["aliases"][model]["model"],
+                    model,
+                )
+                self.assertNotIn("MODEL_ALIAS", env)
+
     def test_llm_facade_overrides_legacy_single_provider_defaults(self) -> None:
         env = apply_provider_config_facade(
             {
@@ -242,16 +274,28 @@ class ProviderConfigFacadeTests(unittest.TestCase):
         self.assertEqual(headers["api-key"], "qdrant-secret")
         self.assertEqual(output.provider, "qdrant-rag")
 
-    def test_simple_config_defaults_session_to_sqlite(self) -> None:
-        settings = SessionStoreSettings.from_mapping(
-            {
-                "LLM_API_TYPE": "fake",
-                "LLM_MODEL": "fake-roleplay-model",
-            }
-        )
+    def test_simple_config_defaults_session_and_memory_to_sqlite(self) -> None:
+        env = {
+            "LLM_API_TYPE": "fake",
+            "LLM_MODEL": "fake-roleplay-model",
+        }
+        session = SessionStoreSettings.from_mapping(env)
+        memory = MemoryStoreSettings.from_mapping(env)
 
-        self.assertEqual(settings.provider, "sqlite")
-        self.assertEqual(settings.sqlitePath, ".data/sessions.sqlite3")
+        self.assertEqual(session.provider, "sqlite")
+        self.assertEqual(session.sqlitePath, ".data/sessions.sqlite3")
+        self.assertEqual(memory.provider, "sqlite")
+        self.assertEqual(memory.sqlitePath, ".data/memories.sqlite3")
+
+    def test_explicit_storage_providers_override_simple_defaults(self) -> None:
+        env = {
+            "LLM_API_TYPE": "fake",
+            "SESSION_PROVIDER": "memory",
+            "MEMORY_PROVIDER": "memory",
+        }
+
+        self.assertEqual(SessionStoreSettings.from_mapping(env).provider, "memory")
+        self.assertEqual(MemoryStoreSettings.from_mapping(env).provider, "memory")
 
     def test_env_config_schema_and_check_support_simple_fields(self) -> None:
         self.assertIn("LLM_API_TYPE", ENV_CONFIG_FIELD_BY_KEY)
@@ -259,6 +303,7 @@ class ProviderConfigFacadeTests(unittest.TestCase):
         self.assertTrue(ENV_CONFIG_FIELD_BY_KEY["RAG_API_KEY"].secret)
 
         editor = EnvConfigEditor(base_env={}, config_path=None)
+        schema = editor.schema()
         invalid = editor.check(
             {
                 "values": {
@@ -281,6 +326,21 @@ class ProviderConfigFacadeTests(unittest.TestCase):
         )
 
         self.assertFalse(invalid.valid)
+        self.assertEqual(
+            set(schema["simple_groups"]),
+            {"HTTP", "Storage", "Simple LLM", "Simple Embedding", "Simple RAG"},
+        )
+        self.assertNotIn("Model", schema["simple_groups"])
+        self.assertTrue(ENV_CONFIG_FIELD_BY_KEY["MODEL_ALIAS"].advanced)
+        self.assertFalse(ENV_CONFIG_FIELD_BY_KEY["LLM_MODEL"].advanced)
+        self.assertEqual(
+            schema["simple_presets"]["llm"]["fake"],
+            ["LLM_API_TYPE"],
+        )
+        self.assertEqual(
+            schema["simple_presets"]["rag"]["qdrant"],
+            ["RAG_API_TYPE", "RAG_BASE_URL", "RAG_INDEX", "RAG_API_KEY"],
+        )
         self.assertIn(
             "LLM_API_KEY or OPENAI_API_KEY is required for LLM_API_TYPE=openai",
             invalid.errors,

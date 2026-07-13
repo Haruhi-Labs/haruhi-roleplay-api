@@ -80,6 +80,22 @@ Compose 只启动本服务，不额外启动模型、Qdrant 或 PostgreSQL。
 
 单 provider 配置采用同一种心智模型：选择 API type，再填写地址、模型或索引、令牌。
 
+常见 API type 的最小字段矩阵：
+
+| 类型 | 最小字段 |
+| --- | --- |
+| fake LLM | `LLM_API_TYPE` |
+| Ollama LLM | `LLM_API_TYPE`、`LLM_BASE_URL`、`LLM_MODEL` |
+| OpenAI / DeepSeek / Gemini | `LLM_API_TYPE`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY` |
+| hash embedding | `EMBEDDING_API_TYPE`、`EMBEDDING_DIMENSIONS` |
+| Ollama embedding | API type、base URL、model、dimensions |
+| 云端 embedding | API type、base URL、model、token、dimensions |
+| local text RAG | `RAG_API_TYPE` |
+| Chroma | `RAG_API_TYPE`、`RAG_INDEX` |
+| Qdrant | `RAG_API_TYPE`、`RAG_BASE_URL`、`RAG_INDEX`、`RAG_API_KEY` |
+
+`LLM_MODEL` 同时作为服务端默认 alias，单 provider 用户不需要填写 `MODEL_ALIAS`。`MODEL_PROVIDER_REGISTRY` 存在时具有最高优先级，适合多 provider；否则 `LLM_*` 映射为内部 registry。简单 Embedding/RAG 字段覆盖对应 legacy 单 provider 字段，显式 `SESSION_PROVIDER` / `MEMORY_PROVIDER` 则覆盖 SQLite 默认。
+
 ### LLM
 
 | 字段 | 必填 | 说明 |
@@ -163,7 +179,7 @@ RAG payload 从 12.04 起必须包含 `app_id`。升级已有 Chroma/Qdrant coll
 
 ## 默认存储
 
-本地和单容器部署推荐 SQLite：
+`.env.example`、Compose 和简单 provider 配置默认使用 SQLite：
 
 ```env
 SESSION_PROVIDER=sqlite

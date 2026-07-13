@@ -21,6 +21,7 @@ SIMPLE_EMBEDDING_KEYS = (
     "EMBEDDING_BASE_URL",
     "EMBEDDING_MODEL",
     "EMBEDDING_API_KEY",
+    "EMBEDDING_DIMENSIONS",
 )
 SIMPLE_RAG_KEYS = (
     "RAG_API_TYPE",
@@ -40,7 +41,7 @@ def apply_provider_config_facade(env: Mapping[str, str]) -> dict[str, str]:
     _apply_llm_facade(effective, env)
     _apply_embedding_facade(effective, env)
     _apply_rag_facade(effective, env)
-    _apply_default_session(effective, env)
+    _apply_default_storage(effective, env)
     return effective
 
 
@@ -132,7 +133,7 @@ def _apply_rag_facade(effective: dict[str, str], env: Mapping[str, str]) -> None
         effective["CHROMA_COLLECTION"] = index
 
 
-def _apply_default_session(effective: dict[str, str], env: Mapping[str, str]) -> None:
+def _apply_default_storage(effective: dict[str, str], env: Mapping[str, str]) -> None:
     if not has_simple_provider_config(env):
         return
     if not _has_value(env, "SESSION_PROVIDER"):
@@ -142,6 +143,13 @@ def _apply_default_session(effective: dict[str, str], env: Mapping[str, str]) ->
         "SESSION_SQLITE_PATH",
     ):
         effective["SESSION_SQLITE_PATH"] = ".data/sessions.sqlite3"
+    if not _has_value(env, "MEMORY_PROVIDER"):
+        effective["MEMORY_PROVIDER"] = "sqlite"
+    if effective.get("MEMORY_PROVIDER") == "sqlite" and not _has_value(
+        env,
+        "MEMORY_SQLITE_PATH",
+    ):
+        effective["MEMORY_SQLITE_PATH"] = ".data/memories.sqlite3"
 
 
 def _has_any_value(env: Mapping[str, str], keys: tuple[str, ...]) -> bool:

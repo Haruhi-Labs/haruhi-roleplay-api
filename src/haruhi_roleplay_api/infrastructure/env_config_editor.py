@@ -37,6 +37,7 @@ class EnvConfigField:
     required: bool = False
     minValue: int | None = None
     maxValue: int | None = None
+    advanced: bool = True
 
     def to_data(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -48,6 +49,7 @@ class EnvConfigField:
             "hot_reload": self.hotReload,
             "restart_required": self.restartRequired,
             "required": self.required,
+            "advanced": self.advanced,
         }
         if self.default is not None:
             data["default"] = self.default
@@ -103,6 +105,7 @@ def _field(
     required: bool = False,
     min_value: int | None = None,
     max_value: int | None = None,
+    advanced: bool = True,
 ) -> EnvConfigField:
     restart = restart_required if restart_required is not None else key in _RESTART_KEYS
     hot = hot_reload if hot_reload is not None else key in _HOT_RELOAD_KEYS
@@ -119,6 +122,24 @@ def _field(
         required=required,
         minValue=min_value,
         maxValue=max_value,
+        advanced=advanced,
+    )
+
+
+def _simple_field(
+    key: str,
+    group: str,
+    value_type: str,
+    description: str,
+    **kwargs: Any,
+) -> EnvConfigField:
+    return _field(
+        key,
+        group,
+        value_type,
+        description,
+        advanced=False,
+        **kwargs,
     )
 
 
@@ -141,16 +162,43 @@ _HOT_RELOAD_KEYS = {
     "QDRANT_API_KEY",
 }
 
+SIMPLE_CONFIG_PRESETS: Mapping[str, Mapping[str, tuple[str, ...]]] = {
+    "llm": {
+        "fake": ("LLM_API_TYPE",),
+        "ollama": ("LLM_API_TYPE", "LLM_BASE_URL", "LLM_MODEL"),
+        "openai": ("LLM_API_TYPE", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY"),
+        "openai_compatible": ("LLM_API_TYPE", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY"),
+        "deepseek": ("LLM_API_TYPE", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY"),
+        "gemini": ("LLM_API_TYPE", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY"),
+    },
+    "embedding": {
+        "hash": ("EMBEDDING_API_TYPE", "EMBEDDING_DIMENSIONS"),
+        "ollama": ("EMBEDDING_API_TYPE", "EMBEDDING_BASE_URL", "EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS"),
+        "openai": ("EMBEDDING_API_TYPE", "EMBEDDING_BASE_URL", "EMBEDDING_MODEL", "EMBEDDING_API_KEY", "EMBEDDING_DIMENSIONS"),
+        "openai_compatible": ("EMBEDDING_API_TYPE", "EMBEDDING_BASE_URL", "EMBEDDING_MODEL", "EMBEDDING_API_KEY", "EMBEDDING_DIMENSIONS"),
+        "local_openai_compatible": ("EMBEDDING_API_TYPE", "EMBEDDING_BASE_URL", "EMBEDDING_MODEL", "EMBEDDING_API_KEY", "EMBEDDING_DIMENSIONS"),
+    },
+    "rag": {
+        "fake": ("RAG_API_TYPE",),
+        "local": ("RAG_API_TYPE",),
+        "local_vector": ("RAG_API_TYPE",),
+        "chroma": ("RAG_API_TYPE", "RAG_INDEX"),
+        "faiss": ("RAG_API_TYPE",),
+        "qdrant": ("RAG_API_TYPE", "RAG_BASE_URL", "RAG_INDEX", "RAG_API_KEY"),
+    },
+}
+
+
 ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
-    _field("ROLEPLAY_HOST", "HTTP", "string", "HTTP bind host.", default="127.0.0.1"),
-    _field("ROLEPLAY_PORT", "HTTP", "int", "HTTP bind port.", default="8000", min_value=1, max_value=65535),
-    _field("ROLEPLAY_API_KEY", "HTTP", "secret", "Trusted admin API key.", secret=True, hot_reload=True),
+    _simple_field("ROLEPLAY_HOST", "HTTP", "string", "HTTP bind host.", default="127.0.0.1"),
+    _simple_field("ROLEPLAY_PORT", "HTTP", "int", "HTTP bind port.", default="8000", min_value=1, max_value=65535),
+    _simple_field("ROLEPLAY_API_KEY", "HTTP", "secret", "Trusted admin API key.", secret=True, hot_reload=True),
     _field("ENABLE_DEBUG_TRACE", "HTTP", "bool", "Return safe debug trace summaries.", default="true"),
-    _field("ACCESS_TOKEN_SQLITE_PATH", "Access Token", "path", "SQLite access token ledger path.", default=".data/access-tokens.sqlite3"),
-    _field("LLM_API_TYPE", "Simple LLM", "enum", "LLM API type/provider.", enum=("fake", "openai", "openai_compatible", "ollama", "deepseek", "gemini")),
-    _field("LLM_BASE_URL", "Simple LLM", "url", "LLM API base URL."),
-    _field("LLM_MODEL", "Simple LLM", "string", "LLM model name."),
-    _field("LLM_API_KEY", "Simple LLM", "secret", "LLM API token.", secret=True, hot_reload=True),
+    _simple_field("ACCESS_TOKEN_SQLITE_PATH", "Storage", "path", "SQLite access token ledger path.", default=".data/access-tokens.sqlite3"),
+    _simple_field("LLM_API_TYPE", "Simple LLM", "enum", "LLM API type/provider.", default="fake", enum=("fake", "openai", "openai_compatible", "ollama", "deepseek", "gemini")),
+    _simple_field("LLM_BASE_URL", "Simple LLM", "url", "LLM API base URL."),
+    _simple_field("LLM_MODEL", "Simple LLM", "string", "LLM model name.", default="fake-roleplay-model"),
+    _simple_field("LLM_API_KEY", "Simple LLM", "secret", "LLM API token.", secret=True, hot_reload=True),
     _field("MODEL_PROVIDER", "Model", "enum", "Legacy model provider type.", default="fake", enum=("fake", "local", "openai_compatible", "ollama", "openai", "deepseek", "gemini")),
     _field("MODEL_PROVIDER_ID", "Model", "string", "Legacy provider id override."),
     _field("MODEL_PROVIDER_NAME", "Model", "string", "Display/debug name for local compatible provider."),
@@ -164,10 +212,10 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("OPENAI_API_KEY", "Secrets", "secret", "OpenAI API key.", secret=True, hot_reload=True),
     _field("DEEPSEEK_API_KEY", "Secrets", "secret", "DeepSeek API key.", secret=True, hot_reload=True),
     _field("GEMINI_API_KEY", "Secrets", "secret", "Gemini API key.", secret=True, hot_reload=True),
-    _field("RAG_API_TYPE", "Simple RAG", "enum", "RAG API type/provider.", enum=("fake", "local", "local_vector", "chroma", "faiss", "qdrant")),
-    _field("RAG_BASE_URL", "Simple RAG", "url", "RAG API base URL."),
-    _field("RAG_INDEX", "Simple RAG", "string", "RAG collection, index, or vector store id."),
-    _field("RAG_API_KEY", "Simple RAG", "secret", "RAG API token.", secret=True, hot_reload=True),
+    _simple_field("RAG_API_TYPE", "Simple RAG", "enum", "RAG API type/provider.", default="local", enum=("fake", "local", "local_vector", "chroma", "faiss", "qdrant")),
+    _simple_field("RAG_BASE_URL", "Simple RAG", "url", "RAG API base URL."),
+    _simple_field("RAG_INDEX", "Simple RAG", "string", "RAG collection, index, or vector store id."),
+    _simple_field("RAG_API_KEY", "Simple RAG", "secret", "RAG API token.", secret=True, hot_reload=True),
     _field("RAG_PROVIDER", "RAG", "enum", "RAG provider.", default="local", enum=("fake", "local", "local_vector", "chroma", "faiss", "qdrant")),
     _field("RAG_CHUNK_SIZE", "RAG", "int", "RAG chunk size.", default="320", min_value=1),
     _field("RAG_EMBEDDING_DIMENSIONS", "RAG", "int", "RAG vector dimensions.", default="384", min_value=1),
@@ -180,12 +228,12 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("QDRANT_TIMEOUT_MS", "RAG", "int", "Qdrant timeout in milliseconds.", default="10000", min_value=1),
     _field("QDRANT_ENSURE_COLLECTION", "RAG", "bool", "Create Qdrant collection when missing.", default="false"),
     _field("QDRANT_API_KEY", "Secrets", "secret", "Qdrant API key.", secret=True, hot_reload=True),
-    _field("EMBEDDING_API_TYPE", "Simple Embedding", "enum", "Embedding API type/provider.", enum=("hash", "openai", "openai_compatible", "local_openai_compatible", "ollama")),
-    _field("EMBEDDING_BASE_URL", "Simple Embedding", "url", "Embedding API base URL."),
-    _field("EMBEDDING_MODEL", "Simple Embedding", "string", "Embedding model name."),
-    _field("EMBEDDING_API_KEY", "Simple Embedding", "secret", "Embedding API token.", secret=True, hot_reload=True),
+    _simple_field("EMBEDDING_API_TYPE", "Simple Embedding", "enum", "Embedding API type/provider.", default="hash", enum=("hash", "openai", "openai_compatible", "local_openai_compatible", "ollama")),
+    _simple_field("EMBEDDING_BASE_URL", "Simple Embedding", "url", "Embedding API base URL."),
+    _simple_field("EMBEDDING_MODEL", "Simple Embedding", "string", "Embedding model name."),
+    _simple_field("EMBEDDING_API_KEY", "Simple Embedding", "secret", "Embedding API token.", secret=True, hot_reload=True),
     _field("EMBEDDING_PROVIDER", "Embedding", "enum", "Embedding provider.", default="hash", enum=("hash", "local_openai_compatible", "openai_compatible", "local", "ollama", "openai")),
-    _field("EMBEDDING_DIMENSIONS", "Embedding", "int", "Embedding vector dimensions.", default="384", min_value=1),
+    _simple_field("EMBEDDING_DIMENSIONS", "Simple Embedding", "int", "Embedding vector dimensions.", default="384", min_value=1),
     _field("EMBEDDING_TIMEOUT_MS", "Embedding", "int", "Embedding timeout in milliseconds.", default="30000", min_value=1),
     _field("EMBEDDING_API_KEY_ENV", "Embedding", "string", "Environment variable name for embedding API key."),
     _field("EMBEDDING_PATH", "Embedding", "path", "Embeddings API path override."),
@@ -193,17 +241,17 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("BACKEND_CONTEXT_PROVIDER", "Backend Context", "enum", "Backend context provider.", default="none", enum=("none", "fake")),
     _field("BACKEND_CONTEXT_SOURCES", "Backend Context", "csv", "Backend context source list."),
     _field("BACKEND_CONTEXT_ALLOWED_SOURCES", "Backend Context", "csv", "Allowed backend context sources.", default="user_profile,game_state"),
-    _field("SESSION_PROVIDER", "Session", "enum", "Session store provider.", default="memory", enum=("memory", "sqlite", "postgres")),
+    _simple_field("SESSION_PROVIDER", "Storage", "enum", "Session store provider.", default="sqlite", enum=("sqlite", "memory", "postgres")),
     _field("SESSION_RECENT_LIMIT", "Session", "int", "Recent message count used in prompt.", default="12", min_value=1),
     _field("SESSION_TTL_SECONDS", "Session", "int", "Session TTL seconds.", default="604800", min_value=0),
     _field("SESSION_AUTO_CREATE_SCHEMA", "Session", "bool", "Auto-create session database schema.", default="true"),
-    _field("SESSION_SQLITE_PATH", "Session", "path", "SQLite session database path.", default=".data/sessions.sqlite3"),
+    _simple_field("SESSION_SQLITE_PATH", "Storage", "path", "SQLite session database path.", default=".data/sessions.sqlite3"),
     _field("SESSION_SQLITE_BUSY_TIMEOUT_MS", "Session", "int", "SQLite busy timeout in milliseconds.", default="5000", min_value=1),
     _field("SESSION_POSTGRES_SCHEMA", "Session", "identifier", "PostgreSQL schema.", default="public"),
     _field("SESSION_POSTGRES_TABLE_PREFIX", "Session", "identifier", "PostgreSQL table prefix.", default="roleplay_"),
     _field("SESSION_POSTGRES_POOL_SIZE", "Session", "int", "PostgreSQL pool size.", default="5", min_value=1),
-    _field("MEMORY_PROVIDER", "Memory", "enum", "Memory store provider.", default="memory", enum=("memory", "sqlite")),
-    _field("MEMORY_SQLITE_PATH", "Memory", "path", "SQLite memory database path.", default=".data/memories.sqlite3"),
+    _simple_field("MEMORY_PROVIDER", "Storage", "enum", "Memory store provider.", default="sqlite", enum=("sqlite", "memory")),
+    _simple_field("MEMORY_SQLITE_PATH", "Storage", "path", "SQLite memory database path.", default=".data/memories.sqlite3"),
     _field("MEMORY_SQLITE_BUSY_TIMEOUT_MS", "Memory", "int", "SQLite memory busy timeout in milliseconds.", default="5000", min_value=1),
     _field("DATABASE_URL", "Secrets", "secret", "PostgreSQL database URL.", secret=True, restart_required=True),
     _field("REDIS_URL", "Secrets", "secret", "Reserved Redis URL.", secret=True, restart_required=True),
@@ -212,6 +260,14 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
 
 ENV_CONFIG_FIELD_BY_KEY = {field.key: field for field in ENV_CONFIG_FIELDS}
 ENV_CONFIG_GROUPS = tuple(dict.fromkeys(field.group for field in ENV_CONFIG_FIELDS))
+ENV_CONFIG_SIMPLE_GROUPS = tuple(
+    dict.fromkeys(field.group for field in ENV_CONFIG_FIELDS if not field.advanced)
+)
+ENV_CONFIG_ADVANCED_GROUPS = tuple(
+    group
+    for group in ENV_CONFIG_GROUPS
+    if group not in ENV_CONFIG_SIMPLE_GROUPS
+)
 
 
 class EnvConfigEditor:
@@ -227,6 +283,15 @@ class EnvConfigEditor:
     def schema(self) -> dict[str, Any]:
         return {
             "groups": list(ENV_CONFIG_GROUPS),
+            "simple_groups": list(ENV_CONFIG_SIMPLE_GROUPS),
+            "advanced_groups": list(ENV_CONFIG_ADVANCED_GROUPS),
+            "simple_presets": {
+                category: {
+                    provider: list(keys)
+                    for provider, keys in providers.items()
+                }
+                for category, providers in SIMPLE_CONFIG_PRESETS.items()
+            },
             "fields": [field.to_data() for field in ENV_CONFIG_FIELDS],
             "writable": self._config_path is not None,
             "source": self.source,

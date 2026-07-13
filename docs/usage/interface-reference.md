@@ -459,11 +459,14 @@ http://127.0.0.1:8000/config
 
 ### schema 字段
 
+schema 顶层同时返回 `simple_groups`、`advanced_groups` 和 `simple_presets`。`simple_presets` 是按 API type 声明应显示哪些字段的 UI 矩阵，不是可保存或切换的配置 profile；完整 `groups` 和全部字段仍会返回，供 Advanced 视图使用。
+
 | 字段             | 说明                                                                   |
 | ---------------- | ---------------------------------------------------------------------- |
 | key              | 配置 key                                                               |
 | group            | UI 分组                                                                |
 | type             | `string`、`int`、`float`、`bool`、`enum`、`json`、`url`、`path`、`csv` |
+| advanced         | 是否属于默认折叠的专家/兼容配置                                        |
 | secret           | 是否为敏感字段                                                         |
 | hot_reload       | 是否可在当前进程热更新                                                 |
 | restart_required | 是否需要重启服务完整生效                                               |

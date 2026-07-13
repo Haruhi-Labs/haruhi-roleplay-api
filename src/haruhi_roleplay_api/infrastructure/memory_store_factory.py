@@ -8,6 +8,9 @@ from typing import Mapping
 from haruhi_roleplay_api.adapters.memory import InMemoryMemoryStore
 from haruhi_roleplay_api.adapters.memory_sqlite import SQLiteMemoryStore
 from haruhi_roleplay_api.domain import DTOValidationError
+from haruhi_roleplay_api.infrastructure.provider_config_facade import (
+    apply_provider_config_facade,
+)
 from haruhi_roleplay_api.ports import MemoryStore
 
 
@@ -19,6 +22,7 @@ class MemoryStoreSettings:
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, str]) -> "MemoryStoreSettings":
+        data = apply_provider_config_facade(data)
         return cls(
             provider=data.get("MEMORY_PROVIDER", "memory"),
             sqlitePath=data.get("MEMORY_SQLITE_PATH", ".data/memories.sqlite3"),

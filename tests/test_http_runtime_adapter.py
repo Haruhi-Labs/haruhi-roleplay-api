@@ -344,6 +344,15 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
         self.assertIn("Haruhi Env Config", body)
 
+        script = app.handle(method="GET", target="/config/config.js", headers={})
+        script_body = script.body.decode("utf-8")
+
+        self.assertEqual(script.status, 200)
+        self.assertIn("advancedVisible: false", script_body)
+        self.assertIn("simple_presets", script_body)
+        self.assertIn("field.advanced", script_body)
+        self.assertIn("effectiveValue(field.key)", script_body)
+
     def test_env_config_requires_api_key(self) -> None:
         response = runtime().handle(
             method="GET",

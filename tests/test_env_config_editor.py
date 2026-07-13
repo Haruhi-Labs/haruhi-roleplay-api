@@ -27,6 +27,8 @@ class EnvConfigEditorTests(unittest.TestCase):
         session_provider = ENV_CONFIG_FIELD_BY_KEY["SESSION_PROVIDER"]
         access_token_path = ENV_CONFIG_FIELD_BY_KEY["ACCESS_TOKEN_SQLITE_PATH"]
         model_provider = ENV_CONFIG_FIELD_BY_KEY["MODEL_PROVIDER"]
+        llm_api_type = ENV_CONFIG_FIELD_BY_KEY["LLM_API_TYPE"]
+        memory_provider = ENV_CONFIG_FIELD_BY_KEY["MEMORY_PROVIDER"]
 
         self.assertTrue(roleplay_key.secret)
         self.assertTrue(roleplay_key.hotReload)
@@ -37,6 +39,11 @@ class EnvConfigEditorTests(unittest.TestCase):
         self.assertFalse(access_token_path.hotReload)
         self.assertEqual(model_provider.valueType, "enum")
         self.assertIn("fake", model_provider.enum)
+        self.assertTrue(model_provider.advanced)
+        self.assertFalse(llm_api_type.advanced)
+        self.assertEqual(llm_api_type.default, "fake")
+        self.assertEqual(session_provider.default, "sqlite")
+        self.assertEqual(memory_provider.default, "sqlite")
 
     def test_snapshot_redacts_secret_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

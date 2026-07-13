@@ -628,6 +628,12 @@ textarea:focus {
   background: #fff7f4;
 }
 
+.advanced-toggle {
+  margin-top: 5px;
+  border-style: dashed;
+  color: var(--muted);
+}
+
 .config-field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

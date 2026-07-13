@@ -116,7 +116,7 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 
 当前 session store 装配状态：
 
-- 默认配置：`SESSION_PROVIDER=memory`。
+- 简单配置和项目模板默认：`SESSION_PROVIDER=sqlite`；显式设置 `memory` 仍可用于无持久化测试。
 - 已实现：`SessionStoreSettings` 和 `build_session_store_from_env`，HTTP runtime 不再直接创建 `InMemorySessionStore`。
 - 本地持久化：`SESSION_PROVIDER=sqlite` 已可用，使用标准库 `sqlite3` 和 `SQLiteSessionStore` 保存 session / session messages。
 - 云端持久化：`SESSION_PROVIDER=postgres` 已可用，使用可选 `psycopg` v3 和 `PostgresSessionStore` 保存 session / session messages。
@@ -126,7 +126,7 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 
 当前 memory store 装配状态：
 
-- 默认配置：`MEMORY_PROVIDER=memory`。
+- 简单配置和项目模板默认：`MEMORY_PROVIDER=sqlite`；显式设置 `memory` 仍可使用进程内实现。
 - 已实现：`MemoryStoreSettings` 和 `build_memory_store_from_env`，HTTP runtime 不再直接创建 `InMemoryMemoryStore`。
 - 本地持久化：`MEMORY_PROVIDER=sqlite` 已可用，使用标准库 `sqlite3` 和 `SQLiteMemoryStore` 保存长期 memory。
 - 只展示不热切换：`MEMORY_PROVIDER`、`MEMORY_SQLITE_PATH`、`MEMORY_SQLITE_BUSY_TIMEOUT_MS` 是有状态配置，会出现在 runtime config 的 `restart_required_keys`，但不能通过 `PATCH /v1/runtime-config` 热切换。
@@ -140,6 +140,8 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 - `.env` 编辑器中的“创建”表示创建 `.env` 配置草稿，不表示创建 provider、数据库或云端资源。
 - restart-required 字段保存后只写入 `.env`，需要重启服务才能完整生效。
 - 本地受信任页面入口是 `/config`，普通聊天 demo 不提供该入口。
+- `/config` 默认只显示 Simple LLM、Simple Embedding、Simple RAG、HTTP 和 Storage essentials；legacy provider、registry、planner 和数据库参数进入折叠的 Advanced。
+- `MODEL_PROVIDER_REGISTRY` 优先于 simple LLM facade；简单配置只生成内部 alias，不要求用户额外填写 `MODEL_ALIAS`。
 
 同时预留了基于后端大模型的 planner：
 
