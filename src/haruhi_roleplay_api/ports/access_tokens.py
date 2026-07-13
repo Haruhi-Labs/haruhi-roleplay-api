@@ -8,6 +8,7 @@ from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
     AccessTokenRequestLog,
     AccessTokenUsageOverview,
+    AdminAuditLog,
     IssuedAccessToken,
 )
 
@@ -78,3 +79,19 @@ class AccessTokenStore(Protocol):
 
     def usage_overview(self, *, days: int = 30) -> AccessTokenUsageOverview:
         """聚合指定时间窗口内的整体、逐服务和逐路由用量。"""
+
+    def record_admin_event(
+        self,
+        *,
+        actor: str,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        request_id: str,
+        status_code: int,
+        error_code: str | None = None,
+    ) -> AdminAuditLog:
+        """记录管理员动作摘要，不保存请求正文或敏感值。"""
+
+    def list_admin_events(self, *, limit: int = 100) -> tuple[AdminAuditLog, ...]:
+        """按时间倒序读取管理员审计事件。"""

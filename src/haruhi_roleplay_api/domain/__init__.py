@@ -2,6 +2,7 @@
 
 from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
+    AdminAuditLog,
     AccessTokenRequestLog,
     AccessTokenRouteUsage,
     AccessTokenServiceUsage,
@@ -90,6 +91,7 @@ from haruhi_roleplay_api.domain.model import (
 
 __all__ = [
     "AccessToken",
+    "AdminAuditLog",
     "AccessTokenRequestLog",
     "AccessTokenRouteUsage",
     "AccessTokenServiceUsage",

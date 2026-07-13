@@ -28,6 +28,7 @@ from haruhi_roleplay_api.api.access_tokens import (
     post_access_token,
 )
 from haruhi_roleplay_api.api.admin import (
+    get_admin_audit_logs,
     get_admin_request_logs,
     get_admin_usage,
 )
@@ -353,6 +354,27 @@ class RoleplayHttpRuntime:
             )
         except AppError as exc:
             response = _json_response(error_response(exc, request_id))
+        audit_target = _admin_audit_target(method, _path_parts(parsed_path))
+        if audit_target is not None and isinstance(response, HttpRuntimeResponse):
+            action, resource_type, resource_id = audit_target
+            actor = (
+                "admin_key"
+                if admin_authenticated
+                else "service_token"
+                if access_token is not None
+                else "admin_session"
+                if _admin_session_secret(normalized_headers)
+                else "anonymous"
+            )
+            self._record_admin_event(
+                actor=actor,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                request_id=request_id,
+                status_code=response.status,
+                error_code=_response_error_code(response),
+            )
         if access_token is None:
             return _with_cors_headers(response, allowed_origin=allowed_origin)
         if isinstance(response, HttpRuntimeStreamResponse):
@@ -455,6 +477,16 @@ class RoleplayHttpRuntime:
                 return _admin_permission_denied_response(request_id)
             return _json_response(
                 get_admin_request_logs(
+                    query,
+                    store=self._access_token_store,
+                    request_id=request_id,
+                )
+            )
+        if method == "GET" and path_parts == ["v1", "admin", "audit-logs"]:
+            if not self._is_config_authorized(headers, method=method):
+                return _admin_permission_denied_response(request_id)
+            return _json_response(
+                get_admin_audit_logs(
                     query,
                     store=self._access_token_store,
                     request_id=request_id,
@@ -878,6 +910,34 @@ class RoleplayHttpRuntime:
             _LOGGER.exception(
                 "access token request log failed token_id=%s",
                 token_id,
+            )
+
+    def _record_admin_event(
+        self,
+        *,
+        actor: str,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        request_id: str,
+        status_code: int,
+        error_code: str | None,
+    ) -> None:
+        try:
+            self._access_token_store.record_admin_event(
+                actor=actor,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                request_id=request_id,
+                status_code=status_code,
+                error_code=error_code,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "admin audit log failed action=%s request_id=%s",
+                action,
+                request_id,
             )
 
     def _env_config(
@@ -1353,6 +1413,68 @@ def _admin_cookie(secret: str, *, max_age: int, secure: bool) -> str:
     if secure:
         morsel["secure"] = True
     return morsel.OutputString()
+
+
+def _admin_audit_target(
+    method: str,
+    path_parts: list[str],
+) -> tuple[str, str, str | None] | None:
+    method = method.upper()
+    if path_parts == ["v1", "admin", "session"]:
+        if method == "POST":
+            return ("admin.login", "admin_session", None)
+        if method == "DELETE":
+            return ("admin.logout", "admin_session", None)
+        return None
+    if path_parts[:2] == ["v1", "access-tokens"]:
+        if method == "POST" and len(path_parts) == 2:
+            return ("service_token.create", "service_token", None)
+        if method == "PATCH" and len(path_parts) == 3:
+            return ("service_token.update", "service_token", path_parts[2])
+        if method == "DELETE" and len(path_parts) == 3:
+            return ("service_token.revoke", "service_token", path_parts[2])
+        return None
+    if path_parts[:2] == ["v1", "env-config"] and method == "PATCH":
+        return ("config.update", "runtime_config", None)
+    if path_parts == ["v1", "runtime-config"] and method != "GET":
+        return ("runtime_config.update", "runtime_config", None)
+    if path_parts[:3] == ["v1", "admin", "personas"]:
+        route = path_parts[3:]
+        resource_id = route[-1] if route else None
+        if method == "POST" and len(route) == 0:
+            return ("persona.create", "persona", None)
+        if method == "POST" and route[-1:] == ["presets"]:
+            return ("persona_mode.create", "persona_mode", route[0])
+        if method == "PATCH" and len(route) == 1:
+            return ("persona.update", "persona", resource_id)
+        if method == "DELETE" and len(route) == 1:
+            return ("persona.delete", "persona", resource_id)
+        if method == "PATCH" and len(route) == 3:
+            return ("persona_mode.update", "persona_mode", resource_id)
+        if method == "DELETE" and len(route) == 3:
+            return ("persona_mode.delete", "persona_mode", resource_id)
+        return None
+    if path_parts[:3] == ["v1", "admin", "rag"]:
+        route = path_parts[3:]
+        if method == "POST" and route == ["documents"]:
+            return ("rag_document.import", "rag_document", None)
+        if method == "DELETE" and len(route) == 2 and route[0] == "documents":
+            return ("rag_document.delete", "rag_document", route[1])
+        if method == "POST" and route == ["search"]:
+            return ("rag.search", "rag", None)
+        return None
+    if path_parts[:3] == ["v1", "admin", "memories"]:
+        route = path_parts[3:]
+        if method == "POST" and not route:
+            return ("memory.create", "memory", None)
+        if method == "DELETE" and len(route) == 1:
+            return ("memory.delete", "memory", route[0])
+        return None
+    if path_parts[:3] == ["v1", "admin", "sessions"]:
+        route = path_parts[3:]
+        if method == "DELETE" and len(route) == 1:
+            return ("session.close", "session", route[0])
+    return None
 
 
 def _is_admin_management_route(path_parts: list[str]) -> bool:

@@ -47,6 +47,26 @@ def get_admin_request_logs(
     )
 
 
+def get_admin_audit_logs(
+    query: Mapping[str, Any],
+    *,
+    store: AccessTokenStore,
+    request_id: RequestId | str,
+) -> ApiResponse:
+    try:
+        limit = _bounded_int(query.get("limit"), default=100, minimum=1, maximum=200)
+        items = store.list_admin_events(limit=limit)
+    except Exception as exc:
+        return error_response(exc, request_id)
+    return success_response(
+        {
+            "count": len(items),
+            "items": [item.to_mapping() for item in items],
+        },
+        request_id,
+    )
+
+
 def _bounded_int(
     value: Any,
     *,

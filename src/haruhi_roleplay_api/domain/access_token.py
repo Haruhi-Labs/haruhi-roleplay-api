@@ -255,6 +255,52 @@ class AccessTokenUsageOverview:
         }
 
 
+@dataclass(frozen=True, kw_only=True)
+class AdminAuditLog:
+    eventId: str
+    actor: str
+    action: str
+    resourceType: str
+    resourceId: str | None
+    requestId: str
+    statusCode: int
+    createdAt: str
+    errorCode: str | None = None
+
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("eventId", self.eventId),
+            ("actor", self.actor),
+            ("action", self.action),
+            ("resourceType", self.resourceType),
+            ("requestId", self.requestId),
+            ("createdAt", self.createdAt),
+        ):
+            _require_non_empty(value, f"adminAuditLog.{field_name}")
+        if self.resourceId is not None:
+            _require_non_empty(self.resourceId, "adminAuditLog.resourceId")
+        if not 100 <= self.statusCode <= 599:
+            raise DTOValidationError("adminAuditLog.statusCode must be valid")
+
+    @property
+    def outcome(self) -> str:
+        return "success" if self.statusCode < 400 and self.errorCode is None else "failed"
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "event_id": self.eventId,
+            "actor": self.actor,
+            "action": self.action,
+            "resource_type": self.resourceType,
+            "resource_id": self.resourceId,
+            "request_id": self.requestId,
+            "status_code": self.statusCode,
+            "outcome": self.outcome,
+            "error_code": self.errorCode,
+            "created_at": self.createdAt,
+        }
+
+
 def _require_non_empty(value: str | None, field_name: str) -> str:
     if value is None or not isinstance(value, str) or not value.strip():
         raise DTOValidationError(f"{field_name} must be a non-empty string")

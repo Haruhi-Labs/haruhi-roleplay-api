@@ -21,6 +21,7 @@ from haruhi_roleplay_api.domain.access_token import (
     AccessTokenStatus,
     AccessTokenUsageBucket,
     AccessTokenUsageOverview,
+    AdminAuditLog,
     IssuedAccessToken,
 )
 
@@ -390,6 +391,76 @@ class SQLiteAccessTokenStore:
             routes=tuple(_route_usage_from_row(row) for row in route_rows),
         )
 
+    def record_admin_event(
+        self,
+        *,
+        actor: str,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        request_id: str,
+        status_code: int,
+        error_code: str | None = None,
+    ) -> AdminAuditLog:
+        event = AdminAuditLog(
+            eventId=f"adm-{uuid4().hex}",
+            actor=_required_text(actor, "actor"),
+            action=_required_text(action, "action"),
+            resourceType=_required_text(resource_type, "resource_type"),
+            resourceId=(
+                _required_text(resource_id, "resource_id")
+                if resource_id is not None
+                else None
+            ),
+            requestId=_required_text(request_id, "request_id"),
+            statusCode=int(status_code),
+            errorCode=error_code,
+            createdAt=_now(),
+        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO admin_audit_logs (
+                    event_id,
+                    actor,
+                    action,
+                    resource_type,
+                    resource_id,
+                    request_id,
+                    status_code,
+                    error_code,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.eventId,
+                    event.actor,
+                    event.action,
+                    event.resourceType,
+                    event.resourceId,
+                    event.requestId,
+                    event.statusCode,
+                    event.errorCode,
+                    event.createdAt,
+                ),
+            )
+        return event
+
+    def list_admin_events(self, *, limit: int = 100) -> tuple[AdminAuditLog, ...]:
+        clean_limit = _bounded_limit(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM admin_audit_logs
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                (clean_limit,),
+            ).fetchall()
+        return tuple(_admin_audit_log_from_row(row) for row in rows)
+
     def _initialize_schema(self) -> None:
         if self._path != ":memory:":
             Path(self._path).parent.mkdir(parents=True, exist_ok=True)
@@ -466,6 +537,21 @@ CREATE TABLE IF NOT EXISTS access_token_request_logs (
 
 CREATE INDEX IF NOT EXISTS idx_access_token_logs_token_created
 ON access_token_request_logs (token_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    event_id TEXT PRIMARY KEY,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT,
+    request_id TEXT NOT NULL,
+    status_code INTEGER NOT NULL,
+    error_code TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created
+ON admin_audit_logs (created_at DESC);
 """
 
 
@@ -500,6 +586,24 @@ def _request_log_from_row(row: sqlite3.Row) -> AccessTokenRequestLog:
         completionTokens=int(row["completion_tokens"]),
         totalTokens=int(row["total_tokens"]),
         errorCode=(str(row["error_code"]) if row["error_code"] is not None else None),
+        createdAt=str(row["created_at"]),
+    )
+
+
+def _admin_audit_log_from_row(row: sqlite3.Row) -> AdminAuditLog:
+    return AdminAuditLog(
+        eventId=str(row["event_id"]),
+        actor=str(row["actor"]),
+        action=str(row["action"]),
+        resourceType=str(row["resource_type"]),
+        resourceId=(
+            str(row["resource_id"]) if row["resource_id"] is not None else None
+        ),
+        requestId=str(row["request_id"]),
+        statusCode=int(row["status_code"]),
+        errorCode=(
+            str(row["error_code"]) if row["error_code"] is not None else None
+        ),
         createdAt=str(row["created_at"]),
     )
 
