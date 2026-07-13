@@ -883,3 +883,23 @@
 ### 下一步
 
 - 实现 12.03，在业务 HTTP 请求中比较服务令牌 scope 与请求 `app_id`；上线前替换并吊销 legacy unscoped token。
+
+## 2026-07-13：Enforce Request App Scope
+
+### 完成
+
+- HTTP runtime 对 session、chat、RAG body 和 memory query 使用同一 Access Token app scope 规则。
+- scope 校验早于聊天额度预检、业务 handler、provider 和 SSE 模型调用。
+- 跨 app 和 legacy unscoped token 统一返回 `AUTH_PERMISSION_DENIED`。
+- 管理密钥可跨 app；无 app 的 health/persona route 保持可调用。
+- scope 拒绝沿用现有令牌审计日志，不保存 body、query 或用户内容。
+
+### 验证
+
+- Access Token admin/runtime 定向测试 15 项通过。
+- 完整测试集 234 项通过。
+- 覆盖 body/query route、普通/SSE 拒绝、legacy token、管理员跨 app 和拒绝审计。
+
+### 下一步
+
+- 实现 12.04，把 `app_id` 写入 RAG chunk metadata 并在所有 RAG backend 强制过滤。

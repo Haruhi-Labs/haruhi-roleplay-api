@@ -38,7 +38,7 @@ from haruhi_roleplay_api.application.errors import (
     ErrorCode,
     app_error_from_exception,
 )
-from haruhi_roleplay_api.domain import DTOValidationError
+from haruhi_roleplay_api.domain import AccessToken, DTOValidationError
 from haruhi_roleplay_api.infrastructure.agent_planner_factory import (
     build_agent_context_planner_from_env,
 )
@@ -70,6 +70,16 @@ from haruhi_roleplay_api.ports import (
 
 
 _LOGGER = logging.getLogger(__name__)
+
+_APP_SCOPED_BODY_ROUTES = frozenset(
+    {
+        ("POST", ("v1", "sessions")),
+        ("POST", ("v1", "chat")),
+        ("POST", ("v1", "chat", "stream")),
+        ("POST", ("v1", "rag", "documents")),
+        ("POST", ("v1", "rag", "search")),
+    }
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -204,17 +214,24 @@ class RoleplayHttpRuntime:
         normalized_headers = _normalized_headers(headers)
         request_id = _request_id(normalized_headers)
         normalized_headers["x-request-id"] = request_id
-        access_token = self._access_token_from_headers(normalized_headers)
+        admin_authenticated = bool(
+            self._api_key
+            and _has_matching_secret(normalized_headers, self._api_key)
+        )
+        access_token = (
+            None
+            if admin_authenticated
+            else self._access_token_from_headers(normalized_headers)
+        )
         started_at = perf_counter()
         parsed_path = urlparse(target).path
         try:
-            if access_token is not None and _consumes_model_tokens(method, parsed_path):
-                self._access_token_store.ensure_quota_available(access_token.tokenId)
             response = self._handle_request(
                 method=method,
                 target=target,
                 headers=normalized_headers,
                 body=body,
+                access_token=access_token,
             )
         except AppError as exc:
             response = _json_response(error_response(exc, request_id))
@@ -253,6 +270,7 @@ class RoleplayHttpRuntime:
         target: str,
         headers: Mapping[str, str],
         body: bytes = b"",
+        access_token: AccessToken | None = None,
     ) -> HttpRuntimeResponse | HttpRuntimeStreamResponse:
         headers = _normalized_headers(headers)
         request_id = _request_id(headers)
@@ -275,6 +293,16 @@ class RoleplayHttpRuntime:
         json_body = _json_body(body, request_id)
         if isinstance(json_body, HttpRuntimeResponse):
             return json_body
+        if access_token is not None:
+            _enforce_access_token_app_scope(
+                access_token,
+                method=method,
+                path_parts=path_parts,
+                body=json_body,
+                query=query,
+            )
+            if _consumes_model_tokens(method, parsed.path):
+                self._access_token_store.ensure_quota_available(access_token.tokenId)
 
         if method == "GET" and path_parts == ["health"]:
             return _json_response(
@@ -849,6 +877,31 @@ def _response_error_code(response: HttpRuntimeResponse) -> str | None:
 
 def _consumes_model_tokens(method: str, path: str) -> bool:
     return method.upper() == "POST" and path in {"/v1/chat", "/v1/chat/stream"}
+
+
+def _enforce_access_token_app_scope(
+    access_token: AccessToken,
+    *,
+    method: str,
+    path_parts: list[str],
+    body: Mapping[str, Any],
+    query: Mapping[str, Any],
+) -> None:
+    route = (method.upper(), tuple(path_parts))
+    if route in _APP_SCOPED_BODY_ROUTES:
+        request_app_id = body.get("app_id")
+    elif path_parts[:2] == ["v1", "memory"] and (
+        (method.upper() == "GET" and len(path_parts) == 3)
+        or (method.upper() == "DELETE" and len(path_parts) == 4)
+    ):
+        request_app_id = query.get("app_id")
+    else:
+        return
+
+    if not isinstance(request_app_id, str) or not request_app_id.strip():
+        return
+    if access_token.appId is None or access_token.appId != request_app_id.strip():
+        raise AppError(code=ErrorCode.AUTH_PERMISSION_DENIED)
 
 
 def _response_token_usage(response: HttpRuntimeResponse) -> tuple[int, int]:

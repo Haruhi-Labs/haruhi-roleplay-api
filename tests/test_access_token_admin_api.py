@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from haruhi_roleplay_api.infrastructure import (
@@ -45,15 +47,14 @@ def chat_body(*, stream: bool = False) -> dict:
 class AccessTokenAdminApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.token_db_path = Path(self.temp_dir.name) / "tokens.sqlite3"
         self.runtime = RoleplayHttpRuntime.local(
             project_root=ROOT,
             env={
                 "MODEL_PROVIDER": "fake",
                 "MODEL_NAME": "fake-roleplay-model",
                 "ROLEPLAY_API_KEY": "admin-secret",
-                "ACCESS_TOKEN_SQLITE_PATH": str(
-                    Path(self.temp_dir.name) / "tokens.sqlite3"
-                ),
+                "ACCESS_TOKEN_SQLITE_PATH": str(self.token_db_path),
             },
         )
         self.admin_headers = {
@@ -78,6 +79,24 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             headers=headers or self.admin_headers,
             body=json_body(body or {}) if body is not None else b"",
         )
+
+    def issue_service_token(
+        self,
+        *,
+        app_id: str = "service-app",
+        quota_tokens: int = 5000,
+    ) -> dict:
+        response = self.request(
+            "POST",
+            "/v1/access-tokens",
+            body={
+                "app_id": app_id,
+                "name": f"{app_id}-service",
+                "quota_tokens": quota_tokens,
+            },
+        )
+        self.assertEqual(response.status, 200)
+        return response_json(response.body)["data"]
 
     def test_admin_can_create_list_get_and_revoke_token(self) -> None:
         created_response = self.request(
@@ -347,6 +366,121 @@ class AccessTokenAdminApiTests(unittest.TestCase):
             ).body
         )["data"]
         self.assertGreater(token["total_tokens"], updated["total_tokens"])
+
+    def test_service_token_rejects_cross_app_body_routes_and_audits_denials(self) -> None:
+        created = self.issue_service_token()
+        service_headers = {"Authorization": f"Bearer {created['token']}"}
+        routes = (
+            ("POST", "/v1/sessions"),
+            ("POST", "/v1/chat"),
+            ("POST", "/v1/rag/documents"),
+            ("POST", "/v1/rag/search"),
+        )
+
+        for method, path in routes:
+            with self.subTest(path=path):
+                response = self.request(
+                    method,
+                    path,
+                    body={"app_id": "other-app"},
+                    headers=service_headers,
+                )
+                self.assertEqual(response.status, 403)
+                self.assertEqual(
+                    response_json(response.body)["error"]["code"],
+                    "AUTH_PERMISSION_DENIED",
+                )
+
+        logs = response_json(
+            self.request(
+                "GET",
+                f"/v1/access-tokens/{created['token_id']}/logs",
+            ).body
+        )["data"]["items"]
+        self.assertEqual(len(logs), len(routes))
+        self.assertTrue(
+            all(log["error_code"] == "AUTH_PERMISSION_DENIED" for log in logs)
+        )
+        self.assertTrue(all("app_id" not in log for log in logs))
+
+    def test_service_token_rejects_cross_app_memory_query(self) -> None:
+        created = self.issue_service_token()
+        routes = (
+            ("GET", "/v1/memory/user-1?app_id=other-app&character_id=haruhi"),
+            (
+                "DELETE",
+                "/v1/memory/user-1/mem-1?app_id=other-app&character_id=haruhi",
+            ),
+        )
+
+        for method, target in routes:
+            with self.subTest(method=method):
+                response = self.request(
+                    method,
+                    target,
+                    headers={"X-API-Key": created["token"]},
+                )
+                self.assertEqual(response.status, 403)
+                self.assertEqual(
+                    response_json(response.body)["error"]["code"],
+                    "AUTH_PERMISSION_DENIED",
+                )
+
+    def test_cross_app_stream_is_rejected_before_model_usage(self) -> None:
+        created = self.issue_service_token()
+        body = chat_body(stream=True)
+        body["app_id"] = "other-app"
+
+        response = self.request(
+            "POST",
+            "/v1/chat/stream",
+            body=body,
+            headers={"Authorization": f"Bearer {created['token']}"},
+        )
+
+        self.assertEqual(response.status, 403)
+        self.assertNotIsInstance(response, HttpRuntimeStreamResponse)
+        token = response_json(
+            self.request(
+                "GET",
+                f"/v1/access-tokens/{created['token_id']}",
+            ).body
+        )["data"]
+        self.assertEqual(token["total_tokens"], 0)
+
+    def test_legacy_unscoped_token_cannot_call_app_scoped_route(self) -> None:
+        created = self.issue_service_token()
+        with closing(sqlite3.connect(self.token_db_path)) as connection, connection:
+            connection.execute(
+                "UPDATE access_tokens SET app_id = NULL WHERE token_id = ?",
+                (created["token_id"],),
+            )
+
+        response = self.request(
+            "POST",
+            "/v1/sessions",
+            body={
+                "app_id": "service-app",
+                "user_id": "user-1",
+                "character_id": "haruhi",
+                "persona_mode": "mid_late_haruhi",
+            },
+            headers={"Authorization": f"Bearer {created['token']}"},
+        )
+
+        self.assertEqual(response.status, 403)
+        self.assertEqual(
+            response_json(response.body)["error"]["code"],
+            "AUTH_PERMISSION_DENIED",
+        )
+
+    def test_admin_key_can_call_business_route_for_any_app(self) -> None:
+        body = chat_body()
+        body["app_id"] = "admin-selected-app"
+
+        response = self.request("POST", "/v1/chat", body=body)
+
+        self.assertEqual(response.status, 200)
 
 
 if __name__ == "__main__":

@@ -302,7 +302,14 @@ memory item 字段：
 
 创建、列表、详情、额度调整和吊销响应中的安全摘要都包含 `app_id`。令牌明文 `token` 只在创建响应出现一次，SQLite 只保存哈希和安全前缀。
 
-旧 SQLite 账本会原地增加 nullable `app_id` 列；旧令牌返回 `app_id=null`，且在本阶段继续通过鉴权。当前契约只建立 scope 数据，尚不强制比较业务请求 `app_id`。
+旧 SQLite 账本会原地增加 nullable `app_id` 列；旧令牌返回 `app_id=null`。
+
+服务令牌调用以下 app-scoped route 时，HTTP runtime 必须在业务 handler 前比较 token scope 与请求 `app_id`：
+
+- body：`POST /v1/sessions`、`POST /v1/chat`、`POST /v1/chat/stream`、`POST /v1/rag/documents`、`POST /v1/rag/search`。
+- query：`GET /v1/memory/{user_id}`、`DELETE /v1/memory/{user_id}/{memory_id}`。
+
+不匹配或 legacy unscoped token 统一返回 `AUTH_PERMISSION_DENIED`，不暴露目标资源是否存在。管理密钥仍可跨 app 调用；额外 Header 不能声明或覆盖 app scope。
 
 ## 错误码
 

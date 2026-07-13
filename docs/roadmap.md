@@ -61,7 +61,7 @@
 Phase A 到 K 的主要能力已经实现。当前项目已进入“可被前端真实接入的 Roleplay API 中转服务”状态，下一阶段优先修复产品化边界：
 
 1. 同步正式契约与实际 runtime，避免公开不存在的接口和配置。
-2. Access Token 单一 app scope 数据已完成；下一步在业务请求中强制校验。
+2. Access Token 单一 app scope 和业务请求强制校验已完成；下一步补齐 RAG 存储层 app 隔离。
 3. 为 RAG 文档和检索补齐 app 隔离。
 4. 增加请求体、消息、RAG 文档和流式输出的资源上限。
 5. 收束后端简单配置面，确保单 provider 用户不需要理解 registry。

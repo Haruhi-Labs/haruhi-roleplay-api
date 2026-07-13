@@ -348,7 +348,9 @@ item 字段：
 
 创建响应中的 `token` 只出现一次；后续响应只返回不可用于鉴权的 `prefix`。业务 API 接受 `Authorization: Bearer hrt_...` 或 `X-API-Key: hrt_...`。
 
-创建、列表、详情、额度调整和吊销响应都会返回 `app_id`。新令牌的 `app_id` 必须是非空字符串且创建后不可修改；旧 SQLite 账本迁移出的未绑定令牌返回 `app_id=null`。当前只建立 scope 数据，业务请求强制校验由后续卡片实现。
+创建、列表、详情、额度调整和吊销响应都会返回 `app_id`。新令牌的 `app_id` 必须是非空字符串且创建后不可修改；旧 SQLite 账本迁移出的未绑定令牌返回 `app_id=null`。
+
+服务令牌调用 session、chat、RAG、memory route 时，请求 body/query 中的 `app_id` 必须与 token scope 一致，否则返回 `403 AUTH_PERMISSION_DENIED`。legacy unscoped token 不能调用这些 route。`/health`、`/v1/personas` 无 app scope；`ROLEPLAY_API_KEY` 不受服务 token scope 限制。
 
 令牌详情中的用量字段包括 `quota_tokens`、`prompt_tokens`、`completion_tokens`、`total_tokens` 和 `remaining_tokens`。额度耗尽后的聊天请求返回 HTTP 429 和 `ACCESS_TOKEN_QUOTA_EXCEEDED`。
 

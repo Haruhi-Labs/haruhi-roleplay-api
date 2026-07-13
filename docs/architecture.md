@@ -10,6 +10,8 @@
 
 HTTP Adapter 在进入 Orchestrator 前完成 `ROLEPLAY_API_KEY` 或服务 Access Token 鉴权与聊天额度预检。普通 JSON 响应返回前结算用量；SSE 响应由惰性事件包装器在流消费完成后结算，避免鉴权和审计逻辑破坏端到端流式输出。
 
+服务 Access Token 绑定单一 `app_id`。HTTP runtime 在 DTO handler、RAG/session/memory provider 和模型调用前统一比较 body/query 中的 `app_id`；不匹配和 legacy unscoped token 返回 `AUTH_PERMISSION_DENIED`，并记录不含正文的拒绝审计。`ROLEPLAY_API_KEY` 代表管理主体，不受服务 token scope 限制。
+
 前端只选择业务参数：
 
 - `character_id`

@@ -83,16 +83,24 @@ X-API-Key: hrt_replace_with_issued_token
 
 服务端会校验令牌哈希、状态和过期时间。未知、已吊销或已过期令牌返回 `401 AUTH_INVALID_API_KEY`。
 
-当前 12.02 只把 `app_id` 持久化并返回给管理 API，尚未把它与业务请求 body 中的 `app_id` 强制比较。请求级 scope 拦截由 12.03 实现；在此之前，调用方仍应发送与令牌 `app_id` 相同的值。
+HTTP runtime 会在业务 handler 和模型调用前比较服务令牌 scope 与请求 `app_id`：
+
+- session、chat、chat stream、RAG ingest/search 从 JSON body 读取 `app_id`。
+- Memory 查询和删除从 query string 读取 `app_id`。
+- scope 不匹配或令牌为 legacy unscoped 时返回 `403 AUTH_PERMISSION_DENIED`。
+- `/health`、`/v1/personas` 没有 app scope，服务令牌仍可调用。
+- `ROLEPLAY_API_KEY` 是管理主体，可跨 app 调用和管理；客户端自定义 Header 不能覆盖 token scope。
+
+缺失或类型错误的 `app_id` 仍由业务 DTO 返回 `VALIDATION_ERROR`。拒绝结果会进入令牌审计日志，但日志不保存 body、query 值或用户内容。
 
 ## 旧数据库迁移
 
 服务启动时会检查 `access_tokens` 表。旧表缺少 `app_id` 时会原地增加 nullable 列，不重建表，因此令牌哈希、状态、额度、累计用量和请求日志都会保留。
 
 - 迁移前的令牌返回 `"app_id": null`，表示 legacy unscoped。
-- 12.02 不改变鉴权行为，legacy unscoped token 仍可使用，避免升级时中断现有服务。
+- legacy unscoped token 只能访问 `/health`、`/v1/personas` 等无 app route；访问 app-scoped route 返回 `AUTH_PERMISSION_DENIED`。
 - 所有新令牌都必须提供非空 `app_id`，不能再创建 unscoped token。
-- 12.03 接入强制 scope 前，应为旧调用方签发绑定 app 的新令牌并吊销旧令牌。
+- 升级后应为旧调用方签发绑定 app 的新令牌并吊销旧令牌。
 
 ## 额度和用量
 
