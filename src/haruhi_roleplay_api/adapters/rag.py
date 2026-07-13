@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 from uuid import uuid4
 
 from haruhi_roleplay_api.domain import (
+    AppId,
     CharacterId,
     RagChunk,
     RagChunkId,
@@ -60,7 +62,7 @@ class LocalRagService:
         metadata = _metadata_with_title(ingest_input.metadata, ingest_input.title)
         chunks = tuple(
             RagChunk(
-                chunkId=RagChunkId(f"{document_id}-chunk-{index}"),
+                chunkId=_scoped_chunk_id(ingest_input.appId, document_id, index),
                 documentId=document_id,
                 content=content,
                 score=0.0,
@@ -106,6 +108,8 @@ class LocalRagService:
 def _matches_filters(chunk: RagChunk, retrieve_input: RagRetrieveInput) -> bool:
     metadata = chunk.metadata
     filters = retrieve_input.filters
+    if metadata.appId != retrieve_input.appId:
+        return False
     if metadata.characterId != retrieve_input.characterId:
         return False
     if (
@@ -144,6 +148,7 @@ def _metadata_with_title(
     title: str,
 ) -> RagDocumentMetadata:
     return RagDocumentMetadata(
+        appId=metadata.appId,
         characterId=metadata.characterId,
         personaMode=metadata.personaMode,
         timeline=metadata.timeline,
@@ -163,6 +168,16 @@ def _chunk_with_score(chunk: RagChunk, score: float) -> RagChunk:
         score=score,
         metadata=chunk.metadata,
     )
+
+
+def _scoped_chunk_id(
+    app_id: AppId,
+    document_id: RagDocumentId,
+    index: int,
+) -> RagChunkId:
+    scope = f"{app_id}\0{document_id}\0{index}"
+    digest = hashlib.blake2b(scope.encode("utf-8"), digest_size=8).hexdigest()
+    return RagChunkId(f"{document_id}-chunk-{index}-{digest}")
 
 
 def _simple_score(query: str, chunk: RagChunk) -> float:
@@ -194,6 +209,7 @@ def _query_terms(query: str) -> tuple[str, ...]:
 def _default_chunks() -> tuple[RagChunk, ...]:
     return (
         _chunk(
+            app_id="web",
             chunk_id="chunk-haruhi-mid-late-1",
             document_id="doc-haruhi-timeline",
             character_id="haruhi",
@@ -206,6 +222,7 @@ def _default_chunks() -> tuple[RagChunk, ...]:
             score=0.95,
         ),
         _chunk(
+            app_id="web",
             chunk_id="chunk-haruhi-early-1",
             document_id="doc-haruhi-profile",
             character_id="haruhi",
@@ -218,6 +235,7 @@ def _default_chunks() -> tuple[RagChunk, ...]:
             score=0.85,
         ),
         _chunk(
+            app_id="web",
             chunk_id="chunk-kyon-default-1",
             document_id="doc-kyon-profile",
             character_id="kyon",
@@ -234,6 +252,7 @@ def _default_chunks() -> tuple[RagChunk, ...]:
 
 def _chunk(
     *,
+    app_id: str,
     chunk_id: str,
     document_id: str,
     character_id: str,
@@ -251,6 +270,7 @@ def _chunk(
         content=content,
         score=score,
         metadata=RagDocumentMetadata(
+            appId=AppId(app_id),
             characterId=CharacterId(character_id),
             personaMode=PersonaModeId(persona_mode) if persona_mode else None,
             timeline=timeline,

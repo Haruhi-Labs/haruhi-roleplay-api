@@ -49,13 +49,14 @@ class RecordingModelRouter:
 
 def rag_document_body(
     *,
+    app_id: str = "web",
     document_id: str = "doc-local-haruhi",
     character_id: str = "haruhi",
     persona_mode: str = "mid_late_haruhi",
     content: str | None = None,
 ) -> dict:
     return {
-        "app_id": "web",
+        "app_id": app_id,
         "document_id": document_id,
         "title": "本地社团活动资料",
         "source_type": "timeline",
@@ -108,10 +109,15 @@ def ingest_document(service: LocalRagService, body: dict | None = None) -> dict:
     )
 
 
-def retrieve_local(service: LocalRagService, *, character_id: str = "haruhi"):
+def retrieve_local(
+    service: LocalRagService,
+    *,
+    app_id: str = "web",
+    character_id: str = "haruhi",
+):
     return service.retrieve(
         RagRetrieveInput(
-            appId=AppId("web"),
+            appId=AppId(app_id),
             userId=UserId("user-1"),
             characterId=CharacterId(character_id),
             personaMode=PersonaModeId("mid_late_haruhi"),
@@ -136,6 +142,7 @@ class LocalRagV1Tests(unittest.TestCase):
         self.assertTrue(response["ok"])
         self.assertEqual(response["data"]["status"], "imported")
         self.assertGreaterEqual(response["data"]["chunk_count"], 2)
+        self.assertEqual(response["data"]["metadata"]["app_id"], "web")
         self.assertEqual(response["data"]["metadata"]["character_id"], "haruhi")
 
         retrieve_output = retrieve_local(service)
@@ -157,6 +164,20 @@ class LocalRagV1Tests(unittest.TestCase):
         self.assertGreaterEqual(output.rawHitCount, 1)
         self.assertEqual(output.filteredHitCount, 0)
         self.assertEqual(output.chunks, ())
+
+    def test_retrieve_filter_keeps_apps_isolated(self) -> None:
+        service = LocalRagService()
+        ingest_document(service, rag_document_body(app_id="app-a"))
+
+        same_app = retrieve_local(service, app_id="app-a")
+        other_app = retrieve_local(service, app_id="app-b")
+
+        self.assertGreaterEqual(len(same_app.chunks), 1)
+        self.assertTrue(
+            all(chunk.metadata.appId == "app-a" for chunk in same_app.chunks)
+        )
+        self.assertEqual(other_app.filteredHitCount, 0)
+        self.assertEqual(other_app.chunks, ())
 
     def test_chat_uses_local_rag_sources(self) -> None:
         service = LocalRagService()

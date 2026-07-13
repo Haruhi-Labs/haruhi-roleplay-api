@@ -232,6 +232,8 @@ character 字段：
 
 未注入 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 RAG provider 时返回 `imported`，并把文本切成本地或云端 chunks，供 `/v1/chat` 的 RAG 分支检索。
 
+服务端会把顶层 `app_id` 写入所有 chunk metadata，调用方不需要也不能在扩展 `metadata` 中另行指定 scope。不同应用可以使用相同 `document_id`；内部 chunk/point ID 会按 app 区分。
+
 当前校验规则：
 
 - 必须提供 `character_id`、`timeline`、`spoiler_level`、`language`、`source_type`。
@@ -275,6 +277,8 @@ character 字段：
 | filtered_hit_count | metadata filter 后数量                                     |
 | rerank_applied     | 是否执行 rerank                                            |
 | chunks             | 命中的 chunk，包含 source 摘要和 `content`                 |
+
+检索始终强制匹配请求的 `app_id`，该条件不能通过 `filters` 放宽。返回 chunk 的 source 摘要包含 `app_id`，便于后台联调确认 scope；普通聊天前端不应允许用户编辑它。
 
 ## Memory: GET /v1/memory/{user_id}
 

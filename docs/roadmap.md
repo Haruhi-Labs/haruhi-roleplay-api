@@ -61,12 +61,11 @@
 Phase A 到 K 的主要能力已经实现。当前项目已进入“可被前端真实接入的 Roleplay API 中转服务”状态，下一阶段优先修复产品化边界：
 
 1. 同步正式契约与实际 runtime，避免公开不存在的接口和配置。
-2. Access Token 单一 app scope 和业务请求强制校验已完成；下一步补齐 RAG 存储层 app 隔离。
-3. 为 RAG 文档和检索补齐 app 隔离。
-4. 增加请求体、消息、RAG 文档和流式输出的资源上限。
-5. 收束后端简单配置面，确保单 provider 用户不需要理解 registry。
-6. 改善配置事务性和热更新时的有状态资源保留。
-7. 进一步化简普通聊天前端契约。
+2. Access Token 单一 app scope、业务请求强制校验和 RAG 存储层 app 隔离已完成。
+3. 增加请求体、消息、RAG 文档和流式输出的资源上限。
+4. 收束后端简单配置面，确保单 provider 用户不需要理解 registry。
+5. 改善配置事务性和热更新时的有状态资源保留。
+6. 进一步化简普通聊天前端契约。
 
 额外角色、SafetyGuard、真实 backend context adapter 和 model-backed planner 在上述 P0 边界完成后逐卡实现。
 

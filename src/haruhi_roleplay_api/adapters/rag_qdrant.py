@@ -13,10 +13,12 @@ from haruhi_roleplay_api.adapters.rag import (
     _chunk_text,
     _matches_filters,
     _metadata_with_title,
+    _scoped_chunk_id,
 )
 from haruhi_roleplay_api.adapters.embeddings import HashEmbeddingProvider
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
+    AppId,
     RagChunk,
     RagChunkId,
     RagDocumentId,
@@ -70,13 +72,14 @@ class QdrantRagService:
         self._collection_ready = False
 
     def ingest(self, ingest_input: RagIngestInput) -> RagIngestResult:
+        document_scope = f"{ingest_input.appId}:{ingest_input.content}"
         document_id = ingest_input.documentId or RagDocumentId(
-            f"ragdoc-{uuid5(NAMESPACE_URL, ingest_input.content)}"
+            f"ragdoc-{uuid5(NAMESPACE_URL, document_scope)}"
         )
         metadata = _metadata_with_title(ingest_input.metadata, ingest_input.title)
         chunks = tuple(
             RagChunk(
-                chunkId=RagChunkId(f"{document_id}-chunk-{index}"),
+                chunkId=_scoped_chunk_id(ingest_input.appId, document_id, index),
                 documentId=document_id,
                 content=content,
                 score=0.0,
@@ -228,6 +231,7 @@ class QdrantRagService:
 def _qdrant_filter(retrieve_input: RagRetrieveInput) -> dict[str, Any]:
     filters = retrieve_input.filters
     must: list[dict[str, Any]] = [
+        {"key": "app_id", "match": {"value": str(retrieve_input.appId)}},
         {"key": "character_id", "match": {"value": str(retrieve_input.characterId)}}
     ]
     if filters.language is not None:
@@ -243,6 +247,11 @@ def _qdrant_filter(retrieve_input: RagRetrieveInput) -> dict[str, Any]:
 
 def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
     return {
+        "app_id": (
+            str(chunk.metadata.appId)
+            if chunk.metadata.appId is not None
+            else ""
+        ),
         "document_id": str(chunk.documentId),
         "chunk_id": str(chunk.chunkId),
         "content": chunk.content,
@@ -281,6 +290,11 @@ def _chunk_from_qdrant_hit(hit: Mapping[str, Any]) -> RagChunk:
         content=str(payload["content"]),
         score=float(hit.get("score", 0.0)),
         metadata=RagDocumentMetadata(
+            appId=(
+                AppId(str(payload["app_id"]))
+                if payload.get("app_id")
+                else None
+            ),
             characterId=str(payload["character_id"]),
             personaMode=str(payload.get("persona_mode") or "") or None,
             timeline=str(payload["timeline"]),

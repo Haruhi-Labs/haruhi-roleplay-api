@@ -43,13 +43,14 @@ class FakeHTTPResponse:
         return json.dumps(self._payload, ensure_ascii=False).encode("utf-8")
 
 
-def ingest_input() -> RagIngestInput:
+def ingest_input(*, app_id: str = "web") -> RagIngestInput:
     return RagIngestInput(
-        appId=AppId("web"),
+        appId=AppId(app_id),
         documentId=RagDocumentId("doc-qdrant-haruhi"),
         title="Qdrant 资料",
         content="社团 活动 计划：春日会主动安排调查和招募。",
         metadata=RagDocumentMetadata(
+            appId=AppId(app_id),
             characterId=CharacterId("haruhi"),
             personaMode=PersonaModeId("mid_late_haruhi"),
             timeline="mid_late",
@@ -60,9 +61,9 @@ def ingest_input() -> RagIngestInput:
     )
 
 
-def retrieve_input() -> RagRetrieveInput:
+def retrieve_input(*, app_id: str = "web") -> RagRetrieveInput:
     return RagRetrieveInput(
-        appId=AppId("web"),
+        appId=AppId(app_id),
         userId=UserId("user-1"),
         characterId=CharacterId("haruhi"),
         personaMode=PersonaModeId("mid_late_haruhi"),
@@ -77,11 +78,12 @@ def retrieve_input() -> RagRetrieveInput:
     )
 
 
-def qdrant_hit() -> dict:
+def qdrant_hit(*, app_id: str = "web") -> dict:
     return {
         "id": "point-1",
         "score": 0.91,
         "payload": {
+            "app_id": app_id,
             "document_id": "doc-qdrant-haruhi",
             "chunk_id": "doc-qdrant-haruhi-chunk-1",
             "content": "社团 活动 计划：春日会主动安排调查和招募。",
@@ -121,6 +123,7 @@ class QdrantRagProviderTests(unittest.TestCase):
         )
         self.assertEqual(result.status, "imported")
         self.assertEqual(result.documentId, "doc-qdrant-haruhi")
+        self.assertEqual(point["payload"]["app_id"], "web")
         self.assertEqual(point["payload"]["document_id"], "doc-qdrant-haruhi")
         self.assertEqual(point["payload"]["character_id"], "haruhi")
         self.assertGreater(len(point["vector"]), 0)
@@ -146,6 +149,10 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(payload["limit"], 24)
         self.assertEqual(
             payload["filter"]["must"][0],
+            {"key": "app_id", "match": {"value": "web"}},
+        )
+        self.assertEqual(
+            payload["filter"]["must"][1],
             {"key": "character_id", "match": {"value": "haruhi"}},
         )
         self.assertEqual(output.provider, "qdrant-rag")
@@ -153,6 +160,43 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(output.filteredHitCount, 1)
         self.assertEqual(output.chunks[0].documentId, "doc-qdrant-haruhi")
         self.assertEqual(output.chunks[0].score, 0.91)
+
+    def test_qdrant_same_document_id_uses_distinct_points_per_app(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            return_value=FakeHTTPResponse({"result": {"status": "ok"}}),
+        ) as urlopen:
+            service.ingest(ingest_input(app_id="app-a"))
+            service.ingest(ingest_input(app_id="app-b"))
+
+        first = json.loads(urlopen.call_args_list[0].args[0].data.decode("utf-8"))
+        second = json.loads(urlopen.call_args_list[1].args[0].data.decode("utf-8"))
+        self.assertNotEqual(first["points"][0]["id"], second["points"][0]["id"])
+        self.assertEqual(first["points"][0]["payload"]["app_id"], "app-a")
+        self.assertEqual(second["points"][0]["payload"]["app_id"], "app-b")
+
+    def test_qdrant_client_filter_rejects_cross_app_and_legacy_hits(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        legacy_hit = qdrant_hit()
+        legacy_hit["payload"].pop("app_id")
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            return_value=FakeHTTPResponse(
+                {"result": [qdrant_hit(app_id="other-app"), legacy_hit]}
+            ),
+        ):
+            output = service.retrieve(retrieve_input(app_id="web"))
+
+        self.assertEqual(output.rawHitCount, 2)
+        self.assertEqual(output.filteredHitCount, 0)
+        self.assertEqual(output.chunks, ())
 
     def test_qdrant_retrieve_maps_provider_error(self) -> None:
         http_error = urllib.error.HTTPError(

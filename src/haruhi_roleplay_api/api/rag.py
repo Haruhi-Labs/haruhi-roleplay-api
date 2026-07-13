@@ -97,6 +97,7 @@ def _rag_ingest_input_from_body(body: Mapping[str, Any]) -> RagIngestInput:
 
 def _metadata_from_body(body: Mapping[str, Any]) -> dict[str, Any]:
     return {
+        "appId": body.get("app_id"),
         "characterId": body.get("character_id"),
         "personaMode": body.get("persona_mode"),
         "timeline": body.get("timeline"),

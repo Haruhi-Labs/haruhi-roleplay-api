@@ -43,6 +43,7 @@ class RagDocumentMetadata:
     spoilerLevel: int
     language: LanguageCode
     sourceType: str
+    appId: AppId | None = None
     personaMode: PersonaModeId | None = None
     trustLevel: str | None = None
     extra: Metadata = field(default_factory=dict)
@@ -50,6 +51,11 @@ class RagDocumentMetadata:
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "RagDocumentMetadata":
         return cls(
+            appId=(
+                AppId(_require_non_empty(data.get("appId"), "appId"))
+                if data.get("appId") is not None
+                else None
+            ),
             characterId=CharacterId(
                 _require_non_empty(data.get("characterId"), "characterId")
             ),
@@ -69,6 +75,8 @@ class RagDocumentMetadata:
         )
 
     def __post_init__(self) -> None:
+        if self.appId is not None:
+            _require_non_empty(str(self.appId), "appId")
         _require_non_empty(str(self.characterId), "characterId")
         if self.personaMode is not None:
             _require_non_empty(str(self.personaMode), "personaMode")
@@ -84,6 +92,7 @@ class RagDocumentMetadata:
 
     def to_mapping(self) -> dict[str, Any]:
         return {
+            "app_id": str(self.appId) if self.appId is not None else None,
             "character_id": str(self.characterId),
             "persona_mode": (
                 str(self.personaMode) if self.personaMode is not None else None
@@ -113,6 +122,10 @@ class RagIngestInput:
         _require_non_empty(self.content, "content")
         if not isinstance(self.metadata, RagDocumentMetadata):
             raise DTOValidationError("metadata must be RagDocumentMetadata")
+        if self.metadata.appId is None:
+            raise DTOValidationError("metadata.appId is required")
+        if self.metadata.appId != self.appId:
+            raise DTOValidationError("metadata.appId must match appId")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -177,6 +190,11 @@ class RagChunk:
 
     def to_source_mapping(self) -> dict[str, Any]:
         return {
+            "app_id": (
+                str(self.metadata.appId)
+                if self.metadata.appId is not None
+                else None
+            ),
             "document_id": str(self.documentId),
             "chunk_id": str(self.chunkId),
             "title": self.metadata.extra.get("title"),

@@ -903,3 +903,23 @@
 ### 下一步
 
 - 实现 12.04，把 `app_id` 写入 RAG chunk metadata 并在所有 RAG backend 强制过滤。
+
+## 2026-07-13：RAG App Isolation
+
+### 完成
+
+- 顶层 RAG `app_id` 写入每个 chunk metadata，并由 ingest domain 校验 scope 一致性。
+- local、内存向量和 Faiss 通过统一 metadata filter 拒绝跨 app chunk。
+- Chroma 和 Qdrant 的 payload、查询 filter 和内部 ID 都包含 app scope。
+- 缺少 `app_id` 的旧持久化记录不会自动归属或参与检索；使用文档补充 collection 重建说明。
+- 保留现有 character、persona、timeline、spoiler、language 和 source type 过滤语义。
+
+### 验证
+
+- RAG metadata/local/vector/Qdrant/embedding 定向测试 38 项通过。
+- 完整测试集 240 项通过。
+- 覆盖同 document ID 跨 app 隔离、Chroma payload/query filter、Qdrant point ID/filter，以及 legacy 无 scope 记录拒绝。
+
+### 下一步
+
+- 实现 12.05，为 HTTP body、chat message、RAG 文档、`top_k` 和 `max_tokens` 增加资源上限。

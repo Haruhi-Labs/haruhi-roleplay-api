@@ -159,6 +159,8 @@ RAG_API_KEY=replace-with-secret
 
 Qdrant collection 的向量维度必须与 `EMBEDDING_DIMENSIONS` 一致。文档导入成功只说明 upsert 成功；查询仍会因 collection 维度、filter schema 或权限不一致而返回 `RAG_PROVIDER_ERROR`。
 
+RAG payload 从 12.04 起必须包含 `app_id`。升级已有 Chroma/Qdrant collection 时，推荐使用新的 collection 名称并从可信文档重新导入；也可以先备份，再清空旧 collection 后重导入。服务不会把缺少 `app_id` 的旧记录自动归属到某个应用，这些记录不会被新检索命中。
+
 ## 默认存储
 
 本地和单容器部署推荐 SQLite：

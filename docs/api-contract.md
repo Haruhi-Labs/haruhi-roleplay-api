@@ -198,6 +198,8 @@ character 字段：
 
 未注入 ingest provider 时只返回 `validated`，用于 metadata 校验。注入 RAG provider 时返回 `imported`，服务会按文本切分 chunk 并保留 metadata。当前支持 `local` 文本检索、`local_vector` 标准库向量检索、可选 Chroma/Faiss 本地向量后端，以及 Qdrant REST 云端 provider。
 
+顶层 `app_id` 会由服务端写入每个 RAG chunk 的 metadata。检索只返回同一 `app_id` 下的数据，且 source 摘要包含 `app_id`。不同应用可以复用同一个 `document_id`，服务端生成的内部 chunk/point ID 仍然不同。缺少 `app_id` 的旧 Chroma/Qdrant 记录不会参与检索，不会被自动归属到当前应用。
+
 ### POST /v1/rag/search
 
 调试 RAG 检索。
@@ -234,6 +236,8 @@ character 字段：
 | filtered_hit_count | metadata filter 后数量                        |
 | rerank_applied     | 是否执行 rerank                               |
 | chunks             | 命中的 chunk 列表，包含 source 摘要和 content |
+
+`app_id` 是强制存储过滤条件，不属于调用方可覆盖的 `filters` 字段。它会与 character、persona、timeline、spoiler、language 和 source type 过滤共同生效。
 
 ## Memory
 

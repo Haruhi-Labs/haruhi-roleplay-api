@@ -14,9 +14,11 @@ from haruhi_roleplay_api.adapters.rag import (
     _chunk_text,
     _matches_filters,
     _metadata_with_title,
+    _scoped_chunk_id,
 )
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
+    AppId,
     RagChunk,
     RagChunkId,
     RagDocumentId,
@@ -166,6 +168,7 @@ class ChromaVectorStore:
         result = self._collection.query(
             query_embeddings=[list(query_vector)],
             n_results=retrieve_input.topK * 8,
+            where={"app_id": str(retrieve_input.appId)},
         )
         ids = result.get("ids", [[]])[0]
         documents = result.get("documents", [[]])[0]
@@ -216,12 +219,12 @@ class LocalVectorRagService:
 
     def ingest(self, ingest_input: RagIngestInput) -> RagIngestResult:
         document_id = ingest_input.documentId or RagDocumentId(
-            _document_id_for_content(ingest_input.content)
+            _document_id_for_content(ingest_input.appId, ingest_input.content)
         )
         metadata = _metadata_with_title(ingest_input.metadata, ingest_input.title)
         chunks = tuple(
             RagChunk(
-                chunkId=RagChunkId(f"{document_id}-chunk-{index}"),
+                chunkId=_scoped_chunk_id(ingest_input.appId, document_id, index),
                 documentId=document_id,
                 content=content,
                 score=0.0,
@@ -313,6 +316,11 @@ def _chunk_with_score(chunk: RagChunk, score: float) -> RagChunk:
 
 def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
     return {
+        "app_id": (
+            str(chunk.metadata.appId)
+            if chunk.metadata.appId is not None
+            else ""
+        ),
         "document_id": str(chunk.documentId),
         "character_id": str(chunk.metadata.characterId),
         "persona_mode": (
@@ -342,6 +350,11 @@ def _chunk_from_payload(
         content=content,
         score=0.0,
         metadata=RagDocumentMetadata(
+            appId=(
+                AppId(str(payload["app_id"]))
+                if payload.get("app_id")
+                else None
+            ),
             characterId=str(payload["character_id"]),
             personaMode=str(payload["persona_mode"]) or None,
             timeline=str(payload["timeline"]),
@@ -367,8 +380,12 @@ def _metadata_extra_from_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"title": title} if title else {}
 
 
-def _document_id_for_content(content: str) -> str:
-    digest = hashlib.blake2b(content.encode("utf-8"), digest_size=8).hexdigest()
+def _document_id_for_content(app_id: AppId, content: str) -> str:
+    scoped_content = f"{app_id}\0{content}"
+    digest = hashlib.blake2b(
+        scoped_content.encode("utf-8"),
+        digest_size=8,
+    ).hexdigest()
     return f"ragdoc-{digest}"
 
 

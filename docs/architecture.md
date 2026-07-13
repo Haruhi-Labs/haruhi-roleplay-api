@@ -12,6 +12,8 @@ HTTP Adapter 在进入 Orchestrator 前完成 `ROLEPLAY_API_KEY` 或服务 Acces
 
 服务 Access Token 绑定单一 `app_id`。HTTP runtime 在 DTO handler、RAG/session/memory provider 和模型调用前统一比较 body/query 中的 `app_id`；不匹配和 legacy unscoped token 返回 `AUTH_PERMISSION_DENIED`，并记录不含正文的拒绝审计。`ROLEPLAY_API_KEY` 代表管理主体，不受服务 token scope 限制。
 
+RAG 还在存储层执行独立的 app 隔离。文档导入时，顶层 `app_id` 会写入每个 chunk 的 metadata；local、内存向量和 Faiss 在统一 metadata filter 中比较 app，Chroma 和 Qdrant 同时在持久化 payload 与查询 filter 中使用 `app_id`。内部 chunk/point ID 也包含 app scope，因此不同应用可以使用相同的公开 `document_id`，但不会覆盖或检索到彼此的数据。缺少 `app_id` 的旧向量记录不会自动归属或参与检索。
+
 前端只选择业务参数：
 
 - `character_id`
