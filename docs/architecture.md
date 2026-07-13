@@ -52,7 +52,7 @@ HTTP Adapter 在进入 Orchestrator 前完成 `ROLEPLAY_API_KEY` 或服务 Acces
 | TextEmbeddingProvider       | 把文本转成向量，供本地/云端 RAG provider 使用                      |
 | MemoryStore                 | 长期记忆存取                                                       |
 | BackendContextProvider      | 从业务后端或其它数据库读取受控上下文                               |
-| SafetyGuard                 | 输入、输出和越界检查                                               |
+| SafetyGuard                 | 规划中的输入、输出和越界检查；当前尚未接入请求链路                 |
 | AccessTokenStore            | 服务令牌校验、额度核算和逐令牌审计日志                             |
 
 角色字段的含义见 `character-schema.md`。其中 `ToneConfig`、`IdentityConfig`、`KnowledgeBoundary` 会被 Orchestrator 读取，并由 PromptBuilder 融合进模型上下文。
@@ -154,23 +154,16 @@ Agent 编排不是让模型自由调用任意工具。当前项目应采用受�
 - 每个模型厂商放在 `adapters/models/<provider>.py`，共享 OpenAI-compatible 逻辑时继承或包装 `openai_compatible.py`。
 - embedding provider 通过 `ports/embeddings.py`、`adapters/embeddings/` 和 `infrastructure/embedding_provider_factory.py` 独立装配，再注入 RAG provider。
 
-## 第一阶段实现建议
+## 当前实现边界
 
-先实现：
+已形成可运行闭环：persona catalog、PromptBuilder、模型 provider 路由、session、RAG、memory、deterministic planner、HTTP/SSE runtime、前端 demo、配置编辑器和 Docker Compose。
 
-- PersonaRepository 本地配置实现。
-- PromptBuilder v1。
-- FakeModelProvider。
-- 最小 RoleplayOrchestrator。
+尚未实现的主要边界：
 
-后实现：
+- 规则型 `SafetyGuard`。
+- `BackendContextProvider` 的真实业务后端 adapter。
+- model-backed Agent planner。
+- session summary / compaction。
+- 额外公开角色和 persona preset。
 
-- SessionStore。
-- RagService。
-- MemoryStore。
-- LocalModelProvider。
-- CloudProviderPack。
-- HTTP runtime adapter。
-- AgentContextPlanner 的 model-backed 实现。
-- BackendContextProvider 的真实业务后端 adapter。
-- Frontend demo。
+后续优先级以 `roadmap.md` 和 `docs/agent-dev/cards/00.00.cards-index.md` 为准。

@@ -19,7 +19,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | ok        | true 或 false |
 | data      | 成功时返回    |
 | error     | 失败时返回    |
-| requestId | 请求追踪 ID   |
+| request_id | 请求追踪 ID  |
 
 ## Chat: POST /v1/chat
 
@@ -32,8 +32,8 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | app_id       | 是   | 调用方应用 ID                                    |
 | user_id      | 是   | 调用方用户 ID                                    |
 | session_id   | 否   | 连续会话 ID                                      |
-| character_id | 是   | 角色 ID，例如 `haruhi`、`asahina_mikuru`、`kyon` |
-| persona_mode | 是   | 角色 preset，例如 `entrance_haruhi`              |
+| character_id | 是   | 角色 ID，例如 `haruhi`、`kyon`                   |
+| persona_mode | 是   | 角色 preset，例如 `mid_late_haruhi`              |
 | message      | 是   | 用户输入                                         |
 | language     | 是   | `zh-CN`、`ja-JP`、`en-US`                        |
 | capabilities | 是   | 能力开关                                         |
@@ -47,7 +47,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 | rag                | boolean | 是否启用 RAG                                               |
 | memory             | boolean | 是否启用长期记忆                                           |
 | continuous_session | boolean | 是否启用连续会话                                           |
-| safety_filter      | boolean | 是否启用安全检查                                           |
+| safety_filter      | boolean | 安全能力意图；当前只记录状态，尚未接入规则型 SafetyGuard   |
 | debug_trace        | boolean | 是否返回调试信息                                           |
 | stream             | boolean | `/v1/chat` 必须为 false；`/v1/chat/stream` 会强制视为 true |
 
@@ -108,7 +108,7 @@ Base URL 由部署环境决定，文档中统一写作 `{base_url}`。
 
 用途：发送一次流式角色扮演请求。请求参数与 `/v1/chat` 一致，服务端会把 `capabilities.stream` 强制视为 true。模型开始前失败时返回普通错误响应；模型开始后失败时返回 `error` event。
 
-当前框架无关 handler 返回 `data.events` 数组；真实 HTTP adapter 应逐条编码为 SSE 或等价流式协议。
+框架无关 handler 可用 `data.events` 数组表达事件；当前 HTTP runtime 会把 provider 增量惰性编码为端到端 SSE。
 
 ### Stream Event
 
@@ -159,20 +159,7 @@ start -> source* -> delta* -> error
 | status     | active   |
 | created_at | 创建时间 |
 
-## Session: GET /v1/sessions/{session_id}
-
-用途：查询 session 状态和摘要。
-
-### 查询参数
-
-| 字段    | 必填 | 说明          |
-| ------- | ---- | ------------- |
-| app_id  | 是   | 调用方应用 ID |
-| user_id | 是   | 用户 ID       |
-
-## Session: DELETE /v1/sessions/{session_id}
-
-用途：关闭 session。关闭后不可继续写入。
+当前 HTTP runtime 不提供 session 查询或关闭接口。调用方只需保存创建结果中的 `session_id`；session 过期和清理由已配置的 `SessionStore` 负责。
 
 ## Persona: GET /v1/personas
 
@@ -197,18 +184,7 @@ character 字段：
 | tags                 | 前端筛选标签     |
 | modes                | 可选 preset 摘要 |
 
-## Persona: GET /v1/personas/{character_id}/modes
-
-用途：列出指定角色可用 preset。
-
-### 响应 data
-
-| 字段         | 说明     |
-| ------------ | -------- |
-| character_id | 角色 ID  |
-| modes        | 模式列表 |
-
-mode 字段：
+`GET /v1/personas` 的每个 character 已包含 `modes`，当前不提供单独的 modes 子路由。mode 字段：
 
 | 字段         | 说明     |
 | ------------ | -------- |
@@ -221,11 +197,10 @@ mode 字段：
 
 | character_id   | persona_mode         | 显示名       |
 | -------------- | -------------------- | ------------ |
-| haruhi         | entrance_haruhi      | 刚入学的春日 |
-| haruhi         | mid_late_haruhi      | 中后期的春日 |
-| haruhi         | disappearance_haruhi | 消失春日     |
-| asahina_mikuru | default_mikuru       | 朝比奈学姐   |
-| kyon           | default_kyon         | 阿虚         |
+| haruhi       | mid_late_haruhi | 中后期的春日 |
+| kyon         | default_kyon    | 阿虚         |
+
+以上是当前 catalog 中真实公开的 preset。其它角色和春日模式属于后续卡片，不应作为当前可调用值。
 
 ## RAG: POST /v1/rag/documents
 
@@ -516,5 +491,5 @@ check 成功执行时即使配置无效也返回 `ok=true`，并在 `data.valid=
 | RAG_PROVIDER_ERROR     | RAG provider 失败     |
 | MODEL_PROVIDER_ERROR   | 模型 provider 失败    |
 | MEMORY_NOT_FOUND       | 记忆不存在            |
-| SAFETY_BLOCKED         | 安全策略阻断          |
+| SAFETY_BLOCKED         | 预留安全策略错误码；当前 SafetyGuard 尚未接入 |
 | PERSONA_NOT_FOUND      | 角色不存在            |

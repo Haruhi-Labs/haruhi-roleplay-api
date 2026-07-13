@@ -33,8 +33,8 @@
 1. 调用 `POST /v1/sessions` 创建 session。
 2. 保存 `session_id` 到调用方业务系统。
 3. 后续每次 `POST /v1/chat` 都传 `session_id`。
-4. `capabilities.continuousSession` 设置为 true。
-5. 对话结束时调用 `DELETE /v1/sessions/{session_id}`。
+4. `capabilities.continuous_session` 设置为 true。
+5. 当前无需调用关闭接口；session 过期和清理由服务端 `SessionStore` 负责。
 
 适合：
 
@@ -46,11 +46,11 @@
 
 1. 调用方收到用户输入。
 2. 调用 `POST /v1/chat/stream`。
-3. 业务后端把 `data.events` 中的事件逐条转成 SSE 或等价流式响应。
+3. 业务后端透传当前 HTTP runtime 返回的 SSE 事件。
 4. 前端收到 `delta` 时追加文本。
 5. 收到 `done` 后结束 loading，并使用 `usage`、`rag`、`memory`、`debug` 做界面和联调处理。
 
-当前框架无关 handler 用数组表达 stream event，真实 HTTP 层负责逐条发送。流式接口复用同一 Orchestrator，正常结束后仍会写入完整 assistant message；provider 中途失败时返回 `error` event。
+框架无关 handler 可用数组表达 stream event；当前 HTTP runtime 已实现惰性 SSE。流式接口复用同一 Orchestrator，正常结束后仍会写入完整 assistant message；provider 中途失败时返回 `error` event。
 
 适合：
 
@@ -99,13 +99,11 @@
 
 ## 推荐默认参数
 
-| 场景       | character_id   | persona_mode         | rag   | memory | continuousSession | temperature | styleIntensity |
-| ---------- | -------------- | -------------------- | ----- | ------ | ----------------- | ----------- | -------------- |
-| 首次体验   | haruhi         | entrance_haruhi      | false | false  | false             | 0.8         | 0.75           |
-| 长期聊天   | haruhi         | mid_late_haruhi      | true  | true   | true              | 0.8         | 0.7            |
-| 日常轻互动 | haruhi         | disappearance_haruhi | false | true   | true              | 0.7         | 0.55           |
-| 温和陪伴   | asahina_mikuru | default_mikuru       | false | true   | true              | 0.7         | 0.55           |
-| 吐槽叙述   | kyon           | default_kyon         | true  | false  | true              | 0.6         | 0.6            |
+| 场景     | character_id | persona_mode       | rag   | memory | continuous_session | temperature | style_intensity |
+| -------- | ------------ | ------------------ | ----- | ------ | ------------------ | ----------- | --------------- |
+| 首次体验 | haruhi       | mid_late_haruhi    | false | false  | false              | 0.8         | 0.75            |
+| 长期聊天 | haruhi       | mid_late_haruhi    | true  | true   | true               | 0.8         | 0.7             |
+| 吐槽互动 | kyon         | default_kyon       | true  | false  | true               | 0.6         | 0.6             |
 
 ## 后端错误处理建议
 

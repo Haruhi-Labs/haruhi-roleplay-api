@@ -43,7 +43,7 @@
 
 当 `capabilities.continuous_session=true` 时，`session_id` 必须来自 `POST /v1/sessions` 创建的 active session，并且与当前 `app_id`、`user_id`、`character_id`、`persona_mode` 匹配。
 
-当 `capabilities.rag=true` 时，服务端必须已注入 `RagService`。当前实现支持 Fake RAG retrieve，用 persona policy 过滤固定 chunks，并返回 source 摘要；真实 embedding、向量库和 rerank 尚未接入。
+当 `capabilities.rag=true` 时，服务端必须已注入 `RagService`。当前实现支持 fake、本地文本、本地向量（memory/Chroma/Faiss）和 Qdrant 检索，并使用 persona policy 过滤 chunks；rerank 尚未实现。
 
 当 `capabilities.memory=true` 时，服务端必须已注入 `MemoryStore`。服务会读取同一 `app_id`、`user_id`、`character_id`、`persona_mode` 下的有限记忆，并按 persona `memoryPolicy.allowedTypes` 过滤。
 
@@ -111,11 +111,13 @@
 
 `debug` 不返回完整 prompt、完整用户输入、完整模型输出、secret、连接串或原始 RAG 文档。
 
+当前 `capabilities.safety_filter` 和 debug 中的 safety 字段只记录调用意图与结果占位，规则型 `SafetyGuard` 尚未接入，不应把它视为已经执行输入/输出内容审核。
+
 ### POST /v1/chat/stream
 
 发送一次流式角色扮演请求。请求字段与 `/v1/chat` 一致，服务端会把 `capabilities.stream` 视为 true。流式接口复用同一个 Orchestrator 和 PromptBuilder，不改变 session、RAG、memory 或 safety 语义。
 
-当前框架无关 API handler 返回 `data.events` 数组；真实 HTTP adapter 应把数组中的每个对象编码为 SSE 或等价流式事件。
+框架无关 API handler 可用 `data.events` 数组表达事件；当前 HTTP runtime 已把 provider 增量惰性编码为端到端 SSE，不会先缓存完整回复再发送。
 
 事件格式：
 
@@ -153,9 +155,7 @@ character 字段：
 | tags                 | 前端筛选标签     |
 | modes                | 可选 preset 摘要 |
 
-### GET /v1/personas/{character_id}/modes
-
-返回指定角色的可用 preset。
+每个 character 的 `modes` 已包含该角色当前公开的 preset，不另提供 modes 子路由。
 
 ## Session
 
@@ -163,13 +163,7 @@ character 字段：
 
 创建连续会话。
 
-### GET /v1/sessions/{session_id}
-
-查询 session 状态。
-
-### DELETE /v1/sessions/{session_id}
-
-关闭 session。
+当前不提供 session 查询或关闭接口。调用方保存 `POST /v1/sessions` 返回的 `session_id`；过期和清理由具体 `SessionStore` 负责。
 
 ## RAG
 
@@ -316,7 +310,7 @@ memory item 字段：
 | MODEL_TIMEOUT          | 模型超时           |
 | MEMORY_NOT_FOUND       | 记忆不存在         |
 | MEMORY_ACCESS_DENIED   | 记忆访问被拒绝     |
-| SAFETY_BLOCKED         | 安全策略阻断       |
+| SAFETY_BLOCKED         | 预留安全策略错误码；当前尚未主动产生 |
 | INTERNAL_ERROR         | 内部错误           |
 
 ## 字段命名

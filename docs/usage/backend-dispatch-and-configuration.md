@@ -9,16 +9,16 @@
 这里的“后端实现”指本项目内部的 provider 或 adapter，例如：
 
 - Session 使用 InMemory、SQLite 还是 PostgreSQL。
-- Memory 使用 InMemory、SQLite 还是 PostgreSQL。
-- RAG 使用 LocalVector、Qdrant、pgvector 还是 OpenAI Vector Store。
+- Memory 使用 InMemory 还是 SQLite。
+- RAG 使用本地文本、本地向量、Chroma、Faiss 还是 Qdrant。
 - Model 使用 FakeModel、Ollama、本地 OpenAI-compatible 服务还是云模型。
-- Persona 使用本地配置文件还是数据库。
+- Persona 当前使用项目内 JSON catalog；数据库 adapter 尚未实现。
 
 ## 请求链路
 
 推荐链路：
 
-前端 -> 业务后端 -> 本项目 Roleplay API -> Provider Pack -> 具体后端实现
+前端 -> 业务后端 -> 本项目 Roleplay API -> Ports -> Adapters -> 具体后端实现
 
 前端不直接选择具体 provider。前端只传业务参数：
 
@@ -39,8 +39,8 @@
 本项目负责：
 
 - 校验请求。
-- 鉴权和限流。
-- 根据配置选择 provider pack。
+- 鉴权、Access Token 额度预检和用量结算。
+- 根据配置通过 factory 装配 provider。
 - 根据 capabilities 调度 session、memory、RAG、model。
 - 返回统一响应。
 
@@ -52,12 +52,12 @@
 
 1. API Controller 接收 HTTP 请求。
 2. DTO Mapper 把 HTTP `snake_case` 转成内部 `camelCase`。
-3. AuthService 生成 AuthContext。
-4. RateLimiter 检查调用频率。
+3. HTTP runtime 校验 `ROLEPLAY_API_KEY` 或服务 Access Token，并预检额度。
+4. API handler 完成请求 DTO 校验。
 5. SendChatMessageUseCase 接收 ChatInput。
 6. RoleplayOrchestrator 进行业务编排。
 7. Orchestrator 只调用 ports。
-8. ports 的具体实现由 Provider Pack 在启动时注入。
+8. ports 的具体实现由 infrastructure factory 在启动时注入。
 
 核心原则：请求运行中不要临时 `new` 具体 provider。
 
@@ -65,63 +65,25 @@
 
 调度具体后端实现时，按这个优先级决策：
 
-1. 启动环境配置，例如 `APP_ENV`、`PROVIDER_PACK`。
-2. app 级配置，例如某个 `app_id` 是否允许使用云 RAG。
-3. 请求能力开关，例如 `capabilities.rag`、`capabilities.memory`。
-4. character 和 persona mode 策略，例如时间线和 RAG filter。
-5. generation 参数，例如模型别名、温度、最大 token。
-6. provider 健康状态和 fallback 策略。
+1. 启动配置和 infrastructure factory 装配出的 provider。
+2. 请求能力开关，例如 `capabilities.rag`、`capabilities.memory`。
+3. character 和 persona mode 策略，例如时间线和 RAG filter。
+4. generation 参数，例如模型别名、温度、最大 token。
+5. `MODEL_PROVIDER_REGISTRY` 中的服务端 alias 路由；未配置 registry 时使用简单 `LLM_*` facade。
 
 不要让前端直接传 `provider=qdrant` 或 `provider=openai` 这类字段。
 
-## Provider Pack
+## 当前装配方式
 
-Provider Pack 是一组后端实现绑定。
+当前代码没有 `PROVIDER_PACK` 配置或 pack factory。运行时分别通过 model、RAG、embedding、session 和 memory factory 装配 ports，因此各能力可以独立替换。
 
-### local
+| 场景 | 推荐实现 |
+| --- | --- |
+| 测试 | FakeModelProvider、FakeRagService、in-memory session/memory |
+| 本地 | Ollama 或 OpenAI-compatible、本地/Chroma/Faiss RAG、SQLite session/memory |
+| 云端 | OpenAI/DeepSeek/Gemini、Qdrant、PostgreSQL session；memory 仍使用 SQLite |
 
-用于本地开发和最小验证。
-
-| 能力              | 实现                                                                             |
-| ----------------- | -------------------------------------------------------------------------------- |
-| PersonaRepository | 本地 YAML 或 JSON，包含角色和 preset catalog                                     |
-| SessionStore      | InMemory 或 SQLite                                                               |
-| MemoryStore       | InMemory 或 SQLite                                                               |
-| RagService        | LocalRagService                                                                  |
-| VectorIndex       | LocalVectorIndex                                                                 |
-| EmbeddingProvider | HashEmbeddingProvider、OllamaEmbeddingProvider 或本地 OpenAI-compatible endpoint |
-| ModelProvider     | Ollama 或本地 OpenAI-compatible                                                  |
-| Logger            | ConsoleLogger                                                                    |
-
-### test
-
-用于单元测试、契约测试和 CI。
-
-| 能力              | 实现                                             |
-| ----------------- | ------------------------------------------------ |
-| PersonaRepository | InMemoryPersonaRepository，包含测试角色和 preset |
-| SessionStore      | InMemorySessionStore                             |
-| MemoryStore       | InMemoryMemoryStore                              |
-| RagService        | FakeRagService                                   |
-| VectorIndex       | FakeVectorIndex                                  |
-| EmbeddingProvider | HashEmbeddingProvider                            |
-| ModelProvider     | FakeModelProvider                                |
-| Logger            | NoopLogger 或 TestLogger                         |
-
-### cloud
-
-用于生产环境。
-
-| 能力              | 实现                                                                          |
-| ----------------- | ----------------------------------------------------------------------------- |
-| PersonaRepository | PostgresPersonaRepository，存储角色和 preset catalog                          |
-| SessionStore      | PostgresSessionStore                                                          |
-| MemoryStore       | PostgresMemoryStore                                                           |
-| CacheStore        | RedisCacheStore                                                               |
-| RagService        | 当前实现 `QdrantRagService`；pgvector / OpenAI Vector Store 留作后续 provider |
-| EmbeddingProvider | OpenAIEmbeddingProvider 或 OpenAI-compatible EmbeddingProvider                |
-| ModelProvider     | OpenAI-compatible ChatModelProvider                                           |
-| Logger            | StructuredLogger 或 OpenTelemetryLogger                                       |
+Persona 当前固定从项目 `personas/` JSON catalog 读取。PostgreSQL persona、PostgreSQL memory、Redis cache 和 OpenTelemetry logger 尚未实现。
 
 ## 配置项
 
@@ -129,11 +91,10 @@ Provider Pack 是一组后端实现绑定。
 
 | 配置                            | 示例                    | 说明                                                         |
 | ------------------------------- | ----------------------- | ------------------------------------------------------------ |
-| APP_ENV                         | local                   | 运行环境                                                     |
-| PROVIDER_PACK                   | local                   | provider pack 名称                                           |
-| PORT                            | 3000                    | HTTP 服务端口                                                |
+| ROLEPLAY_HOST                   | 127.0.0.1               | HTTP 监听地址                                                |
+| ROLEPLAY_PORT                   | 8000                    | HTTP 服务端口                                                |
+| ROLEPLAY_API_KEY                | secret                  | 受信任管理密钥，不得提交或回显                               |
 | ENABLE_DEBUG_TRACE              | true                    | 是否允许 debug trace                                         |
-| ENABLE_SAFETY_FILTER            | true                    | 是否默认启用安全过滤                                         |
 | AGENT_CONTEXT_PLANNER           | deterministic           | Agent 上下文计划器；当前支持 `deterministic`，`model` 仅预留 |
 | BACKEND_CONTEXT_PROVIDER        | none                    | backend context provider；当前支持 `none`、`fake`            |
 | BACKEND_CONTEXT_SOURCES         | user_profile,game_state | 本服务允许本次计划读取的业务上下文 source                    |
@@ -167,6 +128,7 @@ SESSION_RECENT_LIMIT=12
 启动：
 
 ```powershell
+$env:PYTHONPATH="src"
 uv run python -m haruhi_roleplay_api.infrastructure.http_server
 ```
 
@@ -176,7 +138,7 @@ uv run python -m haruhi_roleplay_api.infrastructure.http_server
 2. `.env` 文件中的值覆盖同名进程环境变量。
 3. `PATCH /v1/runtime-config` 写回 `.env`，并在当前进程内热重建 provider。
 
-`.env` 可以保存服务端密钥，例如 `ROLEPLAY_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。这些值不会通过 runtime config 查询接口返回，也不能通过 `PATCH /v1/runtime-config` 写入。后续全量 `.env` 编辑器可以提供 write-only secret 写入能力，但响应仍只能返回 set/empty/missing 状态。
+`.env` 可以保存服务端密钥，例如 `ROLEPLAY_API_KEY`、`OPENAI_API_KEY`、`DEEPSEEK_API_KEY`、`GEMINI_API_KEY`。这些值不会通过 runtime config 查询接口返回，也不能通过 `PATCH /v1/runtime-config` 写入。当前 Env Config Editor API 支持 write-only secret 写入，响应只返回 set/empty/missing 状态。
 
 ### Runtime Config 热切换
 
@@ -305,10 +267,7 @@ BACKEND_CONTEXT_ALLOWED_SOURCES=user_profile,game_state
 
 ### Persona
 
-| 配置               | 示例       | 说明                  |
-| ------------------ | ---------- | --------------------- |
-| PERSONA_PROVIDER   | file       | persona 来源          |
-| PERSONA_CONFIG_DIR | ./personas | 本地 persona 配置目录 |
+当前 runtime 从项目根目录 `personas/` 读取 JSON catalog。`PERSONA_PROVIDER` 不存在，`PERSONA_CONFIG_DIR` 虽保留在配置 schema 中，但尚未参与 runtime 装配，不应作为当前切换方式。
 
 ### Session
 
@@ -570,26 +529,19 @@ $env:MODEL_PROVIDER_REGISTRY='{
 
 收到 `POST /v1/chat` 或 `POST /v1/chat/stream` 后的推荐调度：
 
-1. API 层校验请求字段。
-2. 把 `persona_mode` 转成内部 `personaMode`。
-3. AuthService 校验调用方。
-4. 根据 `app_id` 读取 app 级权限。
-5. 如果调用方不允许 RAG，则强制关闭 `capabilities.rag` 或返回权限错误。
-6. Orchestrator 读取 CharacterProfile 和 PersonaPreset。
-7. 如果 `continuousSession=true`，调用 SessionStore。
-8. 如果 `memory=true`，调用 MemoryPolicyEngine 和 MemoryStore。
-9. 如果 `rag=true`，调用 RagService。
-10. PromptBuilder 组装 messages。
-11. SafetyGuard 检查输入。
-12. `ChatModelRouter` 的 `ModelProviderRegistryRouter` 实现根据 generation 和配置选择模型。
-13. 非流式接口调用 `ChatModelProvider.generate`，流式接口调用 `ChatModelProvider.stream`。
-14. 流式接口把 provider delta 转成统一 `delta` event，并累积完整 assistant reply。
-15. SafetyGuard 检查输出。
-16. SessionStore 写入完整消息。
-17. 如果存在 `metadata.memory_write`，MemoryPolicyEngine 判断是否写入。
-18. Logger 写入请求摘要。
-19. 非流式接口返回完整响应，流式接口返回或发送 `start/source/delta/usage/done/error` events。
-20. API 层把内部 `camelCase` 转成外部 `snake_case` 响应。
+1. HTTP runtime 校验管理员密钥或服务 Access Token，并预检额度。
+2. API 层校验字段，把外部 `snake_case` 映射为内部 DTO。
+3. Orchestrator 读取 `CharacterProfile` 和 `PersonaPreset`。
+4. deterministic `AgentContextPlanner` 根据 capabilities 和 persona policy 生成 `ContextPlan`。
+5. 按 plan 读取 session、memory、RAG 和 backend context。
+6. PromptBuilder 统一组装 persona、上下文和当前用户消息。
+7. `ModelProviderRegistryRouter` 根据 `generation.model` alias 或默认 alias 选择 provider。
+8. 非流式调用 `generate`；流式调用 `stream` 并把 delta 惰性编码为 SSE。
+9. 连续会话保存完整 user/assistant 消息。
+10. 如果存在显式或 session 切片候选，MemoryPolicyEngine 审核后写入 memory。
+11. 返回统一响应，并对 Access Token 结算用量和写入审计日志。
+
+规则型 `SafetyGuard` 尚未接入。当前 safety capability 和响应字段只保留契约位置，不能视为已经执行内容审核。
 
 ## 能力开关如何影响调度
 
@@ -598,7 +550,7 @@ $env:MODEL_PROVIDER_REGISTRY='{
 | continuousSession | 不读写 session 上下文 | 读最近消息，回复后写入消息       |
 | rag               | 不执行 RAG            | 根据 persona filter 检索 chunks  |
 | memory            | 不读写长期记忆        | 读取相关记忆，并审核显式写入候选 |
-| safetyFilter      | 只做基础校验          | 执行输入和输出安全检查           |
+| safetyFilter      | 记录为关闭            | 记录调用意图；当前尚无 SafetyGuard |
 | debugTrace        | 不返回 debug          | 返回裁剪后的调试摘要             |
 | stream            | 返回完整 reply        | 返回 stream event                |
 
@@ -608,15 +560,12 @@ $env:MODEL_PROVIDER_REGISTRY='{
 
 推荐策略：
 
-| 条件                          | 模型路由                        |
-| ----------------------------- | ------------------------------- |
-| `APP_ENV=test`                | FakeModel                       |
-| `APP_ENV=local`               | Ollama 或本地 OpenAI-compatible |
-| `generation.model` 有合法别名 | 使用别名映射                    |
-| RAG query rewrite             | cheap_fast_model                |
-| memory policy 判断            | 当前使用规则策略，不调用模型    |
-| 高质量角色扮演                | high_quality_model              |
-| provider 失败                 | fallback_model                  |
+| 条件 | 模型路由 |
+| --- | --- |
+| `generation.model` 有合法 alias | 使用 registry 中的 alias 映射 |
+| `generation.model` 为空 | 使用 registry 或简单 `LLM_*` 配置生成的默认 alias |
+| 未配置真实 provider | 使用显式配置的 fake provider |
+| memory policy 判断 | 当前使用规则策略，不调用模型 |
 
 `generation.model` 应该是服务端定义的模型别名，不是直接暴露真实厂商模型名。当前实现由 `ModelProviderRegistryRouter` 完成 alias 路由，由 `model_provider_factory.py` 在启动装配阶段创建具体 provider。
 
@@ -646,13 +595,14 @@ $env:MODEL_PROVIDER_REGISTRY='{
 RAG 调度需要同时看请求能力和 persona 策略：
 
 1. `capabilities.rag` 必须为 true。
-2. 当前 app 必须有 RAG 权限。
-3. persona mode 必须允许 RAG。
-4. 根据 persona mode 生成默认 filters。
-5. 合并调用方允许的 filters。
-6. 调用 RagService retrieve。
-7. 返回 chunks 给 PromptBuilder。
-8. 返回 source 摘要给调用方。
+2. persona mode policy 必须允许 RAG。
+3. 根据 persona mode 生成默认 filters。
+4. 合并调用方允许的 filters。
+5. 调用 RagService retrieve。
+6. 返回 chunks 给 PromptBuilder。
+7. 返回 source 摘要给调用方。
+
+当前 Access Token 尚未绑定 `app_id`，RAG provider 也尚未完成 app 级隔离；这些属于 `12.02` 到 `12.04` 的安全修复范围。
 
 RAG filter 必须至少包含：
 
@@ -809,7 +759,7 @@ AGENT_CONTEXT_PLANNER=model
 - ChatModelRouter
 - ChatModelProvider
 - PromptBuilder
-- SafetyGuard
+- SafetyGuard（规划中，当前未实现）
 
 ### 第二步：实现 test provider
 
@@ -917,7 +867,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 
 ### 第五步：实现 cloud provider
 
-最后接 PostgreSQL、Redis、Qdrant 或其它云服务。
+当前已实现 PostgreSQL session、Qdrant RAG 和常见云模型/embedding adapter。Redis cache 等其它云服务尚未实现，只有出现明确性能需求时才新增。
 
 验收重点：
 
@@ -946,69 +896,68 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 
 ## 配置校验
 
-服务启动时必须校验：
+当前服务启动和配置 check 会校验：
 
-- provider pack 是否存在。
-- 当前 pack 必需的环境变量是否完整。
-- `APP_ENV=production` 时不能使用 FakeModel。
-- `ENABLE_DEBUG_TRACE=true` 在生产环境必须有权限控制。
+- provider 类型和必填字段是否合法。
+- 模型 registry JSON、alias 和 provider 引用是否完整。
 - RAG provider 和 embedding provider 维度必须匹配。
 - cloud provider 的 secret 只检查是否存在，不打印值。
 
+当前没有 `APP_ENV=production` 启动门禁，也不会自动禁止 fake provider。生产部署必须由部署环境显式选择真实 provider，并关闭 debug trace。
+
 ## 推荐本地配置
 
-| 配置                    | 值                   |
-| ----------------------- | -------------------- |
-| APP_ENV                 | local                |
-| PROVIDER_PACK           | local                |
-| PERSONA_PROVIDER        | file                 |
-| SESSION_PROVIDER        | sqlite               |
-| MEMORY_PROVIDER         | sqlite               |
-| RAG_PROVIDER            | local_vector         |
-| RAG_VECTOR_BACKEND      | memory               |
-| EMBEDDING_PROVIDER      | ollama               |
-| EMBEDDING_MODEL         | nomic-embed-text     |
-| EMBEDDING_DIMENSIONS    | 768                  |
-| MODEL_PROVIDER_REGISTRY | 见 Ollama local 示例 |
-| ENABLE_DEBUG_TRACE      | true                 |
-| ENABLE_SAFETY_FILTER    | true                 |
+```env
+ROLEPLAY_HOST=127.0.0.1
+ROLEPLAY_PORT=8000
+ROLEPLAY_API_KEY=replace-with-local-secret
+LLM_API_TYPE=ollama
+LLM_BASE_URL=http://127.0.0.1:11434/v1
+LLM_MODEL=qwen2.5:7b
+SESSION_PROVIDER=sqlite
+MEMORY_PROVIDER=sqlite
+RAG_API_TYPE=local
+ENABLE_DEBUG_TRACE=true
+```
 
 当前本地推荐可以同时使用 `SESSION_PROVIDER=sqlite` 和 `MEMORY_PROVIDER=sqlite` 保存连续会话与长期记忆。
 
 ## 推荐测试配置
 
-| 配置               | 值     |
-| ------------------ | ------ |
-| APP_ENV            | test   |
-| PROVIDER_PACK      | test   |
-| SESSION_PROVIDER   | memory |
-| MEMORY_PROVIDER    | memory |
-| RAG_PROVIDER       | fake   |
-| MODEL_PROVIDER     | fake   |
-| ENABLE_DEBUG_TRACE | true   |
+```env
+ROLEPLAY_API_KEY=test-admin-key
+LLM_API_TYPE=fake
+LLM_MODEL=fake-roleplay-model
+SESSION_PROVIDER=memory
+MEMORY_PROVIDER=memory
+RAG_API_TYPE=fake
+ENABLE_DEBUG_TRACE=true
+```
 
 ## 推荐生产配置
 
-| 配置                    | 值                                 |
-| ----------------------- | ---------------------------------- |
-| APP_ENV                 | production                         |
-| PROVIDER_PACK           | cloud                              |
-| PERSONA_PROVIDER        | postgres                           |
-| SESSION_PROVIDER        | postgres                           |
-| DATABASE_URL            | 部署平台 secret 注入               |
-| MEMORY_PROVIDER         | sqlite                             |
-| CACHE_PROVIDER          | redis                              |
-| RAG_PROVIDER            | qdrant                             |
-| QDRANT_URL              | 生产 Qdrant 地址                   |
-| QDRANT_COLLECTION       | haruhi_rag                         |
-| EMBEDDING_PROVIDER      | openai                             |
-| EMBEDDING_MODEL         | text-embedding-3-small             |
-| EMBEDDING_DIMENSIONS    | 1536                               |
-| MODEL_PROVIDER_REGISTRY | 见 DeepSeek / Gemini / OpenAI 示例 |
-| ENABLE_DEBUG_TRACE      | false                              |
-| ENABLE_SAFETY_FILTER    | true                               |
+```env
+ROLEPLAY_HOST=0.0.0.0
+ROLEPLAY_PORT=8000
+ROLEPLAY_API_KEY=replace-with-strong-secret
+LLM_API_TYPE=openai
+LLM_MODEL=gpt-4.1-mini
+LLM_API_KEY=replace-with-secret
+EMBEDDING_API_TYPE=openai
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_API_KEY=replace-with-secret
+EMBEDDING_DIMENSIONS=1536
+RAG_API_TYPE=qdrant
+RAG_BASE_URL=https://qdrant.example
+RAG_INDEX=haruhi_rag
+RAG_API_KEY=replace-with-secret
+SESSION_PROVIDER=postgres
+DATABASE_URL=postgresql://...
+MEMORY_PROVIDER=sqlite
+ENABLE_DEBUG_TRACE=false
+```
 
-生产配置中的 PostgreSQL session adapter 已实现；Memory 当前支持 in-memory 和 SQLite，本项目的单容器部署推荐先使用 SQLite。Memory PostgreSQL adapter 仍是目标形态，后续应按同样的 ports / adapters / infrastructure 边界逐步补齐。
+这是受控部署示例，不是生产安全认证。PostgreSQL session adapter 已实现；Memory 当前支持 in-memory 和 SQLite。规则型 SafetyGuard、请求资源上限和完整 app scope 隔离仍按 12.x 卡片推进。
 
 ## 前端调用时的关键约束
 
@@ -1020,8 +969,8 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
 
 ## 验收标准
 
-- 同一个前端请求在 test、local、cloud pack 下走同一套 application 流程。
-- 切换 provider pack 不需要改 Orchestrator。
+- 同一个前端请求在 fake、本地和云端 provider 下走同一套 application 流程。
+- 切换 provider 不需要改 Orchestrator。
 - 关闭某个 capability 时，对应 provider 不被调用。
 - provider 错误不会原样暴露给前端。
 - debug trace 能说明选择了哪个 provider，但不暴露 secret。
