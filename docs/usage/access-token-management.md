@@ -144,7 +144,7 @@ Content-Type: application/json
 
 ## 管理和日志接口
 
-以下接口只接受 `ROLEPLAY_API_KEY`：
+以下接口接受 `ROLEPLAY_API_KEY`，或 `/admin/` 登录后获得的安全后台会话；业务服务令牌不能访问：
 
 | 接口 | 用途 |
 | --- | --- |
@@ -165,5 +165,5 @@ Token 用量优先使用模型 provider 返回的真实 usage。OpenAI-compatibl
 - 使用清晰的 `name` 标明环境和服务，例如 `prod-order-service`。
 - 定期查询用量和日志，发现异常后立即吊销。
 - 令牌泄露时创建新令牌、更新调用方 Secret，再吊销旧令牌。
-- 备份 `.data/access-tokens.sqlite3`；它同时保存令牌校验数据、额度、累计用量和审计日志。
+- 备份 `.data/access-tokens.sqlite3`；它同时保存令牌校验数据、额度、累计用量、业务请求日志和管理员审计日志。
 - 不要把令牌写入仓库、前端代码、URL、日志或错误信息。
