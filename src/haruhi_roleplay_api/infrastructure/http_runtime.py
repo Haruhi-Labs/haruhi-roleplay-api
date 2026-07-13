@@ -1105,6 +1105,8 @@ def _admin_cookie(secret: str, *, max_age: int, secure: bool) -> str:
 
 
 def _is_admin_management_route(path_parts: list[str]) -> bool:
+    if path_parts in (["health"], ["v1", "personas"]):
+        return True
     if path_parts[:2] in (
         ["v1", "env-config"],
         ["v1", "access-tokens"],
@@ -1320,7 +1322,11 @@ def _demo_static_response(method: str, path: str) -> HttpRuntimeResponse | None:
 
 
 def _static_mount(path: str) -> tuple[str, str] | None:
-    for prefix, index_file in {"/demo": "index.html", "/config": "config.html"}.items():
+    for prefix, index_file in {
+        "/demo": "index.html",
+        "/config": "config.html",
+        "/admin": "admin.html",
+    }.items():
         if path in {prefix, f"{prefix}/"} or path.startswith(f"{prefix}/"):
             return prefix, index_file
     return None

@@ -162,6 +162,27 @@ class AdminSessionHttpTests(unittest.TestCase):
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
         self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
 
+    def test_admin_page_is_served_and_session_can_read_safe_overview_routes(self) -> None:
+        page = self.runtime.handle(method="GET", target="/admin", headers={})
+        login = self._login()
+        cookie = _cookie_pair(login.headers["Set-Cookie"])
+
+        health = self.runtime.handle(
+            method="GET",
+            target="/health",
+            headers={"Cookie": cookie},
+        )
+        personas = self.runtime.handle(
+            method="GET",
+            target="/v1/personas",
+            headers={"Cookie": cookie},
+        )
+
+        self.assertEqual(page.status, 200)
+        self.assertIn(b"Haruhi Control Room", page.body)
+        self.assertEqual(health.status, 200)
+        self.assertEqual(personas.status, 200)
+
     def _login(self):
         return self.runtime.handle(
             method="POST",

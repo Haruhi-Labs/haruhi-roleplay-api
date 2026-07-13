@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Haruhi Control Room</title>
+    <link rel="stylesheet" href="/admin/admin.css" />
+  </head>
+  <body>
+    <div id="bootView" class="boot-view" aria-live="polite">
+      <div class="boot-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <p>正在确认管理会话</p>
+    </div>
+
+    <main id="loginView" class="login-view" hidden>
+      <section class="login-story" aria-labelledby="loginStoryTitle">
+        <div class="story-brand">
+          <span class="brand-monogram">HR</span>
+          <span>Haruhi Roleplay</span>
+        </div>
+        <div class="story-copy">
+          <p class="eyebrow">Orchestration control room</p>
+          <h1 id="loginStoryTitle">每一次角色回应，<br />都有清晰的来路。</h1>
+          <p>
+            在一处管理调用凭证、角色设定、模型路由、知识与长期记忆，
+            并持续观察整条编排链路。
+          </p>
+        </div>
+        <div class="request-trail login-trail" aria-label="角色编排请求链路">
+          <span class="trail-step is-active"><i></i>凭证</span>
+          <span class="trail-line"></span>
+          <span class="trail-step"><i></i>角色</span>
+          <span class="trail-line"></span>
+          <span class="trail-step"><i></i>上下文</span>
+          <span class="trail-line"></span>
+          <span class="trail-step"><i></i>模型</span>
+          <span class="trail-line"></span>
+          <span class="trail-step"><i></i>回应</span>
+        </div>
+        <p class="story-footnote">仅限受信任的系统管理员访问</p>
+      </section>
+
+      <section class="login-panel">
+        <form id="loginForm" class="login-card">
+          <div>
+            <p class="eyebrow">Secure access</p>
+            <h2>进入控制室</h2>
+            <p class="login-intro">请输入部署时配置的管理员密码。</p>
+          </div>
+          <label class="control-label" for="passwordInput">管理员密码</label>
+          <div class="password-control">
+            <input
+              id="passwordInput"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              autofocus
+            />
+            <button id="passwordToggle" class="text-button" type="button" aria-label="显示密码">显示</button>
+          </div>
+          <p id="loginError" class="form-error" role="alert" hidden></p>
+          <button id="loginButton" class="primary-action" type="submit">
+            <span>安全登录</span><span aria-hidden="true">→</span>
+          </button>
+          <div class="security-note">
+            <span class="security-dot" aria-hidden="true"></span>
+            密码不会写入浏览器存储；会话具有空闲超时和 CSRF 防护。
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <div id="adminView" class="admin-shell" hidden>
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-brand">
+          <span class="brand-monogram">HR</span>
+          <div><strong>Haruhi</strong><span>Control room</span></div>
+        </div>
+
+        <nav class="primary-nav" aria-label="后台主导航">
+          <p class="nav-label">运行</p>
+          <button class="nav-item is-active" type="button" data-route="overview">
+            <span class="nav-glyph">⌁</span><span>总览</span>
+          </button>
+          <button class="nav-item" type="button" data-route="usage">
+            <span class="nav-glyph">∿</span><span>用量分析</span>
+          </button>
+
+          <p class="nav-label">编排资源</p>
+          <button class="nav-item" type="button" data-route="tokens">
+            <span class="nav-glyph">⌘</span><span>服务令牌</span>
+          </button>
+          <button class="nav-item" type="button" data-route="personas">
+            <span class="nav-glyph">人</span><span>角色</span>
+          </button>
+          <button class="nav-item" type="button" data-route="models">
+            <span class="nav-glyph">M</span><span>模型</span>
+          </button>
+          <button class="nav-item" type="button" data-route="rag">
+            <span class="nav-glyph">K</span><span>RAG 知识</span>
+          </button>
+          <button class="nav-item" type="button" data-route="memory">
+            <span class="nav-glyph">∞</span><span>记忆</span>
+          </button>
+
+          <p class="nav-label">系统</p>
+          <button class="nav-item" type="button" data-route="settings">
+            <span class="nav-glyph">◎</span><span>系统配置</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <div class="session-state"><i></i><span>安全会话已建立</span></div>
+          <button id="logoutButton" class="logout-button" type="button">退出登录</button>
+        </div>
+      </aside>
+
+      <div id="sidebarScrim" class="sidebar-scrim" hidden></div>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <div class="header-title-row">
+            <button id="menuButton" class="menu-button" type="button" aria-label="打开导航">菜单</button>
+            <div>
+              <p id="routeEyebrow" class="eyebrow">运行状态</p>
+              <h1 id="routeTitle">总览</h1>
+            </div>
+          </div>
+          <div class="header-actions">
+            <div class="live-state"><i></i><span id="liveStateText">正在同步</span></div>
+            <button id="refreshButton" class="secondary-action" type="button">刷新数据</button>
+          </div>
+        </header>
+
+        <div class="pulse-strip">
+          <div class="request-trail" aria-label="当前请求链路状态">
+            <span class="trail-step is-active"><i></i>凭证</span>
+            <span class="trail-line"></span>
+            <span class="trail-step is-active"><i></i>角色</span>
+            <span class="trail-line"></span>
+            <span class="trail-step is-active"><i></i>上下文</span>
+            <span class="trail-line"></span>
+            <span class="trail-step is-active"><i></i>模型</span>
+            <span class="trail-line"></span>
+            <span class="trail-step is-active"><i></i>回应</span>
+          </div>
+          <span id="syncTime" class="sync-time">尚未同步</span>
+        </div>
+
+        <section id="routeView" class="route-view" tabindex="-1" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <div id="dialogRoot"></div>
+    <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+    <script src="/admin/admin.js" type="module"></script>
+  </body>
+</html>
