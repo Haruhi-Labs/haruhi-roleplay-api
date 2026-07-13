@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -161,6 +162,55 @@ class AdminSessionHttpTests(unittest.TestCase):
         self.assertEqual(response.headers["X-Frame-Options"], "DENY")
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
         self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
+
+    def test_model_hot_reload_does_not_invalidate_admin_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            shutil.copytree(ROOT / "personas", project_root / "personas")
+            (project_root / ".env").write_text(
+                "\n".join(
+                    (
+                        "ROLEPLAY_API_KEY=local-admin-password",
+                        "LLM_API_TYPE=fake",
+                        "LLM_MODEL=fake-roleplay-model",
+                        "ACCESS_TOKEN_SQLITE_PATH=tokens.sqlite3",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            runtime = RoleplayHttpRuntime.from_env_file(
+                project_root=project_root,
+                env={},
+            )
+            login = runtime.handle(
+                method="POST",
+                target="/v1/admin/session",
+                headers={"X-Roleplay-Client-IP": "127.0.0.1"},
+                body=json.dumps({"password": "local-admin-password"}).encode("utf-8"),
+            )
+            payload = _decode(login.body)
+            cookie = _cookie_pair(login.headers["Set-Cookie"])
+
+            updated = runtime.handle(
+                method="PATCH",
+                target="/v1/env-config",
+                headers={
+                    "Cookie": cookie,
+                    "X-CSRF-Token": payload["data"]["csrf_token"],
+                },
+                body=json.dumps(
+                    {"values": {"LLM_MODEL": "fake-roleplay-model-v2"}}
+                ).encode("utf-8"),
+            )
+            session = runtime.handle(
+                method="GET",
+                target="/v1/admin/session",
+                headers={"Cookie": cookie},
+            )
+
+        self.assertEqual(updated.status, 200)
+        self.assertEqual(session.status, 200)
 
     def test_admin_page_is_served_and_session_can_read_safe_overview_routes(self) -> None:
         page = self.runtime.handle(method="GET", target="/admin", headers={})

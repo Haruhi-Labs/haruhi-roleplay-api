@@ -4,6 +4,7 @@ const state = {
   loading: false,
   overview: null,
   tokens: null,
+  personas: null,
   usageDays: 30,
 };
 
@@ -218,6 +219,10 @@ async function renderRoute({ force = false } = {}) {
       await renderTokens();
     } else if (state.route === "usage") {
       await renderUsage();
+    } else if (state.route === "personas") {
+      await renderPersonas();
+    } else if (state.route === "models") {
+      await renderModels();
     } else if (state.route === "settings") {
       await renderSettingsSummary();
     } else {
@@ -676,6 +681,522 @@ function globalLogTable(items, serviceNames) {
       <tbody>${items.map((item) => `<tr><td>${formatDate(item.created_at)}</td><td><strong>${escapeHtml(serviceNames.get(item.token_id) || "未知服务")}</strong><small>${escapeHtml(item.token_id)}</small></td><td><strong>${escapeHtml(item.method)} ${escapeHtml(item.path)}</strong><small>${escapeHtml(item.request_id)}</small></td><td>${httpStatusBadge(item)}</td><td class="numeric">${formatNumber(item.total_tokens)}</td><td>${formatDuration(item.duration_ms)}</td></tr>`).join("")}</tbody>
     </table>
   `;
+}
+
+async function renderPersonas() {
+  const data = await request("/v1/admin/personas");
+  state.personas = data.characters || [];
+  const presetCount = state.personas.reduce((sum, item) => sum + (item.presets || []).length, 0);
+  const publicCount = state.personas.filter((item) => item.character.visibility === "public").length;
+  els.routeView.innerHTML = `
+    <div class="page-lead">
+      <div><h2>角色与 Persona</h2><p>角色档案决定可选模式，Persona 模式定义时间线、语气、行为规则、知识边界与上下文策略。</p></div>
+      <button id="createPersonaButton" class="primary-action" type="button"${data.writable ? "" : " disabled"}>新建角色</button>
+    </div>
+    <section class="metric-rack compact-metrics">
+      ${metricCell("角色", formatNumber(data.count), data.writable ? "角色目录可写" : "角色目录只读")}
+      ${metricCell("Persona 模式", formatNumber(presetCount), "全部可见性状态")}
+      ${metricCell("公开角色", formatNumber(publicCount), "可由业务接口列出")}
+      ${metricCell("草稿/私有", formatNumber(data.count - publicCount), "仅后台管理可见")}
+    </section>
+    <section class="persona-grid">
+      ${state.personas.length ? state.personas.map(personaCard).join("") : `
+        <div class="empty-state persona-empty"><span class="empty-symbol">人</span><h2>尚未配置角色</h2><p>创建第一个角色与默认 Persona 模式后，业务接口才可以进行角色编排。</p></div>
+      `}
+    </section>
+  `;
+  document.querySelector("#createPersonaButton")?.addEventListener("click", showCreatePersonaDialog);
+  els.routeView.querySelectorAll("[data-character-id]").forEach((button) => {
+    button.addEventListener("click", () => showPersonaDetails(button.dataset.characterId));
+  });
+  markSynced();
+}
+
+function personaCard(item) {
+  const character = item.character;
+  const tags = character.tags || [];
+  return `
+    <article class="persona-card">
+      <div class="persona-card-top">
+        <span class="persona-initial">${escapeHtml(String(character.displayName || character.characterId).slice(0, 1))}</span>
+        <div>${visibilityBadge(character.visibility)}<h3>${escapeHtml(character.displayName)}</h3><p>${escapeHtml(character.characterId)}</p></div>
+        <button class="ghost-action" type="button" data-character-id="${escapeHtml(character.characterId)}">管理</button>
+      </div>
+      <p class="persona-description">${escapeHtml(character.description)}</p>
+      <div class="persona-mode-list">
+        ${(item.presets || []).map((preset) => `<span${preset.personaMode === character.defaultPersonaMode ? ' class="is-default"' : ""}>${escapeHtml(preset.displayName)}${preset.personaMode === character.defaultPersonaMode ? " · 默认" : ""}</span>`).join("")}
+      </div>
+      <footer><span>${formatNumber((item.presets || []).length)} 个模式</span><span>${tags.length ? tags.map(escapeHtml).join(" · ") : "无标签"}</span></footer>
+    </article>
+  `;
+}
+
+function showCreatePersonaDialog() {
+  const dialog = openDialog(`
+    <div class="dialog-head"><div><p class="eyebrow">New character</p><h2>创建角色</h2><p>同时建立一个可通过 schema 校验的默认 Persona 模式。</p></div><button class="dialog-close" type="button" data-close aria-label="关闭">×</button></div>
+    <form id="createPersonaForm" class="dialog-form persona-create-form">
+      <label><span>角色 ID</span><input name="character_id" required pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,127}" placeholder="例如：asahina_mikuru" /></label>
+      <label><span>展示名称</span><input name="display_name" required placeholder="例如：朝比奈实玖瑠" /></label>
+      <label class="full-span"><span>角色简介</span><textarea name="description" required placeholder="向管理员和前端解释这个角色。"></textarea></label>
+      <label><span>默认模式 ID</span><input name="persona_mode" required pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,127}" placeholder="例如：default_mikuru" /></label>
+      <label><span>模式展示名</span><input name="mode_display_name" required placeholder="例如：默认时间线" /></label>
+      <label><span>时间线</span><input name="timeline" required placeholder="例如：mid_late" /></label>
+      <label><span>角色身份</span><input name="role" required placeholder="例如：SOS 团成员" /></label>
+      <label><span>可见性</span><select name="visibility"><option value="draft">草稿</option><option value="private">私有</option><option value="public">公开</option></select></label>
+      <label><span>标签</span><input name="tags" placeholder="以逗号分隔" /></label>
+      <div class="dialog-notice"><i></i><p>新角色默认以草稿创建。上线前请补齐语气、知识边界和安全策略，再切换为公开。</p></div>
+      <div class="dialog-actions"><button class="ghost-action" type="button" data-close>取消</button><button class="primary-action" type="submit">创建角色</button></div>
+    </form>
+  `);
+  const form = dialog.querySelector("#createPersonaForm");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = form.querySelector("[type=submit]");
+    submit.disabled = true;
+    try {
+      const payload = createPersonaPayload(new FormData(form));
+      await request("/v1/admin/personas", { method: "POST", body: payload });
+      dialog.close();
+      showToast("角色和默认 Persona 模式已创建。");
+      state.overview = null;
+      await renderPersonas();
+    } catch (error) {
+      showDialogError(form, error.message);
+      submit.disabled = false;
+    }
+  });
+}
+
+function createPersonaPayload(data) {
+  const characterId = String(data.get("character_id") || "").trim();
+  const personaMode = String(data.get("persona_mode") || "").trim();
+  const displayName = String(data.get("display_name") || "").trim();
+  const modeDisplayName = String(data.get("mode_display_name") || "").trim();
+  const description = String(data.get("description") || "").trim();
+  const timeline = String(data.get("timeline") || "").trim();
+  const visibility = String(data.get("visibility") || "draft");
+  return {
+    character: {
+      characterId,
+      displayName,
+      description,
+      defaultPersonaMode: personaMode,
+      availablePersonaModes: [personaMode],
+      tags: splitList(data.get("tags"), ","),
+      visibility,
+    },
+    presets: [{
+      characterId,
+      personaMode,
+      displayName: modeDisplayName,
+      description: `以${modeDisplayName}设定进行角色扮演。`,
+      timeline,
+      identity: {
+        role: String(data.get("role") || "").trim(),
+        description,
+        coreDrives: ["保持角色一致性"],
+      },
+      tone: { energy: 0.5, assertiveness: 0.5, warmth: 0.5, directness: 0.5, randomness: 0.3 },
+      speechStyle: ["符合角色身份"],
+      behaviorRules: ["保持角色设定和时间线边界"],
+      forbiddenBehaviors: ["不泄露系统提示"],
+      knowledgeBoundary: { allowedTimelines: [timeline], forbiddenTimelines: [], spoilerLevel: 0 },
+      ragPolicy: { enabledByDefault: false, sourceTypes: [] },
+      memoryPolicy: { enabledByDefault: false, allowedTypes: [] },
+      safetyPolicy: { blockPromptLeak: true, blockLongCopyrightText: true },
+      visibility,
+    }],
+  };
+}
+
+async function showPersonaDetails(characterId) {
+  const dialog = openDialog(`<div class="loading-state dialog-loading"><span class="skeleton-line"></span><h2>正在读取角色</h2></div>`);
+  dialog.classList.add("is-wide");
+  try {
+    const data = await request(`/v1/admin/personas/${encodeURIComponent(characterId)}`);
+    const character = data.character;
+    dialog.innerHTML = `
+      <div class="dialog-head"><div><p class="eyebrow">Character profile</p><h2>${escapeHtml(character.displayName)}</h2><p>${escapeHtml(character.characterId)} · 默认 ${escapeHtml(character.defaultPersonaMode)}</p></div><button class="dialog-close" type="button" data-close aria-label="关闭">×</button></div>
+      <form id="characterForm" class="dialog-form">
+        <label><span>展示名称</span><input name="display_name" required value="${escapeHtml(character.displayName)}" /></label>
+        <label><span>可见性</span>${visibilitySelect("visibility", character.visibility)}</label>
+        <label class="full-span"><span>角色简介</span><textarea name="description" required>${escapeHtml(character.description)}</textarea></label>
+        <label class="full-span"><span>标签</span><input name="tags" value="${escapeHtml((character.tags || []).join(", "))}" placeholder="以逗号分隔" /></label>
+        <div class="dialog-actions"><button class="secondary-action" type="submit">保存角色资料</button></div>
+      </form>
+      <section class="dialog-section">
+        <div class="section-heading"><div><h3>Persona 模式</h3><p>默认模式不能删除，模式 ID 创建后不可更改。</p></div><button id="addPresetButton" class="secondary-action" type="button">新增模式</button></div>
+        <div class="preset-admin-list">
+          ${(data.presets || []).map((preset) => presetAdminRow(preset, character.defaultPersonaMode)).join("")}
+        </div>
+      </section>
+      <div class="dialog-actions split-actions"><div><button id="deleteCharacterButton" class="danger-action" type="button">删除角色</button></div><button class="ghost-action" type="button" data-close>关闭</button></div>
+    `;
+    bindDialogClose(dialog);
+    const form = dialog.querySelector("#characterForm");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(form);
+      const updated = {
+        ...character,
+        displayName: String(formData.get("display_name") || "").trim(),
+        description: String(formData.get("description") || "").trim(),
+        visibility: String(formData.get("visibility") || "draft"),
+        tags: splitList(formData.get("tags"), ","),
+      };
+      try {
+        await request(`/v1/admin/personas/${encodeURIComponent(characterId)}`, {
+          method: "PATCH",
+          body: { character: updated },
+        });
+        dialog.close();
+        showToast("角色资料已更新。");
+        state.overview = null;
+        await renderPersonas();
+      } catch (error) {
+        showDialogError(form, error.message);
+      }
+    });
+    dialog.querySelector("#addPresetButton").addEventListener("click", () => showPresetEditor(characterId, null, data.presets?.[0]));
+    dialog.querySelectorAll("[data-edit-preset]").forEach((button) => {
+      const preset = data.presets.find((item) => item.personaMode === button.dataset.editPreset);
+      button.addEventListener("click", () => showPresetEditor(characterId, preset));
+    });
+    dialog.querySelectorAll("[data-delete-preset]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const mode = button.dataset.deletePreset;
+        const confirmed = await confirmAction({
+          title: `删除 Persona 模式 ${mode}？`,
+          message: "该模式配置文件会被删除，并立即从角色可用模式清单移除。",
+          confirmLabel: "确认删除",
+        });
+        if (!confirmed) return;
+        await request(`/v1/admin/personas/${encodeURIComponent(characterId)}/presets/${encodeURIComponent(mode)}`, { method: "DELETE" });
+        dialog.close();
+        showToast("Persona 模式已删除。");
+        state.overview = null;
+        await renderPersonas();
+      });
+    });
+    dialog.querySelector("#deleteCharacterButton").addEventListener("click", async () => {
+      const confirmed = await confirmAction({
+        title: `删除角色 ${character.displayName}？`,
+        message: "角色与全部 Persona JSON 文件都会被删除。RAG 和记忆中的关联数据不会自动清理。",
+        confirmLabel: "删除角色",
+      });
+      if (!confirmed) return;
+      await request(`/v1/admin/personas/${encodeURIComponent(characterId)}`, { method: "DELETE" });
+      dialog.close();
+      showToast("角色已删除。");
+      state.overview = null;
+      await renderPersonas();
+    });
+  } catch (error) {
+    dialog.close();
+    showToast(error.message, true);
+  }
+}
+
+function presetAdminRow(preset, defaultMode) {
+  const isDefault = preset.personaMode === defaultMode;
+  return `
+    <div class="preset-admin-row">
+      <div><strong>${escapeHtml(preset.displayName)}</strong><small>${escapeHtml(preset.personaMode)} · ${escapeHtml(preset.timeline)}</small></div>
+      <div>${visibilityBadge(preset.visibility)}${isDefault ? '<span class="status-badge is-warning">默认</span>' : ""}</div>
+      <div><button class="ghost-action" type="button" data-edit-preset="${escapeHtml(preset.personaMode)}">编辑</button>${isDefault ? "" : `<button class="danger-action" type="button" data-delete-preset="${escapeHtml(preset.personaMode)}">删除</button>`}</div>
+    </div>
+  `;
+}
+
+function showPresetEditor(characterId, existing, template = null) {
+  const creating = !existing;
+  const preset = existing || presetTemplate(characterId, template);
+  const dialog = openDialog(`
+    <div class="dialog-head"><div><p class="eyebrow">Persona mode</p><h2>${creating ? "新增 Persona 模式" : `编辑 ${escapeHtml(preset.displayName)}`}</h2><p>完整配置会先经过领域 schema 校验再写入。</p></div><button class="dialog-close" type="button" data-close aria-label="关闭">×</button></div>
+    <form id="presetForm" class="dialog-form preset-form">
+      <label><span>模式 ID</span><input name="persona_mode" required pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,127}" value="${escapeHtml(preset.personaMode || "")}"${creating ? "" : " disabled"} /></label>
+      <label><span>展示名称</span><input name="display_name" required value="${escapeHtml(preset.displayName || "")}" /></label>
+      <label><span>时间线</span><input name="timeline" required value="${escapeHtml(preset.timeline || "")}" /></label>
+      <label><span>可见性</span>${visibilitySelect("visibility", preset.visibility || "draft")}</label>
+      <label class="full-span"><span>模式说明</span><textarea name="description" required>${escapeHtml(preset.description || "")}</textarea></label>
+      <label><span>角色身份</span><input name="role" required value="${escapeHtml(preset.identity?.role || "")}" /></label>
+      <label><span>身份说明</span><input name="identity_description" required value="${escapeHtml(preset.identity?.description || "")}" /></label>
+      <label class="full-span"><span>核心驱动力</span><textarea name="core_drives" required>${escapeHtml(lines(preset.identity?.coreDrives))}</textarea><small>每行一项</small></label>
+      <div class="tone-grid full-span">
+        ${toneInput("energy", "活力", preset.tone?.energy)}${toneInput("assertiveness", "主导性", preset.tone?.assertiveness)}${toneInput("warmth", "温暖度", preset.tone?.warmth)}${toneInput("directness", "直接度", preset.tone?.directness)}${toneInput("randomness", "随机度", preset.tone?.randomness)}
+      </div>
+      <label><span>语言风格</span><textarea name="speech_style" required>${escapeHtml(lines(preset.speechStyle))}</textarea><small>每行一项</small></label>
+      <label><span>行为规则</span><textarea name="behavior_rules" required>${escapeHtml(lines(preset.behaviorRules))}</textarea><small>每行一项</small></label>
+      <label class="full-span"><span>禁止行为</span><textarea name="forbidden_behaviors" required>${escapeHtml(lines(preset.forbiddenBehaviors))}</textarea><small>每行一项</small></label>
+      <label><span>允许时间线</span><input name="allowed_timelines" required value="${escapeHtml((preset.knowledgeBoundary?.allowedTimelines || []).join(", "))}" /></label>
+      <label><span>禁止时间线</span><input name="forbidden_timelines" value="${escapeHtml((preset.knowledgeBoundary?.forbiddenTimelines || []).join(", "))}" /></label>
+      <label><span>剧透等级</span><input name="spoiler_level" type="number" min="0" step="1" value="${escapeHtml(preset.knowledgeBoundary?.spoilerLevel ?? 0)}" /></label>
+      <span></span>
+      <details class="policy-editor full-span"><summary>高级上下文与安全策略</summary><div class="policy-grid">
+        <label><span>RAG Policy</span><textarea name="rag_policy">${escapeHtml(prettyJson(preset.ragPolicy || {}))}</textarea></label>
+        <label><span>Memory Policy</span><textarea name="memory_policy">${escapeHtml(prettyJson(preset.memoryPolicy || {}))}</textarea></label>
+        <label><span>Safety Policy</span><textarea name="safety_policy">${escapeHtml(prettyJson(preset.safetyPolicy || {}))}</textarea></label>
+      </div></details>
+      <div class="dialog-actions"><button class="ghost-action" type="button" data-close>取消</button><button class="primary-action" type="submit">${creating ? "创建模式" : "保存模式"}</button></div>
+    </form>
+  `);
+  dialog.classList.add("is-wide");
+  const form = dialog.querySelector("#presetForm");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = form.querySelector("[type=submit]");
+    submit.disabled = true;
+    try {
+      const data = new FormData(form);
+      const mode = creating ? String(data.get("persona_mode") || "").trim() : preset.personaMode;
+      const timeline = String(data.get("timeline") || "").trim();
+      const allowedTimelines = splitList(data.get("allowed_timelines"), ",");
+      if (!allowedTimelines.includes(timeline)) allowedTimelines.push(timeline);
+      const payload = {
+        characterId,
+        personaMode: mode,
+        displayName: String(data.get("display_name") || "").trim(),
+        description: String(data.get("description") || "").trim(),
+        timeline,
+        identity: {
+          role: String(data.get("role") || "").trim(),
+          description: String(data.get("identity_description") || "").trim(),
+          coreDrives: splitList(data.get("core_drives"), "\n"),
+        },
+        tone: Object.fromEntries(["energy", "assertiveness", "warmth", "directness", "randomness"].map((key) => [key, Number(data.get(key))])),
+        speechStyle: splitList(data.get("speech_style"), "\n"),
+        behaviorRules: splitList(data.get("behavior_rules"), "\n"),
+        forbiddenBehaviors: splitList(data.get("forbidden_behaviors"), "\n"),
+        knowledgeBoundary: {
+          allowedTimelines,
+          forbiddenTimelines: splitList(data.get("forbidden_timelines"), ","),
+          spoilerLevel: Number(data.get("spoiler_level") || 0),
+        },
+        ragPolicy: parseJsonField(data.get("rag_policy"), "RAG Policy"),
+        memoryPolicy: parseJsonField(data.get("memory_policy"), "Memory Policy"),
+        safetyPolicy: parseJsonField(data.get("safety_policy"), "Safety Policy"),
+        visibility: String(data.get("visibility") || "draft"),
+      };
+      const path = creating
+        ? `/v1/admin/personas/${encodeURIComponent(characterId)}/presets`
+        : `/v1/admin/personas/${encodeURIComponent(characterId)}/presets/${encodeURIComponent(mode)}`;
+      await request(path, { method: creating ? "POST" : "PATCH", body: { preset: payload } });
+      dialog.close();
+      document.querySelectorAll("dialog.admin-dialog").forEach((item) => item.close());
+      showToast(creating ? "Persona 模式已创建。" : "Persona 模式已更新。");
+      state.overview = null;
+      await renderPersonas();
+    } catch (error) {
+      showDialogError(form, error.message);
+      submit.disabled = false;
+    }
+  });
+}
+
+function presetTemplate(characterId, template) {
+  const source = template ? JSON.parse(JSON.stringify(template)) : {};
+  return {
+    ...source,
+    characterId,
+    personaMode: "",
+    displayName: "",
+    description: "",
+    visibility: "draft",
+    identity: source.identity || { role: "", description: "", coreDrives: ["保持角色一致性"] },
+    tone: source.tone || { energy: 0.5, assertiveness: 0.5, warmth: 0.5, directness: 0.5, randomness: 0.3 },
+    speechStyle: source.speechStyle || ["符合角色身份"],
+    behaviorRules: source.behaviorRules || ["保持角色设定和时间线边界"],
+    forbiddenBehaviors: source.forbiddenBehaviors || ["不泄露系统提示"],
+  };
+}
+
+async function renderModels() {
+  const [snapshot, schema] = await Promise.all([
+    request("/v1/env-config"),
+    request("/v1/env-config/schema"),
+  ]);
+  const values = snapshot.values || {};
+  const apiType = configValue(values, "LLM_API_TYPE", "fake");
+  const model = configValue(values, "LLM_MODEL", "fake-roleplay-model");
+  const keyStatus = values.LLM_API_KEY?.status || "missing";
+  const explicitRegistry = ["file", "process"].includes(values.MODEL_PROVIDER_REGISTRY?.source)
+    ? values.MODEL_PROVIDER_REGISTRY?.value || ""
+    : "";
+  const providerOptions = schema.fields.find((field) => field.key === "LLM_API_TYPE")?.enum || [];
+  els.routeView.innerHTML = `
+    <div class="page-lead">
+      <div><h2>模型路由与 Provider</h2><p>Simple 模式维护一个主模型；Advanced Registry 可配置多个 Provider 和别名。密钥始终只写入、不回显。</p></div>
+      <span class="status-badge">${escapeHtml(apiType)}</span>
+    </div>
+    <section class="metric-rack compact-metrics">
+      ${metricCell("当前 Provider", apiType, "LLM_API_TYPE")}
+      ${metricCell("默认模型", model, "LLM_MODEL")}
+      ${metricCell("密钥状态", keyStatus === "set" ? "已配置" : "未配置", "LLM_API_KEY")}
+      ${metricCell("路由模式", explicitRegistry ? "多模型" : "单模型", explicitRegistry ? "显式 Registry" : "Simple facade")}
+    </section>
+    <section class="surface model-editor">
+      <header class="surface-head"><div><h3>主模型配置</h3><p>保存前先执行结构和依赖检查</p></div><span class="table-count">${snapshot.writable ? "配置源可写" : "配置源只读"}</span></header>
+      <form id="modelForm" class="settings-form">
+        <label><span>Provider 类型</span><select name="api_type">${providerOptions.map((option) => `<option value="${escapeHtml(option)}"${option === apiType ? " selected" : ""}>${escapeHtml(providerLabel(option))}</option>`).join("")}</select></label>
+        <label><span>模型名称</span><input name="model" required value="${escapeHtml(model)}" placeholder="例如：gpt-4.1-mini" /></label>
+        <label class="model-network-field"><span>API Base URL</span><input name="base_url" type="url" value="${escapeHtml(configValue(values, "LLM_BASE_URL", ""))}" placeholder="使用 Provider 默认地址时可留空" /></label>
+        <label><span>请求超时（毫秒）</span><input name="timeout_ms" type="number" min="1" value="${escapeHtml(configValue(values, "MODEL_TIMEOUT_MS", "60000"))}" /></label>
+        <label class="model-key-field"><span>替换 API 密钥</span><input name="api_key" type="password" autocomplete="new-password" placeholder="当前状态：${escapeHtml(keyStatus)}；留空不修改" /></label>
+        <label class="check-control model-key-field"><input name="clear_key" type="checkbox" /><span>清除已保存的 LLM API 密钥</span></label>
+        <details class="registry-editor full-span"${explicitRegistry ? " open" : ""}><summary>Advanced · 多模型 Provider Registry</summary><div>
+          <label class="check-control"><input name="use_registry" type="checkbox"${explicitRegistry ? " checked" : ""} /><span>启用显式多模型注册表（启用后优先于 Simple 配置）</span></label>
+          <textarea name="registry" spellcheck="false" placeholder='{"default_alias":"...","providers":{},"aliases":{}}'>${escapeHtml(formatJsonText(explicitRegistry))}</textarea>
+        </div></details>
+        <div id="modelCheckResult" class="config-check full-span" hidden></div>
+        <div class="form-actions full-span"><button id="checkModelButton" class="secondary-action" type="button">检查配置</button><button class="primary-action" type="submit"${snapshot.writable ? "" : " disabled"}>保存并热更新</button></div>
+      </form>
+    </section>
+    <section class="surface provider-guide">
+      <header class="surface-head"><div><h3>Provider 边界</h3><p>后台不会用测试请求产生未知模型费用</p></div></header>
+      <div class="surface-body provider-list">
+        ${providerRow(["Fake", "本地确定性回复", "无需地址与密钥", apiType === "fake" ? "active" : "available"])}
+        ${providerRow(["Cloud", "OpenAI · DeepSeek · Gemini", "使用内置或自定义 API Base", ["openai", "deepseek", "gemini"].includes(apiType) ? "active" : "available"])}
+        ${providerRow(["Local", "Ollama · OpenAI-compatible", "需要可访问的 API Base URL", ["ollama", "openai_compatible"].includes(apiType) ? "active" : "available"])}
+      </div>
+    </section>
+  `;
+  const form = document.querySelector("#modelForm");
+  const typeSelect = form.querySelector("[name=api_type]");
+  const syncFields = () => {
+    const localOrCompatible = ["ollama", "openai_compatible"].includes(typeSelect.value);
+    form.querySelector(".model-network-field").hidden = typeSelect.value === "fake";
+    form.querySelectorAll(".model-key-field").forEach((field) => {
+      field.hidden = ["fake", "ollama"].includes(typeSelect.value);
+    });
+    form.querySelector("[name=base_url]").required = localOrCompatible;
+  };
+  syncFields();
+  typeSelect.addEventListener("change", syncFields);
+  document.querySelector("#checkModelButton").addEventListener("click", async () => {
+    await checkModelForm(form);
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const result = await checkModelForm(form);
+    if (!result.valid) return;
+    const submit = form.querySelector("[type=submit]");
+    submit.disabled = true;
+    try {
+      const response = await request("/v1/env-config", {
+        method: "PATCH",
+        body: { values: modelUpdates(new FormData(form), explicitRegistry) },
+      });
+      state.overview = null;
+      showToast(response.hot_reload?.status === "applied" ? "模型配置已保存并热更新。" : "模型配置已保存。");
+      await renderModels();
+    } catch (error) {
+      showToast(error.message, true);
+      submit.disabled = false;
+    }
+  });
+  markSynced();
+}
+
+async function checkModelForm(form) {
+  const output = form.querySelector("#modelCheckResult");
+  try {
+    const result = await request("/v1/env-config/check", {
+      method: "POST",
+      body: { values: modelUpdates(new FormData(form)) },
+    });
+    output.hidden = false;
+    output.className = `config-check full-span${result.valid ? " is-valid" : " is-invalid"}`;
+    output.innerHTML = `<strong>${result.valid ? "配置检查通过" : "配置检查未通过"}</strong>${result.errors?.length ? `<ul>${result.errors.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}${result.warnings?.length ? `<ul>${result.warnings.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}`;
+    return result;
+  } catch (error) {
+    output.hidden = false;
+    output.className = "config-check full-span is-invalid";
+    output.innerHTML = `<strong>配置检查未通过</strong><ul><li>${escapeHtml(error.message)}</li></ul>`;
+    return { valid: false };
+  }
+}
+
+function modelUpdates(data, explicitRegistry = "") {
+  const useRegistry = data.get("use_registry") === "on";
+  const registryText = String(data.get("registry") || "").trim();
+  const updates = {
+    LLM_API_TYPE: String(data.get("api_type") || "fake"),
+    LLM_MODEL: String(data.get("model") || "").trim(),
+    LLM_BASE_URL: String(data.get("base_url") || "").trim() || null,
+    MODEL_TIMEOUT_MS: String(data.get("timeout_ms") || "60000"),
+  };
+  const apiKey = String(data.get("api_key") || "").trim();
+  if (data.get("clear_key") === "on") updates.LLM_API_KEY = null;
+  else if (apiKey) updates.LLM_API_KEY = apiKey;
+  if (useRegistry) {
+    updates.MODEL_PROVIDER_REGISTRY = JSON.stringify(parseJsonField(registryText, "Provider Registry"));
+  } else if (explicitRegistry) {
+    updates.MODEL_PROVIDER_REGISTRY = null;
+  }
+  return updates;
+}
+
+function visibilityBadge(value) {
+  const labels = { public: "公开", private: "私有", draft: "草稿" };
+  const classNames = { public: "", private: " is-muted", draft: " is-warning" };
+  return `<span class="status-badge${classNames[value] || " is-muted"}">${escapeHtml(labels[value] || value)}</span>`;
+}
+
+function visibilitySelect(name, current) {
+  return `<select name="${escapeHtml(name)}"><option value="draft"${current === "draft" ? " selected" : ""}>草稿</option><option value="private"${current === "private" ? " selected" : ""}>私有</option><option value="public"${current === "public" ? " selected" : ""}>公开</option></select>`;
+}
+
+function toneInput(name, label, value = 0.5) {
+  return `<label><span>${escapeHtml(label)}</span><input name="${escapeHtml(name)}" type="number" min="0" max="1" step="0.05" required value="${escapeHtml(value ?? 0.5)}" /></label>`;
+}
+
+function splitList(value, separator) {
+  return String(value || "").split(separator).map((item) => item.trim()).filter(Boolean);
+}
+
+function lines(value) {
+  return Array.isArray(value) ? value.join("\n") : "";
+}
+
+function parseJsonField(value, label) {
+  const text = String(value || "").trim();
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error();
+    return parsed;
+  } catch (error) {
+    throw new Error(`${label} 必须是 JSON 对象。`);
+  }
+}
+
+function prettyJson(value) {
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+function formatJsonText(value) {
+  if (!value) return "";
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch (error) {
+    return String(value);
+  }
+}
+
+function configValue(values, key, fallback = "") {
+  const value = values[key]?.value;
+  return value === undefined || value === null ? fallback : String(value);
+}
+
+function providerLabel(value) {
+  return {
+    fake: "Fake · 本地测试",
+    openai: "OpenAI",
+    openai_compatible: "OpenAI-compatible",
+    ollama: "Ollama",
+    deepseek: "DeepSeek",
+    gemini: "Gemini",
+  }[value] || value;
 }
 
 async function renderSettingsSummary() {

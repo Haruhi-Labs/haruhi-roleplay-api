@@ -923,11 +923,16 @@ class RoleplayHttpRuntime:
         self._agent_context_planner = agent_context_planner
         self._session_recent_limit = session_settings.recentMessageLimit
         self._api_key = settings.api_key
-        self._admin_sessions = AdminSessionManager(
-            password=settings.api_key,
-            ttl_seconds=settings.admin_session_ttl_seconds,
-            idle_timeout_seconds=settings.admin_session_idle_seconds,
-        )
+        if set(hot_reload_keys) & {
+            "ROLEPLAY_API_KEY",
+            "ROLEPLAY_ADMIN_SESSION_TTL_SECONDS",
+            "ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS",
+        }:
+            self._admin_sessions = AdminSessionManager(
+                password=settings.api_key,
+                ttl_seconds=settings.admin_session_ttl_seconds,
+                idle_timeout_seconds=settings.admin_session_idle_seconds,
+            )
         self._admin_cookie_secure = settings.admin_cookie_secure
         self._debug_trace_enabled = settings.debug_trace_enabled
         return {"status": "applied", "applied_keys": list(hot_reload_keys)}
@@ -982,11 +987,6 @@ class RoleplayHttpRuntime:
                 self._agent_context_planner = agent_context_planner
                 self._session_recent_limit = session_settings.recentMessageLimit
                 self._api_key = settings.api_key
-                self._admin_sessions = AdminSessionManager(
-                    password=settings.api_key,
-                    ttl_seconds=settings.admin_session_ttl_seconds,
-                    idle_timeout_seconds=settings.admin_session_idle_seconds,
-                )
                 self._admin_cookie_secure = settings.admin_cookie_secure
                 self._debug_trace_enabled = settings.debug_trace_enabled
             except Exception as exc:

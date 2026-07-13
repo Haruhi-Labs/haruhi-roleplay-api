@@ -1568,6 +1568,313 @@ button:disabled {
   font-size: 12px;
 }
 
+.persona-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.persona-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.persona-card-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+}
+
+.persona-initial {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--indigo);
+  color: #fff;
+  font-family: var(--display-font);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.persona-card-top h3 {
+  margin: 6px 0 0;
+  font-family: var(--display-font);
+  font-size: 18px;
+  letter-spacing: -0.025em;
+}
+
+.persona-card-top p {
+  margin: 3px 0 0;
+  color: var(--faint);
+  font-family: var(--utility-font);
+  font-size: 9px;
+}
+
+.persona-card-top .ghost-action {
+  min-height: 32px;
+  padding: 0 11px;
+}
+
+.persona-description {
+  min-height: 47px;
+  margin: 17px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.persona-mode-list {
+  display: flex;
+  min-height: 33px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.persona-mode-list span {
+  display: inline-flex;
+  min-height: 25px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper-muted);
+  color: var(--muted);
+  padding: 0 8px;
+  font-size: 10px;
+}
+
+.persona-mode-list span.is-default {
+  border-color: #c7e1e7;
+  background: var(--cyan-soft);
+  color: var(--cyan);
+}
+
+.persona-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.persona-card footer span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.persona-empty {
+  grid-column: 1 / -1;
+}
+
+.full-span {
+  grid-column: 1 / -1;
+}
+
+.admin-dialog.is-wide {
+  width: min(1040px, calc(100vw - 32px));
+}
+
+.preset-admin-list {
+  padding: 0 25px 20px;
+}
+
+.preset-admin-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  min-height: 68px;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.preset-admin-row:last-child {
+  border-bottom: 0;
+}
+
+.preset-admin-row strong,
+.preset-admin-row small {
+  display: block;
+}
+
+.preset-admin-row small {
+  margin-top: 5px;
+  color: var(--faint);
+  font-family: var(--utility-font);
+  font-size: 9px;
+}
+
+.preset-admin-row > div:nth-child(2),
+.preset-admin-row > div:last-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.preset-admin-row .ghost-action,
+.preset-admin-row .danger-action {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 10px;
+}
+
+.tone-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper-muted);
+  padding: 13px;
+}
+
+.policy-editor,
+.registry-editor {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper-muted);
+}
+
+.policy-editor > summary,
+.registry-editor > summary {
+  cursor: pointer;
+  padding: 13px 15px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.policy-editor[open] > summary,
+.registry-editor[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 13px;
+}
+
+.policy-grid textarea {
+  min-height: 180px;
+  font-family: var(--utility-font);
+  font-size: 10px;
+}
+
+.model-editor,
+.provider-guide {
+  margin-top: 18px;
+}
+
+.settings-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 17px;
+  padding: 22px;
+}
+
+.settings-form > label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-form input,
+.settings-form select,
+.settings-form textarea {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 0 11px;
+  outline: none;
+}
+
+.settings-form textarea {
+  min-height: 230px;
+  resize: vertical;
+  padding: 12px;
+  font-family: var(--utility-font);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.settings-form input:focus,
+.settings-form select:focus,
+.settings-form textarea:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(45, 127, 150, 0.1);
+}
+
+.check-control {
+  display: flex !important;
+  min-height: 40px;
+  align-items: center;
+  grid-template-columns: auto 1fr;
+  gap: 9px !important;
+  align-self: end;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper-muted);
+  padding: 9px 11px;
+}
+
+.check-control input {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
+}
+
+.registry-editor > div {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.config-check {
+  border-radius: 6px;
+  padding: 13px 15px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.config-check.is-valid {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.config-check.is-invalid {
+  background: var(--danger-soft);
+  color: var(--signal-dark);
+}
+
+.config-check ul {
+  margin: 7px 0 0;
+  padding-left: 18px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
 .empty-state,
 .loading-state,
 .error-state {
@@ -1701,6 +2008,14 @@ button:disabled {
   .login-trail {
     display: none;
   }
+
+  .persona-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tone-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 780px) {
@@ -1813,6 +2128,26 @@ button:disabled {
 
   .usage-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-form,
+  .policy-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .preset-admin-row {
+    align-items: flex-start;
+    grid-template-columns: 1fr;
+    padding: 13px 0;
+  }
+
+  .tone-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .persona-card footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
