@@ -23,6 +23,12 @@ const state = {
     limit: 50,
     offset: 0,
   },
+  configSchema: null,
+  configSnapshot: null,
+  configDraft: {},
+  configGroup: "",
+  configAdvanced: false,
+  configCheck: null,
 };
 
 const routes = {
@@ -252,7 +258,7 @@ async function renderRoute({ force = false } = {}) {
     } else if (state.route === "memory") {
       await renderMemory();
     } else if (state.route === "settings") {
-      await renderSettingsSummary();
+      await renderSettings();
     } else {
       renderCapabilityPlaceholder(state.route);
     }
@@ -1820,31 +1826,305 @@ function memoryTypeLabel(type) {
   }[type] || type;
 }
 
-async function renderSettingsSummary() {
+async function renderSettings() {
   const [snapshot, schema] = await Promise.all([
     request("/v1/env-config"),
     request("/v1/env-config/schema"),
   ]);
-  const restartCount = (schema.fields || []).filter((field) => field.restart_required).length;
+  state.configSnapshot = snapshot;
+  state.configSchema = schema;
+  const groups = configVisibleGroups();
+  if (!groups.includes(state.configGroup)) {
+    state.configGroup = groups[0] || "";
+  }
+  paintSettings();
+  markSynced();
+}
+
+function paintSettings() {
+  const snapshot = state.configSnapshot;
+  const schema = state.configSchema;
+  const fields = configVisibleFields().filter(
+    (field) => field.group === state.configGroup,
+  );
+  const restartCount = (schema.fields || []).filter(
+    (field) => field.restart_required,
+  ).length;
   const secretCount = (schema.fields || []).filter((field) => field.secret).length;
   els.routeView.innerHTML = `
     <div class="page-lead">
-      <div><h2>部署配置</h2><p>配置中心会对敏感值脱敏，并区分热更新与需要重启的变更。</p></div>
-      <a class="primary-action" href="/config">打开配置编辑器</a>
+      <div><h2>部署与运行配置</h2><p>在当前安全会话内分组编辑配置。敏感值只写入、不回显，全部变更必须先通过服务端校验。</p></div>
+      <div class="lead-actions"><button id="configAdvancedButton" class="secondary-action" type="button">${state.configAdvanced ? "收起高级配置" : "显示高级配置"}</button><a class="ghost-action" href="/config">旧版应急入口</a></div>
     </div>
-    <section class="metric-rack">
+    <section class="metric-rack compact-metrics">
       ${metricCell("配置字段", formatNumber((schema.fields || []).length), "已知且经过类型校验")}
       ${metricCell("敏感字段", formatNumber(secretCount), "只写入，不回显")}
       ${metricCell("重启字段", formatNumber(restartCount), "保存后需重启服务")}
       ${metricCell("写回状态", snapshot.writable ? "可写" : "只读", shortPath(snapshot.source))}
     </section>
-    <div class="empty-state settings-empty">
-      <span class="empty-symbol">CFG</span>
-      <h2>完整配置编辑器已隔离</h2>
-      <p>Provider 密钥、数据库连接和监听配置属于高风险操作，继续使用独立的受信任编辑器，并共享当前安全会话。</p>
+    <div class="config-console">
+      <aside class="surface config-navigation">
+        <header><span>配置分组</span><small>${state.configAdvanced ? "Advanced" : "Essential"}</small></header>
+        <nav aria-label="配置分组">${configVisibleGroups().map((group) => `<button type="button" data-config-group="${escapeHtml(group)}" class="${group === state.configGroup ? "is-active" : ""}"><span>${escapeHtml(configGroupLabel(group))}</span><small>${formatNumber(configVisibleFields().filter((field) => field.group === group).length)}</small></button>`).join("")}</nav>
+      </aside>
+      <section class="surface config-workbench">
+        <header class="surface-head"><div><h3>${escapeHtml(configGroupLabel(state.configGroup))}</h3><p>${formatNumber(fields.length)} 个字段 · 修改只保存在当前草稿中</p></div><span class="table-count">${snapshot.writable ? "配置源可写" : "配置源只读"}</span></header>
+        <div class="config-field-grid">
+          ${fields.length ? fields.map(configFieldCard).join("") : tableEmpty("当前分组没有字段", "切换分组或显示高级配置。")}
+        </div>
+      </section>
+      <aside class="surface config-review">
+        <header><div><h3>变更审阅</h3><p>先检查，再保存</p></div><span id="configDraftCount" class="status-badge is-muted">0 项</span></header>
+        <div id="configDiffList" class="config-diff-list"></div>
+        <div id="configCheckPanel" class="config-check-panel"></div>
+        <div class="config-review-actions"><button id="checkConfigButton" class="secondary-action" type="button">检查草稿</button><button id="saveConfigButton" class="primary-action" type="button"${snapshot.writable ? "" : " disabled"}>保存变更</button></div>
+      </aside>
     </div>
+    <div class="boundary-note"><strong>安全边界</strong><span>密钥不会从服务端回显；监听地址、存储 Provider 与数据库连接等变更需要重启。修改管理员密码会立即注销当前及其他后台会话。</span></div>
   `;
-  markSynced();
+  document.querySelector("#configAdvancedButton").addEventListener("click", () => {
+    state.configAdvanced = !state.configAdvanced;
+    const groups = configVisibleGroups();
+    if (!groups.includes(state.configGroup)) state.configGroup = groups[0] || "";
+    paintSettings();
+  });
+  els.routeView.querySelectorAll("[data-config-group]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.configGroup = button.dataset.configGroup;
+      paintSettings();
+    });
+  });
+  els.routeView.querySelectorAll("[data-config-key]").forEach((control) => {
+    const eventName = control.tagName === "SELECT" ? "change" : "input";
+    control.addEventListener(eventName, () => {
+      updateConfigDraft(control.dataset.configKey, control.value, control.dataset.secret === "true");
+      if (control.dataset.configKey.endsWith("_API_TYPE")) {
+        paintSettings();
+        return;
+      }
+      syncConfigReview();
+    });
+  });
+  els.routeView.querySelectorAll("[data-remove-config]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.configDraft[button.dataset.removeConfig] = null;
+      state.configCheck = null;
+      paintSettings();
+    });
+  });
+  els.routeView.querySelectorAll("[data-reset-config]").forEach((button) => {
+    button.addEventListener("click", () => {
+      delete state.configDraft[button.dataset.resetConfig];
+      state.configCheck = null;
+      paintSettings();
+    });
+  });
+  document.querySelector("#checkConfigButton").addEventListener("click", checkConfigDraft);
+  document.querySelector("#saveConfigButton").addEventListener("click", saveConfigDraft);
+  syncConfigReview();
+}
+
+function configVisibleGroups() {
+  const schema = state.configSchema || {};
+  return state.configAdvanced
+    ? [...(schema.simple_groups || []), ...(schema.advanced_groups || [])]
+    : schema.simple_groups || schema.groups || [];
+}
+
+function configVisibleFields() {
+  const fields = state.configSchema?.fields || [];
+  return fields.filter((field) => {
+    if (!state.configAdvanced && field.advanced) return false;
+    if (state.configAdvanced || field.advanced) return true;
+    return configSimplePresetAllows(field);
+  });
+}
+
+function configSimplePresetAllows(field) {
+  const group = {
+    "Simple LLM": ["llm", "LLM_API_TYPE"],
+    "Simple Embedding": ["embedding", "EMBEDDING_API_TYPE"],
+    "Simple RAG": ["rag", "RAG_API_TYPE"],
+  }[field.group];
+  if (!group) return true;
+  const [category, typeKey] = group;
+  const type = String(configEffectiveValue(typeKey) || "").trim();
+  const keys = state.configSchema?.simple_presets?.[category]?.[type];
+  return !keys || keys.includes(field.key);
+}
+
+function configFieldCard(field) {
+  const snapshot = configSnapshotValue(field.key);
+  const drafted = Object.hasOwn(state.configDraft, field.key);
+  return `
+    <article class="config-field${drafted ? " has-draft" : ""}" data-config-card="${escapeHtml(field.key)}">
+      <header><div><h4>${escapeHtml(field.key)}</h4><p>${escapeHtml(field.description || "")}</p></div><div class="field-pills">${field.secret ? '<span class="status-badge is-warning">Secret</span>' : ""}${field.hot_reload ? '<span class="status-badge">Hot</span>' : ""}${field.restart_required ? '<span class="status-badge is-danger">Restart</span>' : ""}</div></header>
+      <div class="config-control">${configControl(field, snapshot)}</div>
+      <footer><span>${escapeHtml(snapshot.status || "missing")} · ${escapeHtml(snapshot.source || "default")}</span><div>${drafted ? `<button class="ghost-action" type="button" data-reset-config="${escapeHtml(field.key)}">撤销草稿</button>` : ""}<button class="ghost-action" type="button" data-remove-config="${escapeHtml(field.key)}">移除键</button></div></footer>
+    </article>
+  `;
+}
+
+function configControl(field, snapshot) {
+  const key = escapeHtml(field.key);
+  if (field.secret) {
+    const draft = state.configDraft[field.key];
+    const value = typeof draft === "string" ? draft : "";
+    return `<input data-config-key="${key}" data-secret="true" type="password" autocomplete="new-password" value="${escapeHtml(value)}" placeholder="当前状态：${escapeHtml(snapshot.status || "missing")}；输入新值以替换" />`;
+  }
+  const value = configEffectiveValue(field.key);
+  if (field.type === "enum" || field.type === "bool") {
+    const options = field.type === "bool" ? ["true", "false"] : field.enum || [];
+    return `<select data-config-key="${key}">${options.map((option) => `<option value="${escapeHtml(option)}"${String(option) === String(value) ? " selected" : ""}>${escapeHtml(option)}</option>`).join("")}</select>`;
+  }
+  if (field.type === "json") {
+    return `<textarea data-config-key="${key}" spellcheck="false">${escapeHtml(value || "")}</textarea>`;
+  }
+  const type = field.type === "int" ? "number" : "text";
+  const min = field.min === undefined ? "" : ` min="${escapeHtml(field.min)}"`;
+  const max = field.max === undefined ? "" : ` max="${escapeHtml(field.max)}"`;
+  return `<input data-config-key="${key}" type="${type}" value="${escapeHtml(value || "")}"${min}${max} />`;
+}
+
+function updateConfigDraft(key, value, secret) {
+  const snapshot = configSnapshotValue(key);
+  const current = String(snapshot.value ?? "");
+  if (secret) {
+    if (value) state.configDraft[key] = value;
+    else delete state.configDraft[key];
+  } else if (String(value) === current) {
+    delete state.configDraft[key];
+  } else {
+    state.configDraft[key] = value;
+  }
+  state.configCheck = null;
+}
+
+function syncConfigReview() {
+  const keys = Object.keys(state.configDraft);
+  const count = document.querySelector("#configDraftCount");
+  const list = document.querySelector("#configDiffList");
+  const check = document.querySelector("#configCheckPanel");
+  const checkButton = document.querySelector("#checkConfigButton");
+  const saveButton = document.querySelector("#saveConfigButton");
+  if (!count || !list || !check || !checkButton || !saveButton) return;
+  count.textContent = `${formatNumber(keys.length)} 项`;
+  count.className = `status-badge${keys.length ? " is-warning" : " is-muted"}`;
+  list.innerHTML = keys.length
+    ? keys.map((key) => `<div><strong>${escapeHtml(key)}</strong><small>${escapeHtml(configDiffText(key, state.configDraft[key]))}</small></div>`).join("")
+    : '<div class="mini-empty">当前没有待保存变更</div>';
+  if (state.configCheck) {
+    const result = state.configCheck;
+    const lines = [...(result.errors || []), ...(result.warnings || [])];
+    check.className = `config-check-panel ${result.valid ? "is-valid" : "is-invalid"}`;
+    check.innerHTML = `<strong>${result.valid ? "配置检查通过" : "配置检查未通过"}</strong>${lines.length ? `<ul>${lines.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}`;
+  } else {
+    check.className = "config-check-panel";
+    check.innerHTML = '<span>尚未检查当前草稿</span>';
+  }
+  checkButton.disabled = !keys.length;
+  saveButton.disabled = !keys.length || !state.configSnapshot?.writable;
+}
+
+async function checkConfigDraft() {
+  if (!Object.keys(state.configDraft).length) return { valid: false };
+  try {
+    state.configCheck = await request("/v1/env-config/check", {
+      method: "POST",
+      body: { values: state.configDraft },
+    });
+  } catch (error) {
+    state.configCheck = { valid: false, errors: [error.message], warnings: [] };
+  }
+  syncConfigReview();
+  return state.configCheck;
+}
+
+async function saveConfigDraft() {
+  const keys = Object.keys(state.configDraft);
+  if (!keys.length) return;
+  const check = await checkConfigDraft();
+  if (!check.valid) return;
+  const restartKeys = keys.filter((key) => configFieldByKey(key)?.restart_required);
+  const passwordChanged = keys.includes("ROLEPLAY_API_KEY");
+  if (restartKeys.length || passwordChanged) {
+    const confirmed = await confirmAction({
+      title: "保存高影响配置",
+      message: passwordChanged
+        ? "管理员密码将被替换，所有后台会话会立即失效。请确认新密码已存入安全的密码管理器。"
+        : `以下变更保存后需要重启服务才能完全生效：${restartKeys.join("、")}。`,
+      confirmLabel: "确认保存",
+    });
+    if (!confirmed) return;
+  }
+  const saveButton = document.querySelector("#saveConfigButton");
+  saveButton.disabled = true;
+  try {
+    const result = await request("/v1/env-config", {
+      method: "PATCH",
+      body: { values: state.configDraft },
+    });
+    state.configSnapshot = result.config;
+    state.configCheck = result.check;
+    state.configDraft = {};
+    state.overview = null;
+    if (passwordChanged) {
+      state.csrfToken = "";
+      showLogin();
+      showToast("管理员密码已更新，请使用新密码重新登录。");
+      return;
+    }
+    const hotReload = result.hot_reload?.status === "applied" ? "，热更新已应用" : "";
+    showToast(`配置已保存${hotReload}。`);
+    paintSettings();
+  } catch (error) {
+    showToast(error.message, true);
+    saveButton.disabled = false;
+  }
+}
+
+function configSnapshotValue(key) {
+  return state.configSnapshot?.values?.[key] || {};
+}
+
+function configFieldByKey(key) {
+  return state.configSchema?.fields?.find((field) => field.key === key);
+}
+
+function configEffectiveValue(key) {
+  if (Object.hasOwn(state.configDraft, key) && state.configDraft[key] !== null) {
+    return state.configDraft[key];
+  }
+  const field = configFieldByKey(key);
+  const snapshot = configSnapshotValue(key);
+  return snapshot.value ?? field?.default ?? "";
+}
+
+function configDiffText(key, value) {
+  const field = configFieldByKey(key);
+  if (value === null) return "从配置文件移除，恢复上游值或默认值";
+  if (field?.secret) return "设置或替换敏感值（内容已隐藏）";
+  return `设置为 ${value === "" ? "空值" : value}`;
+}
+
+function configGroupLabel(group) {
+  return {
+    HTTP: "HTTP 与安全",
+    Storage: "持久化存储",
+    "Simple LLM": "主模型",
+    "Simple RAG": "主 RAG",
+    "Simple Embedding": "主 Embedding",
+    Model: "模型高级配置",
+    Secrets: "敏感凭证",
+    "Model Registry": "多模型注册表",
+    RAG: "RAG 高级配置",
+    Embedding: "Embedding 高级配置",
+    Agent: "Agent 编排",
+    "Backend Context": "业务上下文",
+    Session: "会话存储",
+    Memory: "记忆存储",
+    Advanced: "其它高级项",
+  }[group] || group;
 }
 
 function renderCapabilityPlaceholder(route) {
