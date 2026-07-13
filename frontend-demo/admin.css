@@ -851,6 +851,23 @@ button:disabled {
   grid-template-columns: 96px minmax(0, 1fr) auto;
 }
 
+.overview-resource-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.overview-resource-row .resource-value {
+  color: var(--ink);
+  font-family: var(--display-font);
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.overview-resource-row .ghost-action {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 9px;
+}
+
 .provider-kind {
   color: var(--muted);
   font-family: var(--utility-font);

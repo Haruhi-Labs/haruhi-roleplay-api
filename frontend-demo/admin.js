@@ -271,15 +271,46 @@ async function renderRoute({ force = false } = {}) {
 async function renderOverview(force) {
   if (!state.overview || force) {
     setLiveState("正在同步");
-    const [health, personas, tokens, runtimeConfig] = await Promise.all([
+    const [
+      health,
+      personas,
+      tokens,
+      runtimeConfig,
+      usage,
+      rag,
+      memories,
+      sessions,
+    ] = await Promise.all([
       request("/health"),
       request("/v1/personas"),
       request("/v1/access-tokens"),
       request("/v1/runtime-config"),
+      request("/v1/admin/usage?days=7"),
+      request("/v1/admin/rag/documents"),
+      request("/v1/admin/memories?limit=1"),
+      request("/v1/admin/sessions?status=active&limit=1"),
     ]);
-    state.overview = { health, personas, tokens, runtimeConfig };
+    state.overview = {
+      health,
+      personas,
+      tokens,
+      runtimeConfig,
+      usage,
+      rag,
+      memories,
+      sessions,
+    };
   }
-  const { health, personas, tokens, runtimeConfig } = state.overview;
+  const {
+    health,
+    personas,
+    tokens,
+    runtimeConfig,
+    usage,
+    rag,
+    memories,
+    sessions,
+  } = state.overview;
   const items = tokens.items || [];
   const activeTokens = items.filter((item) => item.status === "active");
   const roleCount = (personas.characters || []).length;
@@ -287,7 +318,6 @@ async function renderOverview(force) {
     (sum, character) => sum + (character.modes || []).length,
     0,
   );
-  const totalTokens = items.reduce((sum, item) => sum + Number(item.total_tokens || 0), 0);
   const quotaTokens = items.reduce(
     (sum, item) => sum + (item.quota_tokens === null ? 0 : Number(item.quota_tokens || 0)),
     0,
@@ -304,30 +334,24 @@ async function renderOverview(force) {
     <div class="page-lead">
       <div>
         <p class="eyebrow">System pulse</p>
-        <h2>编排服务一切正常</h2>
-        <p>这里汇集凭证、角色、模型和上下文资源的实时摘要。管理动作会保留明确的状态与风险边界。</p>
+        <h2>${health.status === "ok" ? "编排服务运行正常" : "编排服务需要关注"}</h2>
+        <p>汇总最近 7 天业务流量、服务健康度、模型配置与全部上下文资源。</p>
       </div>
       <span class="status-badge">${escapeHtml(health.status || "ok")}</span>
     </div>
 
     <section class="metric-rack" aria-label="核心指标">
+      ${metricCell("7 天请求", formatNumber(usage.request_count), `${formatNumber(usage.active_service_count)} 个活跃服务`)}
+      ${metricCell("7 天 Token", formatCompactNumber(usage.total_tokens), `P ${formatCompactNumber(usage.prompt_tokens)} · C ${formatCompactNumber(usage.completion_tokens)}`)}
+      ${metricCell("错误率", formatPercent(usage.error_rate), `${formatNumber(usage.error_count)} 次失败请求`)}
       ${metricCell("活跃服务令牌", formatNumber(activeTokens.length), `共 ${formatNumber(items.length)} 个凭证`)}
-      ${metricCell("累计 Token", formatCompactNumber(totalTokens), "Prompt 与 Completion 合计")}
-      ${metricCell("可用角色", formatNumber(roleCount), `${formatNumber(modeCount)} 个 Persona 模式`)}
-      ${metricCell("配置来源", runtimeConfig.persists_updates ? "持久化" : "内存", shortPath(runtimeConfig.source))}
     </section>
 
-    <div class="dashboard-grid">
-      <section class="surface">
-        <header class="surface-head">
-          <div><h3>编排资源</h3><p>当前装配的 Provider 与持久化策略</p></div>
-          <button class="ghost-action" type="button" data-go-route="models">管理模型</button>
-        </header>
-        <div class="surface-body provider-list">
-          ${providers.map(providerRow).join("")}
-        </div>
+    <div class="dashboard-grid usage-grid">
+      <section class="surface trend-surface">
+        <header class="surface-head"><div><h3>业务流量脉冲</h3><p>最近 7 天 Token 与请求量</p></div><button class="ghost-action" type="button" data-go-route="usage">查看完整分析</button></header>
+        <div class="surface-body">${usageTrendSvg(usage.daily || [])}</div>
       </section>
-
       <section class="surface">
         <header class="surface-head">
           <div><h3>额度使用</h3><p>有限额服务令牌的合计消耗</p></div>
@@ -346,9 +370,40 @@ async function renderOverview(force) {
         </div>
       </section>
     </div>
+
+    <div class="dashboard-grid overview-resource-grid">
+      <section class="surface">
+        <header class="surface-head"><div><h3>运行装配</h3><p>当前 Provider 与配置来源</p></div><button class="ghost-action" type="button" data-go-route="models">管理模型</button></header>
+        <div class="surface-body provider-list">${providers.map(providerRow).join("")}</div>
+      </section>
+      <section class="surface">
+        <header class="surface-head"><div><h3>上下文资源</h3><p>角色、知识、记忆与连续会话</p></div></header>
+        <div class="surface-body resource-list">
+          ${overviewResourceRow("角色与 Persona", `${formatNumber(roleCount)} / ${formatNumber(modeCount)}`, "可用角色 / 模式", "personas")}
+          ${overviewResourceRow("RAG 知识", formatNumber(rag.count), `${rag.provider} · 实际文档`, "rag")}
+          ${overviewResourceRow("长期记忆", formatNumber(memories.total), `${memories.provider} · 全部作用域`, "memory")}
+          ${overviewResourceRow("活跃会话", formatNumber(sessions.total), `${sessions.provider} · 不读取正文`, "sessions")}
+        </div>
+      </section>
+    </div>
+
+    <section class="surface data-surface">
+      <header class="surface-head"><div><h3>服务健康摘要</h3><p>最近 7 天逐服务请求、Token 与错误率</p></div><span class="table-count">配置：${escapeHtml(shortPath(runtimeConfig.source))}</span></header>
+      <div class="table-wrap">${serviceUsageTable((usage.services || []).slice(0, 8))}</div>
+    </section>
   `;
   bindRouteLinks();
   markSynced();
+}
+
+function overviewResourceRow(label, value, detail, route) {
+  return `
+    <div class="resource-row overview-resource-row">
+      <div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></div>
+      <span class="resource-value">${escapeHtml(value)}</span>
+      <button class="ghost-action" type="button" data-go-route="${escapeHtml(route)}">管理</button>
+    </div>
+  `;
 }
 
 async function renderSessions() {
@@ -473,6 +528,7 @@ async function closeRuntimeSession(button) {
     await request(`/v1/admin/sessions/${encodeURIComponent(button.dataset.sessionId)}`, {
       method: "DELETE",
     });
+    state.overview = null;
     showToast("运行会话已关闭。");
     await renderSessions();
   } catch (error) {
@@ -1453,6 +1509,7 @@ async function deleteRagDocument(button) {
       `/v1/admin/rag/documents/${encodeURIComponent(documentId)}?app_id=${encodeURIComponent(appId)}`,
       { method: "DELETE" },
     );
+    state.overview = null;
     showToast(`已删除 ${formatNumber(data.removed_chunks)} 个知识分块。`);
     await renderRag();
   } catch (error) {
@@ -1510,6 +1567,7 @@ function showRagImportDialog() {
       };
       if (documentId) payload.document_id = documentId;
       const result = await request("/v1/admin/rag/documents", { method: "POST", body: payload });
+      state.overview = null;
       state.ragAppId = payload.app_id;
       dialog.close();
       showToast(`文档已导入，共 ${formatNumber(result.chunk_count)} 个分块。`);
@@ -1769,6 +1827,7 @@ function showMemoryCreateDialog() {
         reason: String(values.get("reason") || "").trim(),
       };
       await request("/v1/admin/memories", { method: "POST", body: payload });
+      state.overview = null;
       state.memoryFilters = { ...state.memoryFilters, appId: payload.app_id, userId: payload.user_id, offset: 0 };
       dialog.close();
       showToast("长期记忆已写入。");
@@ -1792,6 +1851,7 @@ async function deleteMemoryItem(button) {
     await request(`/v1/admin/memories/${encodeURIComponent(button.dataset.memoryId)}`, {
       method: "DELETE",
     });
+    state.overview = null;
     showToast("长期记忆已删除。");
     const remainingOnPage = els.routeView.querySelectorAll("[data-delete-memory]").length;
     if (remainingOnPage === 1 && state.memoryFilters.offset > 0) {
