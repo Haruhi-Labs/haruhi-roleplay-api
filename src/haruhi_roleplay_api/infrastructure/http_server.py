@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import ClassVar
@@ -21,6 +22,19 @@ from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
 
 class _RequestBodyTooLargeError(ValueError):
     pass
+
+
+class _RoleplayThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self) -> None:
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_EXCLUSIVEADDRUSE,
+                1,
+            )
+        super().server_bind()
 
 
 class RoleplayRequestHandler(BaseHTTPRequestHandler):
@@ -91,7 +105,7 @@ def run_server(settings: HttpRuntimeSettings | None = None) -> None:
         env=env,
         runtime_config_store=config_store,
     )
-    server = ThreadingHTTPServer(
+    server = _RoleplayThreadingHTTPServer(
         (runtime_settings.host, runtime_settings.port),
         RoleplayRequestHandler,
     )
