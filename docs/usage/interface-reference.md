@@ -412,10 +412,10 @@ item 字段：
 
 | Endpoint | 请求 | 用途 |
 | --- | --- | --- |
-| `POST /v1/access-tokens` | `app_id`、`name`、可选 `quota_tokens`、`expires_at` | 创建绑定单一 app 的令牌并一次性返回明文 |
+| `POST /v1/access-tokens` | `app_id`、`name`、可选总/日/周额度和 `expires_at` | 创建绑定单一 app 的令牌并一次性返回明文 |
 | `GET /v1/access-tokens` | 无 | 列举令牌摘要和累计用量 |
 | `GET /v1/access-tokens/{token_id}` | 无 | 查询令牌详情 |
-| `PATCH /v1/access-tokens/{token_id}` | `quota_tokens`，可为 `null` | 调整额度或设为不限额 |
+| `PATCH /v1/access-tokens/{token_id}` | 总/日/周额度至少一项，可为 `null` | 独立调整或清除任意额度 |
 | `DELETE /v1/access-tokens/{token_id}` | 无 | 吊销令牌 |
 | `GET /v1/access-tokens/{token_id}/logs` | 查询参数 `limit`，默认 50、最大 200 | 查询逐令牌请求日志 |
 
@@ -425,7 +425,9 @@ item 字段：
 
 服务令牌调用 session、chat、RAG、memory route 时，请求 body/query 中的 `app_id` 必须与 token scope 一致，否则返回 `403 AUTH_PERMISSION_DENIED`。legacy unscoped token 不能调用这些 route。`/health`、`/v1/personas` 无 app scope；`ROLEPLAY_API_KEY` 不受服务 token scope 限制。
 
-令牌详情中的用量字段包括 `quota_tokens`、`prompt_tokens`、`completion_tokens`、`total_tokens` 和 `remaining_tokens`。额度耗尽后的聊天请求返回 HTTP 429 和 `ACCESS_TOKEN_QUOTA_EXCEEDED`。
+额度字段为 `quota_tokens`、`daily_quota_tokens`、`weekly_quota_tokens`；可以单独或组合设置，`null` 表示该尺度不限额。用量与剩余字段为 `total_tokens` / `remaining_tokens`、`daily_tokens` / `daily_remaining_tokens`、`weekly_tokens` / `weekly_remaining_tokens`。`daily_reset_at` 是下一次每日 00:00 UTC，`weekly_reset_at` 是下一次周一 00:00 UTC。`exhausted_quota_scopes` 列出已耗尽的 `total`、`daily`、`weekly`；任一已配置尺度耗尽后的聊天请求返回 HTTP 429 和 `ACCESS_TOKEN_QUOTA_EXCEEDED`。
+
+PATCH 中省略额度字段表示保留当前值，显式 `null` 表示清除该尺度。周期用量来自当前 UTC 窗口内的逐请求日志，重置窗口不删除历史日志或生命周期累计用量。
 
 模型 provider 返回 usage 时使用真实值；OpenAI-compatible 响应缺少 usage 字段时，服务按消息和回复长度进行 fallback 估算。负数或不可解析的单个 usage 字段按 `0` 处理。流式 provider 失败时，请求日志记录 SSE `data.error.code`，不会记录消息或回复正文。
 
