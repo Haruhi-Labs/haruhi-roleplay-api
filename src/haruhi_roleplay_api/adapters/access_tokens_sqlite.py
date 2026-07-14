@@ -43,11 +43,21 @@ class SQLiteAccessTokenStore:
         app_id: str,
         name: str,
         quota_tokens: int | None,
+        daily_quota_tokens: int | None = None,
+        weekly_quota_tokens: int | None = None,
         expires_at: str | None = None,
     ) -> IssuedAccessToken:
         clean_app_id = _required_text(app_id, "app_id")
         clean_name = _required_text(name, "name")
         clean_quota = _optional_positive_int(quota_tokens, "quota_tokens")
+        clean_daily_quota = _optional_positive_int(
+            daily_quota_tokens,
+            "daily_quota_tokens",
+        )
+        clean_weekly_quota = _optional_positive_int(
+            weekly_quota_tokens,
+            "weekly_quota_tokens",
+        )
         clean_expires_at = _optional_future_timestamp(expires_at)
         token_id = f"tok-{uuid4().hex}"
         secret = f"hrt_{secrets.token_urlsafe(32)}"
@@ -63,13 +73,15 @@ class SQLiteAccessTokenStore:
                     secret_hash,
                     status,
                     quota_tokens,
+                    daily_quota_tokens,
+                    weekly_quota_tokens,
                     prompt_tokens,
                     completion_tokens,
                     total_tokens,
                     created_at,
                     expires_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
                 """,
                 (
                     token_id,
@@ -79,6 +91,8 @@ class SQLiteAccessTokenStore:
                     _secret_hash(secret),
                     AccessTokenStatus.ACTIVE.value,
                     clean_quota,
+                    clean_daily_quota,
+                    clean_weekly_quota,
                     now,
                     clean_expires_at,
                 ),
@@ -88,10 +102,11 @@ class SQLiteAccessTokenStore:
     def authenticate(self, secret: str) -> AccessToken | None:
         if not isinstance(secret, str) or not secret.startswith("hrt_"):
             return None
+        daily_start, weekly_start, _, _ = _quota_windows()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM access_tokens WHERE secret_hash = ?",
-                (_secret_hash(secret),),
+                _TOKEN_SELECT + " WHERE token.secret_hash = ?",
+                (daily_start, weekly_start, _secret_hash(secret)),
             ).fetchone()
         if row is None:
             return None
@@ -103,18 +118,22 @@ class SQLiteAccessTokenStore:
         return token
 
     def list_tokens(self) -> tuple[AccessToken, ...]:
+        daily_start, weekly_start, _, _ = _quota_windows()
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM access_tokens ORDER BY created_at DESC, token_id DESC"
+                _TOKEN_SELECT
+                + " ORDER BY token.created_at DESC, token.token_id DESC",
+                (daily_start, weekly_start),
             ).fetchall()
         return tuple(_token_from_row(row) for row in rows)
 
     def get_token(self, token_id: str) -> AccessToken:
         clean_token_id = _required_text(token_id, "token_id")
+        daily_start, weekly_start, _, _ = _quota_windows()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM access_tokens WHERE token_id = ?",
-                (clean_token_id,),
+                _TOKEN_SELECT + " WHERE token.token_id = ?",
+                (daily_start, weekly_start, clean_token_id),
             ).fetchone()
         if row is None:
             raise AppError(
@@ -138,24 +157,60 @@ class SQLiteAccessTokenStore:
             )
         return self.get_token(token_id)
 
+    def update_quotas(
+        self,
+        token_id: str,
+        *,
+        quota_tokens: int | None,
+        daily_quota_tokens: int | None,
+        weekly_quota_tokens: int | None,
+    ) -> AccessToken:
+        self.get_token(token_id)
+        clean_quota = _optional_positive_int(quota_tokens, "quota_tokens")
+        clean_daily_quota = _optional_positive_int(
+            daily_quota_tokens,
+            "daily_quota_tokens",
+        )
+        clean_weekly_quota = _optional_positive_int(
+            weekly_quota_tokens,
+            "weekly_quota_tokens",
+        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE access_tokens
+                SET
+                    quota_tokens = ?,
+                    daily_quota_tokens = ?,
+                    weekly_quota_tokens = ?
+                WHERE token_id = ?
+                """,
+                (
+                    clean_quota,
+                    clean_daily_quota,
+                    clean_weekly_quota,
+                    token_id,
+                ),
+            )
+        return self.get_token(token_id)
+
     def update_quota(
         self,
         token_id: str,
         *,
         quota_tokens: int | None,
     ) -> AccessToken:
-        self.get_token(token_id)
-        clean_quota = _optional_positive_int(quota_tokens, "quota_tokens")
-        with self._connect() as connection:
-            connection.execute(
-                "UPDATE access_tokens SET quota_tokens = ? WHERE token_id = ?",
-                (clean_quota, token_id),
-            )
-        return self.get_token(token_id)
+        existing = self.get_token(token_id)
+        return self.update_quotas(
+            token_id,
+            quota_tokens=quota_tokens,
+            daily_quota_tokens=existing.dailyQuotaTokens,
+            weekly_quota_tokens=existing.weeklyQuotaTokens,
+        )
 
     def ensure_quota_available(self, token_id: str) -> AccessToken:
         token = self.get_token(token_id)
-        if token.quotaTokens is not None and token.totalTokens >= token.quotaTokens:
+        if token.exhaustedQuotaScopes:
             raise AppError(code=ErrorCode.ACCESS_TOKEN_QUOTA_EXCEEDED)
         return token
 
@@ -478,6 +533,15 @@ class SQLiteAccessTokenStore:
                     CHECK (app_id IS NULL OR length(trim(app_id)) > 0)
                     """
                 )
+            for column in ("daily_quota_tokens", "weekly_quota_tokens"):
+                if column not in columns:
+                    connection.execute(
+                        f"""
+                        ALTER TABLE access_tokens
+                        ADD COLUMN {column} INTEGER
+                        CHECK ({column} IS NULL OR {column} > 0)
+                        """
+                    )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -498,6 +562,25 @@ class SQLiteAccessTokenStore:
             connection.close()
 
 
+_TOKEN_SELECT = """
+SELECT
+    token.*,
+    COALESCE((
+        SELECT SUM(daily_log.total_tokens)
+        FROM access_token_request_logs AS daily_log
+        WHERE daily_log.token_id = token.token_id
+            AND daily_log.created_at >= ?
+    ), 0) AS daily_tokens,
+    COALESCE((
+        SELECT SUM(weekly_log.total_tokens)
+        FROM access_token_request_logs AS weekly_log
+        WHERE weekly_log.token_id = token.token_id
+            AND weekly_log.created_at >= ?
+    ), 0) AS weekly_tokens
+FROM access_tokens AS token
+"""
+
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS access_tokens (
     token_id TEXT PRIMARY KEY,
@@ -507,6 +590,10 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     secret_hash TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
     quota_tokens INTEGER CHECK (quota_tokens IS NULL OR quota_tokens > 0),
+    daily_quota_tokens INTEGER
+        CHECK (daily_quota_tokens IS NULL OR daily_quota_tokens > 0),
+    weekly_quota_tokens INTEGER
+        CHECK (weekly_quota_tokens IS NULL OR weekly_quota_tokens > 0),
     prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0),
     completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK (completion_tokens >= 0),
     total_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_tokens >= 0),
@@ -556,6 +643,7 @@ ON admin_audit_logs (created_at DESC);
 
 
 def _token_from_row(row: sqlite3.Row) -> AccessToken:
+    _, _, daily_reset, weekly_reset = _quota_windows()
     return AccessToken(
         tokenId=str(row["token_id"]),
         appId=(str(row["app_id"]) if row["app_id"] is not None else None),
@@ -563,10 +651,24 @@ def _token_from_row(row: sqlite3.Row) -> AccessToken:
         prefix=str(row["token_prefix"]),
         status=AccessTokenStatus(str(row["status"])),
         quotaTokens=(int(row["quota_tokens"]) if row["quota_tokens"] is not None else None),
+        dailyQuotaTokens=(
+            int(row["daily_quota_tokens"])
+            if row["daily_quota_tokens"] is not None
+            else None
+        ),
+        weeklyQuotaTokens=(
+            int(row["weekly_quota_tokens"])
+            if row["weekly_quota_tokens"] is not None
+            else None
+        ),
         promptTokens=int(row["prompt_tokens"]),
         completionTokens=int(row["completion_tokens"]),
         totalTokens=int(row["total_tokens"]),
+        dailyTokens=int(row["daily_tokens"]),
+        weeklyTokens=int(row["weekly_tokens"]),
         createdAt=str(row["created_at"]),
+        dailyResetAt=daily_reset,
+        weeklyResetAt=weekly_reset,
         expiresAt=(str(row["expires_at"]) if row["expires_at"] is not None else None),
         revokedAt=(str(row["revoked_at"]) if row["revoked_at"] is not None else None),
         lastUsedAt=(str(row["last_used_at"]) if row["last_used_at"] is not None else None),
@@ -727,6 +829,18 @@ def _secret_hash(secret: str) -> str:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _quota_windows(now: datetime | None = None) -> tuple[str, str, str, str]:
+    current = (now or _utc_now()).astimezone(UTC)
+    daily_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+    weekly_start = daily_start - timedelta(days=daily_start.weekday())
+    return (
+        daily_start.isoformat(),
+        weekly_start.isoformat(),
+        (daily_start + timedelta(days=1)).isoformat(),
+        (weekly_start + timedelta(days=7)).isoformat(),
+    )
 
 
 def _now() -> str:

@@ -20,6 +20,8 @@ class AccessTokenStore(Protocol):
         app_id: str,
         name: str,
         quota_tokens: int | None,
+        daily_quota_tokens: int | None = None,
+        weekly_quota_tokens: int | None = None,
         expires_at: str | None = None,
     ) -> IssuedAccessToken:
         """创建绑定单一 app 的令牌，明文密钥只能通过本次返回。"""
@@ -43,6 +45,16 @@ class AccessTokenStore(Protocol):
         quota_tokens: int | None,
     ) -> AccessToken:
         """修改总 Token 额度；None 表示不限额。"""
+
+    def update_quotas(
+        self,
+        token_id: str,
+        *,
+        quota_tokens: int | None,
+        daily_quota_tokens: int | None,
+        weekly_quota_tokens: int | None,
+    ) -> AccessToken:
+        """同时修改生命周期、每日和每周 Token 额度。"""
 
     def ensure_quota_available(self, token_id: str) -> AccessToken:
         """确认令牌仍有模型 Token 额度，否则抛出稳定错误。"""

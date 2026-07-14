@@ -21,10 +21,16 @@ class AccessToken:
     prefix: str
     status: AccessTokenStatus
     quotaTokens: int | None
+    dailyQuotaTokens: int | None
+    weeklyQuotaTokens: int | None
     promptTokens: int
     completionTokens: int
     totalTokens: int
+    dailyTokens: int
+    weeklyTokens: int
     createdAt: str
+    dailyResetAt: str
+    weeklyResetAt: str
     expiresAt: str | None = None
     revokedAt: str | None = None
     lastUsedAt: str | None = None
@@ -36,12 +42,19 @@ class AccessToken:
         _require_non_empty(self.name, "accessToken.name")
         _require_non_empty(self.prefix, "accessToken.prefix")
         _require_non_empty(self.createdAt, "accessToken.createdAt")
-        if self.quotaTokens is not None and self.quotaTokens <= 0:
-            raise DTOValidationError("accessToken.quotaTokens must be positive")
+        for field_name, value in (
+            ("quotaTokens", self.quotaTokens),
+            ("dailyQuotaTokens", self.dailyQuotaTokens),
+            ("weeklyQuotaTokens", self.weeklyQuotaTokens),
+        ):
+            if value is not None and value <= 0:
+                raise DTOValidationError(f"accessToken.{field_name} must be positive")
         for field_name, value in (
             ("promptTokens", self.promptTokens),
             ("completionTokens", self.completionTokens),
             ("totalTokens", self.totalTokens),
+            ("dailyTokens", self.dailyTokens),
+            ("weeklyTokens", self.weeklyTokens),
         ):
             if value < 0:
                 raise DTOValidationError(f"accessToken.{field_name} must be >= 0")
@@ -49,12 +62,37 @@ class AccessToken:
             raise DTOValidationError(
                 "accessToken.totalTokens must equal promptTokens + completionTokens"
             )
+        _require_non_empty(self.dailyResetAt, "accessToken.dailyResetAt")
+        _require_non_empty(self.weeklyResetAt, "accessToken.weeklyResetAt")
 
     @property
     def remainingTokens(self) -> int | None:
         if self.quotaTokens is None:
             return None
         return max(self.quotaTokens - self.totalTokens, 0)
+
+    @property
+    def dailyRemainingTokens(self) -> int | None:
+        if self.dailyQuotaTokens is None:
+            return None
+        return max(self.dailyQuotaTokens - self.dailyTokens, 0)
+
+    @property
+    def weeklyRemainingTokens(self) -> int | None:
+        if self.weeklyQuotaTokens is None:
+            return None
+        return max(self.weeklyQuotaTokens - self.weeklyTokens, 0)
+
+    @property
+    def exhaustedQuotaScopes(self) -> tuple[str, ...]:
+        scopes: list[str] = []
+        if self.remainingTokens == 0:
+            scopes.append("total")
+        if self.dailyRemainingTokens == 0:
+            scopes.append("daily")
+        if self.weeklyRemainingTokens == 0:
+            scopes.append("weekly")
+        return tuple(scopes)
 
     def to_mapping(self) -> dict[str, object]:
         return {
@@ -64,10 +102,19 @@ class AccessToken:
             "prefix": self.prefix,
             "status": self.status.value,
             "quota_tokens": self.quotaTokens,
+            "daily_quota_tokens": self.dailyQuotaTokens,
+            "weekly_quota_tokens": self.weeklyQuotaTokens,
             "prompt_tokens": self.promptTokens,
             "completion_tokens": self.completionTokens,
             "total_tokens": self.totalTokens,
+            "daily_tokens": self.dailyTokens,
+            "weekly_tokens": self.weeklyTokens,
             "remaining_tokens": self.remainingTokens,
+            "daily_remaining_tokens": self.dailyRemainingTokens,
+            "weekly_remaining_tokens": self.weeklyRemainingTokens,
+            "daily_reset_at": self.dailyResetAt,
+            "weekly_reset_at": self.weeklyResetAt,
+            "exhausted_quota_scopes": list(self.exhaustedQuotaScopes),
             "created_at": self.createdAt,
             "expires_at": self.expiresAt,
             "revoked_at": self.revokedAt,

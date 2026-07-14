@@ -21,12 +21,16 @@ class CreateAccessToken:
         app_id: str,
         name: str,
         quota_tokens: int | None,
+        daily_quota_tokens: int | None,
+        weekly_quota_tokens: int | None,
         expires_at: str | None,
     ) -> IssuedAccessToken:
         return self._store.create_token(
             app_id=app_id,
             name=name,
             quota_tokens=quota_tokens,
+            daily_quota_tokens=daily_quota_tokens,
+            weekly_quota_tokens=weekly_quota_tokens,
             expires_at=expires_at,
         )
 
@@ -64,8 +68,15 @@ class UpdateAccessTokenQuota:
         token_id: str,
         *,
         quota_tokens: int | None,
+        daily_quota_tokens: int | None,
+        weekly_quota_tokens: int | None,
     ) -> AccessToken:
-        return self._store.update_quota(token_id, quota_tokens=quota_tokens)
+        return self._store.update_quotas(
+            token_id,
+            quota_tokens=quota_tokens,
+            daily_quota_tokens=daily_quota_tokens,
+            weekly_quota_tokens=weekly_quota_tokens,
+        )
 
 
 class ListAccessTokenRequestLogs:
