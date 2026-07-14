@@ -236,14 +236,16 @@ def _capabilities_to_internal(
         return {"stream": force_stream}
     if not isinstance(value, Mapping):
         raise DTOValidationError("capabilities must be an object")
-    return {
-        "rag": value.get("rag", False),
+    capabilities = {
         "memory": value.get("memory", False),
         "continuousSession": value.get("continuous_session", False),
         "safetyFilter": value.get("safety_filter", True),
         "debugTrace": value.get("debug_trace", False),
         "stream": True if force_stream else value.get("stream", False),
     }
+    if "rag" in value:
+        capabilities["rag"] = value["rag"]
+    return capabilities
 
 
 def _generation_to_internal(value: Any) -> dict[str, Any] | None:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from time import perf_counter
 
 from haruhi_roleplay_api.application.errors import (
@@ -194,6 +194,16 @@ class RoleplayOrchestrator:
             chat_input=chat_input,
             persona=persona,
         )
+        if (
+            context_plan.retrieveRag
+            and self._rag_service is None
+            and not chat_input.capabilities.ragConfigured
+        ):
+            context_plan = replace(
+                context_plan,
+                retrieveRag=False,
+                notes=(*context_plan.notes, "rag-provider-unavailable"),
+            )
         _record_event(events, "load_session")
         session = self._session_for_chat(chat_input, context_plan)
         _record_event(events, "read_session_messages")
@@ -582,7 +592,7 @@ def _debug_trace_for_chat(
         modelRoute=model_response.model,
         safetyAction="allow",
         latencyMs=_elapsed_ms(started_at),
-        capabilities=_capability_trace(chat_input),
+        capabilities=_capability_trace(chat_input, context_plan),
         events=events,
         modelDebug=model_response.debug,
         contextPlan=context_plan.to_debug_mapping(),
@@ -595,10 +605,13 @@ def _backend_context_sources(
     return tuple(dict.fromkeys(fact.source for fact in facts))
 
 
-def _capability_trace(chat_input: ChatInput) -> dict[str, bool]:
+def _capability_trace(
+    chat_input: ChatInput,
+    context_plan: ContextPlan,
+) -> dict[str, bool]:
     capabilities = chat_input.capabilities
     return {
-        "rag": capabilities.rag,
+        "rag": context_plan.retrieveRag,
         "memory": capabilities.memory,
         "continuousSession": capabilities.continuousSession,
         "safetyFilter": capabilities.safetyFilter,

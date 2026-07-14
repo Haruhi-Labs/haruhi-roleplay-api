@@ -28,12 +28,18 @@ class DeterministicAgentContextPlanner:
             notes.append("persona-rag-policy")
         if persona.memoryPolicy:
             notes.append("persona-memory-policy")
+        retrieve_rag = (
+            capabilities.rag
+            if capabilities.ragConfigured
+            else capabilities.rag
+            or bool(persona.ragPolicy.get("enabledByDefault", False))
+        )
         return ContextPlan(
             planner=self.planner_name,
             status="ready",
             readSession=capabilities.continuousSession,
             readMemory=capabilities.memory,
-            retrieveRag=capabilities.rag,
+            retrieveRag=retrieve_rag,
             backendFetches=self.backend_context_sources,
             notes=tuple(notes),
         )

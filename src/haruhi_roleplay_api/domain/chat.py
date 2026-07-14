@@ -51,6 +51,7 @@ def _require_non_empty(
 @dataclass(frozen=True, kw_only=True)
 class CapabilityConfig:
     rag: bool = False
+    ragConfigured: bool = False
     memory: bool = False
     continuousSession: bool = False
     safetyFilter: bool = True
@@ -65,6 +66,7 @@ class CapabilityConfig:
             raise DTOValidationError("capabilities must be an object")
         return cls(
             rag=_boolean(data.get("rag", False), "capabilities.rag"),
+            ragConfigured="rag" in data,
             memory=_boolean(data.get("memory", False), "capabilities.memory"),
             continuousSession=_boolean(
                 data.get("continuousSession", False),
@@ -84,6 +86,7 @@ class CapabilityConfig:
     def __post_init__(self) -> None:
         for field_name, value in (
             ("rag", self.rag),
+            ("ragConfigured", self.ragConfigured),
             ("memory", self.memory),
             ("continuousSession", self.continuousSession),
             ("safetyFilter", self.safetyFilter),
@@ -337,4 +340,3 @@ class ChatStreamEvent:
             "event": self.event,
             "data": dict(self.data),
         }
-
