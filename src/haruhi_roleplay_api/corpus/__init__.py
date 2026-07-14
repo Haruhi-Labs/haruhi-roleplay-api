@@ -1,6 +1,7 @@
 """角色扮演 RAG 语料构建工具。"""
 
 from haruhi_roleplay_api.corpus.haruhi import HARUHI_BOOKS
+from haruhi_roleplay_api.corpus.audit import CorpusAuditReport, audit_haruhi_corpus
 from haruhi_roleplay_api.corpus.dialogue_review import (
     DialogueReviewExportResult,
     DialogueReviewIndex,
@@ -24,6 +25,7 @@ from haruhi_roleplay_api.corpus.reviewed_dialogue import (
 )
 
 __all__ = [
+    "CorpusAuditReport",
     "HARUHI_BOOKS",
     "BuildResult",
     "CorpusRecord",
@@ -32,6 +34,7 @@ __all__ = [
     "DialogueReviewUnit",
     "DialogueOverlayResult",
     "ReviewAnnotation",
+    "audit_haruhi_corpus",
     "build_haruhi_corpus",
     "finalize_corpus_records",
     "apply_reviewed_dialogue_overlay",
