@@ -380,6 +380,65 @@ class QdrantRagProviderTests(unittest.TestCase):
         ):
             self.assertIn({"key": field, "match": {"value": value}}, must)
 
+    def test_qdrant_hybrid_search_merges_full_text_candidates(self) -> None:
+        dense_hit = qdrant_hit()
+        dense_hit["payload"] = {
+            **dense_hit["payload"],
+            "content": "社团活动需要尽快安排。",
+        }
+        lexical_hit = qdrant_hit()
+        lexical_hit["id"] = "point-lexical"
+        lexical_hit["payload"] = {
+            **lexical_hit["payload"],
+            "document_id": "doc-qdrant-tanabata",
+            "chunk_id": "doc-qdrant-tanabata-chunk-1",
+            "content": "七夕时，春日让大家写下愿望并挂在竹叶上。",
+        }
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+            hybrid_search=True,
+        )
+        scoped_input = RagRetrieveInput(
+            appId=AppId("web"),
+            userId=UserId("user-1"),
+            characterId=CharacterId("haruhi"),
+            personaMode=PersonaModeId("mid_late_haruhi"),
+            query=(
+                "目标角色：haruhi\n最近对话：\nuser: 雪山发生了什么\n"
+                "当前用户输入：\n七夕时春日做了什么"
+            ),
+            topK=3,
+            filters=RagRetrieveFilters(
+                sourceTypes=("timeline",),
+                timelines=("mid_late",),
+                spoilerLevelMax=2,
+                language="zh-CN",
+            ),
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            side_effect=[
+                FakeHTTPResponse({"result": [dense_hit]}),
+                FakeHTTPResponse({"result": {"points": [lexical_hit]}}),
+            ],
+        ) as urlopen:
+            output = service.retrieve(scoped_input)
+
+        lexical_request = urlopen.call_args_list[1].args[0]
+        lexical_payload = json.loads(lexical_request.data.decode("utf-8"))
+        self.assertTrue(lexical_request.full_url.endswith("/points/scroll"))
+        self.assertEqual(
+            lexical_payload["filter"]["must"][-1],
+            {
+                "key": "content",
+                "match": {"text_any": "七夕时春日做了什么"},
+            },
+        )
+        self.assertEqual(output.rawHitCount, 2)
+        self.assertEqual(output.filteredHitCount, 2)
+        self.assertEqual(output.chunks[0].documentId, "doc-qdrant-tanabata")
+
     def test_qdrant_retrieve_returns_filtered_sources(self) -> None:
         service = QdrantRagService(
             base_url="https://qdrant.example",

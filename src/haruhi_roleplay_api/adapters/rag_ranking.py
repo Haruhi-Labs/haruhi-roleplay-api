@@ -79,6 +79,12 @@ def rank_roleplay_chunks(
     return tuple(candidate.chunk for candidate in selected[:top_k])
 
 
+def lexical_overlap_score(query: str, content: str) -> float:
+    """供混合召回对无服务端分数的全文候选进行稳定排序。"""
+
+    return _lexical_overlap(query, content)
+
+
 def _rank_candidate(chunk: RagChunk, *, query: str) -> _RankedCandidate:
     extra = chunk.metadata.extra
     kind = str(extra.get("record_kind") or "__knowledge__")

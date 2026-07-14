@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from typing import Any, Mapping
 from uuid import NAMESPACE_URL, uuid5
 
@@ -17,7 +19,10 @@ from haruhi_roleplay_api.adapters.rag import (
     _scoped_chunk_id,
 )
 from haruhi_roleplay_api.adapters.embeddings import HashEmbeddingProvider
-from haruhi_roleplay_api.adapters.rag_ranking import rank_roleplay_chunks
+from haruhi_roleplay_api.adapters.rag_ranking import (
+    lexical_overlap_score,
+    rank_roleplay_chunks,
+)
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
     AppId,
@@ -62,6 +67,9 @@ _QDRANT_PAYLOAD_INDEXES: tuple[tuple[str, str | Mapping[str, Any]], ...] = (
         },
     ),
 )
+_CURRENT_INPUT_MARKER = "当前用户输入：\n"
+_NON_SEARCH_CHARACTER = re.compile(r"[\W_]+", re.UNICODE)
+_RRF_K = 60
 
 
 class QdrantRagService:
@@ -77,6 +85,7 @@ class QdrantRagService:
         chunk_size: int = 320,
         embedding_provider: TextEmbeddingProvider | None = None,
         ensure_collection: bool = False,
+        hybrid_search: bool = False,
     ) -> None:
         if not base_url.strip():
             raise AppError(
@@ -102,6 +111,7 @@ class QdrantRagService:
         self._chunk_size = chunk_size
         self._embedding_provider = embedding_provider or HashEmbeddingProvider()
         self._ensure_collection = ensure_collection
+        self._hybrid_search = hybrid_search
         self._collection_ready = False
 
     def ingest(self, ingest_input: RagIngestInput) -> RagIngestResult:
@@ -176,13 +186,23 @@ class QdrantRagService:
             },
             error_code=ErrorCode.RAG_PROVIDER_ERROR,
         )
-        result = response.get("result", [])
+        result = response.get("result", []) if response is not None else []
         if not isinstance(result, list):
             raise AppError(
                 code=ErrorCode.RAG_PROVIDER_ERROR,
                 message="Qdrant RAG response was invalid.",
             )
-        raw_chunks = tuple(_chunk_from_qdrant_hit(hit) for hit in result)
+        dense_chunks = tuple(_chunk_from_qdrant_hit(hit) for hit in result)
+        lexical_chunks = self._lexical_candidates(retrieve_input)
+        raw_chunks = (
+            _reciprocal_rank_fusion(
+                dense_chunks,
+                lexical_chunks,
+                query=retrieve_input.query,
+            )
+            if lexical_chunks
+            else dense_chunks
+        )
         filtered = tuple(
             chunk for chunk in raw_chunks if _matches_filters(chunk, retrieve_input)
         )
@@ -194,10 +214,48 @@ class QdrantRagService:
         return RagRetrieveOutput(
             chunks=ranked,
             provider=self.provider_name,
-            rawHitCount=len(result),
+            rawHitCount=len(raw_chunks),
             filteredHitCount=len(filtered),
             rerankApplied=bool(filtered),
         )
+
+    def _lexical_candidates(
+        self,
+        retrieve_input: RagRetrieveInput,
+    ) -> tuple[RagChunk, ...]:
+        if not self._hybrid_search:
+            return ()
+        lexical_query = _lexical_query(retrieve_input.query)
+        if not lexical_query:
+            return ()
+        hard_filter = _qdrant_filter(retrieve_input)
+        response = self._request_json(
+            "POST",
+            f"/collections/{self._collection}/points/scroll",
+            {
+                "limit": retrieve_input.topK * 8,
+                "with_payload": True,
+                "with_vector": False,
+                "filter": {
+                    "must": [
+                        *hard_filter["must"],
+                        {
+                            "key": "content",
+                            "match": {"text_any": lexical_query},
+                        },
+                    ]
+                },
+            },
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        result = response.get("result") if response is not None else None
+        points = result.get("points") if isinstance(result, Mapping) else None
+        if not isinstance(points, list):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message="Qdrant 全文候选响应格式无效。",
+            )
+        return tuple(_chunk_from_qdrant_hit(point) for point in points)
 
     def list_documents(
         self,
@@ -680,6 +738,47 @@ def _collection_vector_size(collection_info: Mapping[str, Any]) -> int | None:
         return None
     size = vectors.get("size")
     return size if isinstance(size, int) else None
+
+
+def _lexical_query(query: str) -> str:
+    candidate = (
+        query.rsplit(_CURRENT_INPUT_MARKER, maxsplit=1)[-1]
+        if _CURRENT_INPUT_MARKER in query
+        else query
+    )
+    normalized = " ".join(candidate.split())[:256]
+    searchable = _NON_SEARCH_CHARACTER.sub("", normalized)
+    return normalized if len(searchable) >= 2 else ""
+
+
+def _reciprocal_rank_fusion(
+    dense_chunks: tuple[RagChunk, ...],
+    lexical_chunks: tuple[RagChunk, ...],
+    *,
+    query: str,
+) -> tuple[RagChunk, ...]:
+    lexical_query = _lexical_query(query) or query
+    lexical_ranked = sorted(
+        lexical_chunks,
+        key=lambda chunk: lexical_overlap_score(lexical_query, chunk.content),
+        reverse=True,
+    )
+    chunks_by_id: dict[str, RagChunk] = {}
+    scores: dict[str, float] = {}
+    for ranked_chunks in (dense_chunks, tuple(lexical_ranked)):
+        for rank, chunk in enumerate(ranked_chunks, start=1):
+            key = str(chunk.chunkId)
+            chunks_by_id.setdefault(key, chunk)
+            scores[key] = scores.get(key, 0.0) + 1.0 / (_RRF_K + rank)
+    maximum = 2.0 / (_RRF_K + 1)
+    return tuple(
+        replace(chunks_by_id[key], score=min(1.0, score / maximum))
+        for key, score in sorted(
+            scores.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+    )
 
 
 def _contextual_embedding_text(chunk: RagChunk) -> str:

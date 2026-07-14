@@ -166,6 +166,8 @@ python scripts/ingest_haruhi_corpus.py --app-id web-demo
 
 生产 Qdrant 不要把运行时直接绑定到某个物理集合。配置稳定 alias（例如 `RAG_INDEX=haruhi_rag_live`），再通过发布脚本创建带 `corpus_version` 的新集合。脚本会先创建所有过滤字段及中文全文 payload index，导入后核对指定 `app_id` 的精确 point 数，只有计数一致才原子切换 alias：
 
+建议同时开启 `QDRANT_HYBRID_SEARCH=true`。此模式并行取得 dense 向量候选和 `multilingual` 全文候选，用 RRF 合并后再执行本地字符重排、去重和类型配额。它不调用 LLM，不增加生成 Token；主要用于补回七夕、雪山症候群等专名被向量召回漏掉的记录。需要兼容未创建 `content` 全文索引的旧集合时保持关闭，完成版本化发布后再开启。
+
 ```bash
 python scripts/publish_haruhi_qdrant.py publish --app-id web-demo
 ```
