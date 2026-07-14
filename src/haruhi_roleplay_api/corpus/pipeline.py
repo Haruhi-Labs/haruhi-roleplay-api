@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import unicodedata
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
@@ -360,6 +360,7 @@ def finalize_corpus_records(
                 },
             )
         )
+    enriched = _deduplicate_exact_records(enriched)
     digest = hashlib.blake2b(digest_size=12)
     digest.update(pipeline_version.encode("utf-8"))
     for record in sorted(enriched, key=lambda item: item.document_id):
@@ -395,6 +396,40 @@ def finalize_corpus_records(
         for record in enriched
     ]
     return finalized, corpus_version
+
+
+def _deduplicate_exact_records(records: list[CorpusRecord]) -> list[CorpusRecord]:
+    grouped: dict[tuple[str, str, str], list[CorpusRecord]] = defaultdict(list)
+    for record in records:
+        grouped[
+            (
+                record.character_id,
+                str(record.metadata.get("record_kind", "")),
+                record.content,
+            )
+        ].append(record)
+    winners = {
+        min(group, key=_duplicate_record_priority).document_id
+        for group in grouped.values()
+    }
+    return [record for record in records if record.document_id in winners]
+
+
+def _duplicate_record_priority(record: CorpusRecord) -> tuple[float, int, int, str]:
+    confidence = record.metadata.get("confidence")
+    numeric_confidence = (
+        float(confidence)
+        if isinstance(confidence, int | float) and not isinstance(confidence, bool)
+        else 0.0
+    )
+    review_method = str(record.metadata.get("review_method", ""))
+    review_certainty = str(record.metadata.get("review_certainty", ""))
+    return (
+        -numeric_confidence,
+        0 if review_method == "sol_adjudication" else 1,
+        0 if review_certainty == "certain" else 1,
+        record.document_id,
+    )
 
 
 def _record_semantics(record: CorpusRecord) -> dict[str, str]:

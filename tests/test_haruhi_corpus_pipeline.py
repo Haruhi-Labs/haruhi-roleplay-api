@@ -121,6 +121,48 @@ class HaruhiCorpusPipelineTests(unittest.TestCase):
         self.assertEqual(mapping["subject_character_id"], "haruhi")
         self.assertEqual(mapping["usage"], "style_only")
 
+    def test_finalizer_deduplicates_exact_record_and_keeps_better_review(self) -> None:
+        common = {
+            "title": "重复台词",
+            "character_id": "haruhi",
+            "timeline": "melancholy",
+            "spoiler_level": 1,
+            "language": "zh-CN",
+            "source_type": "scene",
+            "trust_level": "canonical_agent_reviewed",
+            "content": "作品：测试。\n【目标角色回答】\n凉宫春日：「开始吧！」",
+        }
+        luna = CorpusRecord(
+            document_id="haruhi-luna",
+            metadata={
+                "record_kind": "dialogue_example",
+                "perspective": "spoken_by_character",
+                "confidence": 0.95,
+                "review_method": "luna_first_pass",
+                "review_certainty": "certain",
+            },
+            **common,
+        )
+        sol = CorpusRecord(
+            document_id="haruhi-sol",
+            metadata={
+                "record_kind": "dialogue_example",
+                "perspective": "spoken_by_character",
+                "confidence": 0.98,
+                "review_method": "sol_adjudication",
+                "review_certainty": "certain",
+            },
+            **common,
+        )
+
+        finalized, _ = finalize_corpus_records(
+            (luna, sol),
+            pipeline_version="test.v1",
+        )
+
+        self.assertEqual(len(finalized), 1)
+        self.assertEqual(finalized[0].document_id, "haruhi-sol")
+
     def test_loader_rejects_conflicting_promoted_field(self) -> None:
         record = CorpusRecord(
             document_id="haruhi-test-conflict",

@@ -105,6 +105,11 @@ def apply_reviewed_dialogue_overlay(
         records,
         pipeline_version=REVIEWED_PIPELINE_VERSION,
     )
+    indexed_dialogue_records = [
+        record
+        for record in records
+        if record.metadata.get("record_kind") == "dialogue_example"
+    ]
     with records_path.open("w", encoding="utf-8", newline="\n") as handle:
         for record in records:
             handle.write(json.dumps(record.to_mapping(), ensure_ascii=False, sort_keys=True))
@@ -116,6 +121,10 @@ def apply_reviewed_dialogue_overlay(
         adjudication=adjudication,
         final_spans=final_spans,
         dialogue_records=reviewed_records,
+    )
+    review_stats["indexed_dialogue_records"] = len(indexed_dialogue_records)
+    review_stats["duplicate_dialogue_records_removed"] = (
+        len(reviewed_records) - len(indexed_dialogue_records)
     )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(manifest, dict):
