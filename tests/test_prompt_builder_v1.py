@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -15,6 +16,12 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
     GenerationConfig,
     PersonaPreset,
     PromptBuildInput,
+    AppId,
+    CharacterId,
+    RagChunk,
+    RagChunkId,
+    RagDocumentId,
+    RagDocumentMetadata,
 )
 
 
@@ -137,6 +144,87 @@ class PromptBuilderV1Tests(unittest.TestCase):
         self.assertEqual(provider_messages[0]["role"], "system")
         self.assertIn("content", provider_messages[0])
         self.assertEqual(provider_messages[-1]["role"], "user")
+
+    def test_rag_chunks_are_partitioned_by_roleplay_usage(self) -> None:
+        base = prompt_input("haruhi", "mid_late_haruhi")
+        chunks = (
+            _rag_chunk(
+                "memory",
+                content="春日记得孤岛事件。",
+                record_kind="scene_memory",
+                channel="canonical_memory",
+                owner="haruhi",
+                usage="knowledge",
+            ),
+            _rag_chunk(
+                "dialogue",
+                content="【目标角色回答】凉宫春日：现在就出发！",
+                record_kind="dialogue_example",
+                channel="dialogue_style",
+                owner="haruhi",
+                usage="style_only",
+            ),
+            _rag_chunk(
+                "observation",
+                content="阿虚观察到春日露出得意的表情。",
+                record_kind="behavior_observation",
+                channel="style_observation",
+                owner="kyon",
+                usage="style_only",
+            ),
+        )
+
+        output = PersonaPromptBuilder().build(replace(base, ragChunks=chunks))
+        rag_section = next(
+            message.content
+            for message in output.messages
+            if "检索资料摘要" in message.content
+        )
+
+        self.assertLess(
+            rag_section.index("原作事实与角色记忆"),
+            rag_section.index("目标角色台词与应对范例"),
+        )
+        self.assertLess(
+            rag_section.index("目标角色台词与应对范例"),
+            rag_section.index("内心语气与外部行为观察"),
+        )
+        self.assertIn("knowledgeOwner=kyon, usage=style_only", rag_section)
+        self.assertIn("观察者知道的内容不等于目标角色知道", rag_section)
+        self.assertIn("风格范例只能决定如何表达，不能新增角色知识", rag_section)
+
+
+def _rag_chunk(
+    name: str,
+    *,
+    content: str,
+    record_kind: str,
+    channel: str,
+    owner: str,
+    usage: str,
+) -> RagChunk:
+    return RagChunk(
+        chunkId=RagChunkId(f"chunk-{name}"),
+        documentId=RagDocumentId(f"doc-{name}"),
+        content=content,
+        score=0.9,
+        metadata=RagDocumentMetadata(
+            appId=AppId("web"),
+            characterId=CharacterId("haruhi"),
+            timeline="mid_late",
+            spoilerLevel=5,
+            language="zh-CN",
+            sourceType="scene",
+            extra={
+                "record_kind": record_kind,
+                "retrieval_channel": channel,
+                "knowledge_owner": owner,
+                "usage": usage,
+                "perspective": "test",
+                "confidence": 0.95,
+            },
+        ),
+    )
 
 
 if __name__ == "__main__":

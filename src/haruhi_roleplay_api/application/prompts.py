@@ -8,6 +8,7 @@ from haruhi_roleplay_api.domain import (
     PromptBuildInput,
     PromptBuildOutput,
     PromptMessage,
+    RagChunk,
     ToneConfig,
 )
 
@@ -126,36 +127,84 @@ def _rag_chunk_section(prompt_input: PromptBuildInput) -> tuple[PromptMessage, .
     if not prompt_input.ragChunks:
         return ()
     lines = [
-        "检索资料摘要：",
-        "- scene_memory/inner_monologue 只代表当前角色可用的第一人称经历或内心材料。",
-        "- dialogue_example 是说话与应对范例，不表示当前场景正在重演。",
-        "- behavior_observation 是外部行为观察，只用于校准演绎；不得把观察者内心当成角色已知事实。",
+        "检索资料摘要（按用途隔离）：",
+        "- 权威顺序：角色设定与时间线边界 > 原作事实与记忆 > 风格范例。",
+        "- 风格范例只能决定如何表达，不能新增角色知识或把范例场景当成正在发生。",
         "- 低于 0.90 的自动标注属于辅助线索，和角色边界冲突时必须舍弃。",
         "- agent-reviewed 台词已逐条检查；probable 仍是话风参考，不能据此新增角色知识。",
     ]
+    groups: dict[str, list[tuple[int, RagChunk]]] = {
+        "knowledge": [],
+        "dialogue": [],
+        "style": [],
+    }
     for index, chunk in enumerate(prompt_input.ragChunks, start=1):
         extra = chunk.metadata.extra
-        title = str(extra.get("title") or chunk.documentId)
+        channel = str(extra.get("retrieval_channel") or "")
         record_kind = str(extra.get("record_kind") or chunk.metadata.sourceType)
-        perspective = str(extra.get("perspective") or "unspecified")
-        confidence = extra.get("confidence")
-        confidence_text = (
-            f"{float(confidence):.2f}"
-            if isinstance(confidence, int | float) and not isinstance(confidence, bool)
-            else "unspecified"
-        )
-        review_method = str(extra.get("review_method") or "automatic")
-        review_certainty = str(extra.get("review_certainty") or "unspecified")
-        lines.append(
-            f"- [{index}] title={title}, kind={record_kind}, "
-            f"perspective={perspective}, confidence={confidence_text}, "
-            f"review={review_method}/{review_certainty}, "
-            f"timeline={chunk.metadata.timeline}, "
-            f"spoilerLevel={chunk.metadata.spoilerLevel}: {chunk.content} "
-            f"(source={chunk.documentId}/{chunk.chunkId})"
+        if channel == "dialogue_style" or record_kind == "dialogue_example":
+            group = "dialogue"
+        elif channel in {"internal_voice", "style_observation"} or record_kind in {
+            "inner_monologue",
+            "behavior_observation",
+        }:
+            group = "style"
+        else:
+            group = "knowledge"
+        groups[group].append((index, chunk))
+    sections = (
+        (
+            "knowledge",
+            "原作事实与角色记忆：",
+            "- 仅在 knowledge_owner 与当前角色知识边界一致时作为事实使用。",
+        ),
+        (
+            "dialogue",
+            "目标角色台词与应对范例：",
+            "- 只模仿目标回答的表达和互动方式，不复演原场景。",
+        ),
+        (
+            "style",
+            "内心语气与外部行为观察：",
+            "- 只校准语气、动作和外显反应；观察者知道的内容不等于目标角色知道。",
+        ),
+    )
+    for group, heading, rule in sections:
+        if not groups[group]:
+            continue
+        lines.extend((heading, rule))
+        lines.extend(
+            _format_rag_chunk(index, chunk)
+            for index, chunk in groups[group]
         )
     lines.append("- 只把这些资料作为当前对话的辅助上下文，不要逐字复述来源。")
     return (PromptMessage(role="system", content="\n".join(lines)),)
+
+
+def _format_rag_chunk(index: int, chunk: RagChunk) -> str:
+    extra = chunk.metadata.extra
+    title = str(extra.get("title") or chunk.documentId)
+    record_kind = str(extra.get("record_kind") or chunk.metadata.sourceType)
+    perspective = str(extra.get("perspective") or "unspecified")
+    confidence = extra.get("confidence")
+    confidence_text = (
+        f"{float(confidence):.2f}"
+        if isinstance(confidence, int | float) and not isinstance(confidence, bool)
+        else "unspecified"
+    )
+    review_method = str(extra.get("review_method") or "automatic")
+    review_certainty = str(extra.get("review_certainty") or "unspecified")
+    knowledge_owner = str(extra.get("knowledge_owner") or "unspecified")
+    usage = str(extra.get("usage") or "unspecified")
+    return (
+        f"- [{index}] title={title}, kind={record_kind}, "
+        f"perspective={perspective}, knowledgeOwner={knowledge_owner}, "
+        f"usage={usage}, confidence={confidence_text}, "
+        f"review={review_method}/{review_certainty}, "
+        f"timeline={chunk.metadata.timeline}, "
+        f"spoilerLevel={chunk.metadata.spoilerLevel}: {chunk.content} "
+        f"(source={chunk.documentId}/{chunk.chunkId})"
+    )
 
 
 def _backend_context_section(
