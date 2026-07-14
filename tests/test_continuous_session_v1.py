@@ -16,6 +16,7 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
     ModelMessage,
     ModelResponse,
     ModelUsage,
+    RagRetrieveOutput,
 )
 
 
@@ -55,6 +56,21 @@ class ExplodingSessionStore:
         raise AssertionError("session should not be written")
 
 
+class RecordingRagService:
+    def __init__(self) -> None:
+        self.calls: list[object] = []
+
+    def retrieve(self, retrieve_input: object) -> RagRetrieveOutput:
+        self.calls.append(retrieve_input)
+        return RagRetrieveOutput(
+            chunks=(),
+            provider="recording-rag",
+            rawHitCount=0,
+            filteredHitCount=0,
+            rerankApplied=False,
+        )
+
+
 def create_session_body(user_id: str = "user-1") -> dict:
     return {
         "app_id": "web",
@@ -70,6 +86,7 @@ def chat_body(
     message: str,
     user_id: str = "user-1",
     continuous_session: bool = True,
+    rag: bool = False,
 ) -> dict:
     return {
         "app_id": "web",
@@ -80,7 +97,7 @@ def chat_body(
         "message": message,
         "language": "zh-CN",
         "capabilities": {
-            "rag": False,
+            "rag": rag,
             "memory": False,
             "continuous_session": continuous_session,
             "safety_filter": True,
@@ -98,6 +115,7 @@ def call_chat(
     *,
     session_store: object | None,
     model_router: RecordingModelRouter,
+    rag_service: object | None = None,
     request_id: str = "req-chat",
 ) -> dict:
     return post_chat(
@@ -106,6 +124,7 @@ def call_chat(
         prompt_builder=PersonaPromptBuilder(),
         model_router=model_router,
         session_store=session_store,
+        rag_service=rag_service,
         request_id=request_id,
     )
 
@@ -158,6 +177,44 @@ class ContinuousSessionV1Tests(unittest.TestCase):
         self.assertIn("assistant: recorded: 第一轮", second_prompt)
         self.assertEqual(len(store.recent_messages(session_id, limit=10)), 4)
 
+    def test_rag_query_uses_recent_dialogue_and_roleplay_scope(self) -> None:
+        store = InMemorySessionStore()
+        router = RecordingModelRouter()
+        rag = RecordingRagService()
+        session_id = post_session(
+            create_session_body(),
+            session_store=store,
+            request_id="req-session",
+        )["data"]["session_id"]
+        call_chat(
+            chat_body(session_id=session_id, message="我不想参加普通活动"),
+            session_store=store,
+            model_router=router,
+            request_id="req-chat-1",
+        )
+
+        response = call_chat(
+            chat_body(
+                session_id=session_id,
+                message="那你会安排什么？",
+                rag=True,
+            ),
+            session_store=store,
+            model_router=router,
+            rag_service=rag,
+            request_id="req-chat-2",
+        )
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(len(rag.calls), 1)
+        query = rag.calls[0].query
+        self.assertIn("目标角色：haruhi", query)
+        self.assertIn("角色模式：mid_late_haruhi", query)
+        self.assertIn("当前时间线：mid_late", query)
+        self.assertIn("user: 我不想参加普通活动", query)
+        self.assertIn("assistant: recorded: 我不想参加普通活动", query)
+        self.assertTrue(query.endswith("当前用户输入：\n那你会安排什么？"))
+
     def test_session_is_isolated_by_user(self) -> None:
         store = InMemorySessionStore()
         router = RecordingModelRouter()
@@ -208,4 +265,3 @@ class ContinuousSessionV1Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

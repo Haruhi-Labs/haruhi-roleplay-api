@@ -19,6 +19,7 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
 from haruhi_roleplay_api.domain.request_limits import (  # noqa: E402
     MAX_CHAT_MESSAGE_LENGTH,
     MAX_GENERATION_TOKENS,
+    MAX_RAG_QUERY_LENGTH,
 )
 
 
@@ -49,18 +50,28 @@ class ExplodingRagService:
         raise AssertionError("rag service should not be called")
 
 
+class RecordingRagService:
+    def __init__(self) -> None:
+        self.calls: list[object] = []
+
+    def retrieve(self, retrieve_input: object):
+        self.calls.append(retrieve_input)
+        return FakeRagService().retrieve(retrieve_input)
+
+
 def chat_body(
     *,
     rag: bool,
     character_id: str = "haruhi",
     persona_mode: str = "mid_late_haruhi",
+    message: str = "今天有什么资料？",
 ) -> dict:
     return {
         "app_id": "web",
         "user_id": "user-1",
         "character_id": character_id,
         "persona_mode": persona_mode,
-        "message": "今天有什么资料？",
+        "message": message,
         "language": "zh-CN",
         "capabilities": {
             "rag": rag,
@@ -151,6 +162,24 @@ class FakeRagRetrieveTests(unittest.TestCase):
         self.assertIn("中后期的春日仍然主动推动社团活动", prompt_text)
         self.assertEqual(rag["sources"][0]["document_id"], "doc-haruhi-timeline")
         self.assertEqual(rag["sources"][0]["chunk_id"], "chunk-haruhi-mid-late-1")
+
+    def test_long_current_message_is_bounded_for_retrieval(self) -> None:
+        router = RecordingModelRouter()
+        rag = RecordingRagService()
+        message = "开头主题" + "很长" * 3000 + "结尾问题"
+
+        response = call_chat(
+            chat_body(rag=True, message=message),
+            model_router=router,
+            rag_service=rag,
+        )
+
+        self.assertTrue(response["ok"])
+        query = rag.calls[0].query
+        self.assertLessEqual(len(query), MAX_RAG_QUERY_LENGTH)
+        self.assertIn("开头主题", query)
+        self.assertIn("……[中间省略]……", query)
+        self.assertTrue(query.endswith("结尾问题"))
 
     def test_rag_filter_keeps_character_isolated(self) -> None:
         router = RecordingModelRouter()

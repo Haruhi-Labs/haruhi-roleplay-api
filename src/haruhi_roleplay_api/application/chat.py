@@ -39,9 +39,11 @@ from haruhi_roleplay_api.domain import (
     RagRetrieveOutput,
     RequestId,
     Session,
+    SessionMessage,
     Visibility,
     model_messages_from_prompt,
 )
+from haruhi_roleplay_api.domain.request_limits import MAX_RAG_QUERY_LENGTH
 from haruhi_roleplay_api.ports import (
     AgentContextPlanner,
     BackendContextProvider,
@@ -72,7 +74,7 @@ class _PreparedChat:
     events: list[str]
     persona: PersonaPreset
     session: Session | None
-    recent_messages: tuple[object, ...]
+    recent_messages: tuple[SessionMessage, ...]
     memory_items: tuple[MemoryItem, ...]
     rag_output: RagRetrieveOutput | None
     backend_context_facts: tuple[BackendContextFact, ...]
@@ -199,7 +201,12 @@ class RoleplayOrchestrator:
         _record_event(events, "read_memory")
         memory_items = self._memory_for_chat(chat_input, persona, context_plan)
         _record_event(events, "retrieve_rag")
-        rag_output = self._rag_for_chat(chat_input, persona, context_plan)
+        rag_output = self._rag_for_chat(
+            chat_input,
+            persona,
+            context_plan,
+            recent_messages,
+        )
         _record_event(events, "read_backend_context")
         backend_context_facts = self._backend_context_for_chat(
             chat_input,
@@ -405,6 +412,7 @@ class RoleplayOrchestrator:
         chat_input: ChatInput,
         persona: PersonaPreset,
         context_plan: ContextPlan,
+        recent_messages: tuple[SessionMessage, ...],
     ) -> RagRetrieveOutput | None:
         if not context_plan.retrieveRag:
             return None
@@ -416,7 +424,11 @@ class RoleplayOrchestrator:
                 userId=chat_input.userId,
                 characterId=chat_input.characterId,
                 personaMode=chat_input.personaMode,
-                query=chat_input.message,
+                query=_build_roleplay_rag_query(
+                    chat_input,
+                    persona,
+                    recent_messages,
+                ),
                 topK=self._rag_top_k,
                 filters=_rag_filters_for_chat(chat_input, persona),
                 debug=chat_input.capabilities.debugTrace,
@@ -443,6 +455,44 @@ class RoleplayOrchestrator:
                 sources=context_plan.backendFetches,
             )
         )
+
+
+def _build_roleplay_rag_query(
+    chat_input: ChatInput,
+    persona: PersonaPreset,
+    recent_messages: tuple[SessionMessage, ...],
+) -> str:
+    header = (
+        f"目标角色：{chat_input.characterId}\n"
+        f"角色模式：{chat_input.personaMode}\n"
+        f"当前时间线：{persona.timeline}"
+    )
+    current_label = "当前用户输入：\n"
+    current_budget = MAX_RAG_QUERY_LENGTH - len(header) - len(current_label) - 2
+    current = _bounded_rag_excerpt(chat_input.message, max_chars=current_budget)
+    suffix = f"{current_label}{current}"
+    selected: list[str] = []
+    for message in reversed(recent_messages[-6:]):
+        line = f"{message.role}: {_bounded_rag_excerpt(message.content, max_chars=600)}"
+        candidate = [line, *selected]
+        history = "最近对话：\n" + "\n".join(candidate) + "\n"
+        if len(f"{header}\n{history}{suffix}") > MAX_RAG_QUERY_LENGTH:
+            break
+        selected = candidate
+    history = "最近对话：\n" + "\n".join(selected) + "\n" if selected else ""
+    return f"{header}\n{history}{suffix}"
+
+
+def _bounded_rag_excerpt(text: str, *, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    marker = "……[中间省略]……"
+    available = max_chars - len(marker)
+    if available <= 0:
+        return text[:max_chars]
+    head = (available * 2) // 3
+    tail = available - head
+    return f"{text[:head]}{marker}{text[-tail:]}"
 
 
 def _ensure_v1_capabilities(chat_input: ChatInput, *, allow_stream: bool) -> None:
