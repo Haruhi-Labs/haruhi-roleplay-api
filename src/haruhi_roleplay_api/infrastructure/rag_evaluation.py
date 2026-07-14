@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from haruhi_roleplay_api.application.rag_query import build_roleplay_rag_query
 from haruhi_roleplay_api.domain import (
     AppId,
     CharacterId,
@@ -23,6 +24,10 @@ from haruhi_roleplay_api.ports import RagService
 class RagEvaluationCase:
     caseId: str
     query: str
+    retrievalChannel: str
+    targetCharacterId: str
+    targetPersonaMode: str
+    timeline: str
     characterId: str
     personaMode: str
     topK: int
@@ -32,6 +37,7 @@ class RagEvaluationCase:
     expectedRecordKinds: tuple[str, ...]
     requiredTerms: tuple[str, ...]
     forbiddenDocumentIds: tuple[str, ...]
+    maximumRetrievedHits: int
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "RagEvaluationCase":
@@ -45,12 +51,55 @@ class RagEvaluationCase:
         filters = data.get("filters", {})
         if not isinstance(filters, Mapping):
             raise ValueError("评测项 filters 必须是对象")
+        retrieval_channel = str(data.get("retrieval_channel", "actor_reference"))
+        if retrieval_channel not in {"actor_reference", "director_bridge"}:
+            raise ValueError(
+                "retrieval_channel 必须是 actor_reference 或 director_bridge"
+            )
+        target_character_id = _required_text(
+            data,
+            (
+                "target_character_id"
+                if "target_character_id" in data
+                else "character_id"
+            ),
+        )
+        target_persona_mode = _required_text(data, "persona_mode")
+        timelines = _string_tuple(filters.get("timelines", ()))
+        timeline = str(data.get("timeline") or (timelines[0] if timelines else ""))
+        if not timeline:
+            raise ValueError("评测项 timeline 必须是非空字符串")
+        query_value = str(data.get("query", "")).strip()
+        if not query_value:
+            query_value = build_roleplay_rag_query(
+                character_id=target_character_id,
+                persona_mode=target_persona_mode,
+                timeline=timeline,
+                current_message=_required_text(data, "current_input"),
+                recent_messages=_conversation(data.get("conversation", ())),
+            )
+        character_id = (
+            "kyon" if retrieval_channel == "director_bridge" else target_character_id
+        )
+        persona_mode = (
+            _director_persona_mode(timeline)
+            if retrieval_channel == "director_bridge"
+            else target_persona_mode
+        )
+        top_k = int(data.get("top_k", 8))
+        maximum_hits = int(data.get("maximum_retrieved_hits", top_k))
+        if maximum_hits < 0 or maximum_hits > top_k:
+            raise ValueError("maximum_retrieved_hits 必须介于 0 和 top_k 之间")
         return cls(
             caseId=_required_text(data, "case_id"),
-            query=_required_text(data, "query"),
-            characterId=_required_text(data, "character_id"),
-            personaMode=_required_text(data, "persona_mode"),
-            topK=int(data.get("top_k", 8)),
+            query=query_value,
+            retrievalChannel=retrieval_channel,
+            targetCharacterId=target_character_id,
+            targetPersonaMode=target_persona_mode,
+            timeline=timeline,
+            characterId=character_id,
+            personaMode=persona_mode,
+            topK=top_k,
             filters=RagRetrieveFilters(
                 sourceTypes=_string_tuple(filters.get("source_types", ())),
                 timelines=_string_tuple(filters.get("timelines", ())),
@@ -82,6 +131,7 @@ class RagEvaluationCase:
             forbiddenDocumentIds=_string_tuple(
                 data.get("forbidden_document_ids", ())
             ),
+            maximumRetrievedHits=maximum_hits,
         )
 
 
@@ -160,9 +210,22 @@ def evaluate_rag_cases(
     *,
     app_id: str,
     pending_cases: int = 0,
+    minimum_relevance_score: float = 0.2,
 ) -> RagEvaluationReport:
+    if (
+        isinstance(minimum_relevance_score, bool)
+        or not isinstance(minimum_relevance_score, int | float)
+        or not 0.0 <= minimum_relevance_score <= 1.0
+    ):
+        raise ValueError("minimum_relevance_score 必须介于 0 和 1 之间")
     results = tuple(
-        _evaluate_case(rag_service, case, app_id=app_id) for case in cases
+        _evaluate_case(
+            rag_service,
+            case,
+            app_id=app_id,
+            minimum_relevance_score=minimum_relevance_score,
+        )
+        for case in cases
     )
     recalls = [
         result.recallAtK for result in results if result.recallAtK is not None
@@ -193,6 +256,7 @@ def _evaluate_case(
     case: RagEvaluationCase,
     *,
     app_id: str,
+    minimum_relevance_score: float,
 ) -> RagEvaluationCaseResult:
     output = rag_service.retrieve(
         RagRetrieveInput(
@@ -205,7 +269,11 @@ def _evaluate_case(
             filters=case.filters,
         )
     )
-    chunks = output.chunks
+    chunks = tuple(
+        chunk
+        for chunk in output.chunks
+        if _chunk_relevance(chunk) >= minimum_relevance_score
+    )
     retrieved_ids = tuple(str(chunk.documentId) for chunk in chunks)
     relevant_ranks = [
         rank
@@ -227,6 +295,10 @@ def _evaluate_case(
     if relevant_hits < case.minimumRelevantHits:
         failures.append(
             f"相关文档命中 {relevant_hits}，低于要求 {case.minimumRelevantHits}"
+        )
+    if len(chunks) > case.maximumRetrievedHits:
+        failures.append(
+            f"检索结果 {len(chunks)} 条，超过上限 {case.maximumRetrievedHits}"
         )
     returned_kinds = {
         str(chunk.metadata.extra.get("record_kind", "")) for chunk in chunks
@@ -288,6 +360,34 @@ def _required_text(data: Mapping[str, Any], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"评测项 {field} 必须是非空字符串")
     return value.strip()
+
+
+def _conversation(value: Any) -> tuple[tuple[str, str], ...]:
+    if not isinstance(value, list | tuple):
+        raise ValueError("评测项 conversation 必须是数组")
+    messages: list[tuple[str, str]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"评测项 conversation[{index}] 必须是对象")
+        role = str(item.get("role", ""))
+        if role not in {"user", "assistant"}:
+            raise ValueError(f"评测项 conversation[{index}].role 不受支持")
+        content = item.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError(f"评测项 conversation[{index}].content 不能为空")
+        messages.append((role, content.strip()))
+    return tuple(messages)
+
+
+def _director_persona_mode(timeline: str) -> str:
+    return "default_kyon" if timeline == "mid_late" else f"{timeline}_kyon"
+
+
+def _chunk_relevance(chunk: RagChunk) -> float:
+    internal = chunk.metadata.extra.get("_retrieval_relevance")
+    if isinstance(internal, int | float) and not isinstance(internal, bool):
+        return float(internal)
+    return chunk.score
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

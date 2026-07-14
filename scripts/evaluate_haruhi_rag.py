@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from haruhi_roleplay_api.infrastructure import (  # noqa: E402
+    RagProviderSettings,
     RuntimeConfigStore,
     build_rag_service_from_env,
     evaluate_rag_cases,
@@ -47,11 +48,13 @@ def main() -> int:
     if not cases:
         parser.error("评测集没有 status=ready 的用例")
     service = build_rag_service_from_env(env)
+    rag_settings = RagProviderSettings.from_mapping(env)
     report = evaluate_rag_cases(
         service,
         cases,
         app_id=app_id,
         pending_cases=pending,
+        minimum_relevance_score=rag_settings.minimumRelevanceScore,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

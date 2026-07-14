@@ -204,13 +204,13 @@ python scripts/publish_haruhi_qdrant.py delete \
 
 ## 验收建议
 
-先生成 300 条按“记录类型 × 角色 × 时间线”分层的人工金标模板：
+先生成 300 条按“检索通道 × 记录类型 × 角色 × 时间线”分层的人工金标模板，其中 10% 是应当完全不注入素材的反例：
 
 ```bash
 python scripts/build_haruhi_retrieval_gold.py
 ```
 
-模板位于未跟踪的 `.data/rag-eval/haruhi/gold-template.jsonl`，格式遵循 `schemas/haruhi-rag-eval-v1.schema.json`。标注人需要阅读 `annotation.source_preview`，写出不照抄原句、真实用户可能提出的 `query`，确认相关文档后把 `status` 从 `pending` 改为 `ready`。模型自动生成的问题只能用于 smoke test，不能代替人工金标。
+模板位于未跟踪的 `.data/rag-eval/haruhi/gold-template.jsonl`，格式遵循 `schemas/haruhi-rag-eval-v2.schema.json`。正例标注人需要阅读 `annotation.source_preview`，编写 2—4 条自然的 `conversation` 和一条 `current_input`，让对话可能联想到该互动桥段，但不能出现作品名、篇章名或照抄原句；还要补齐所有同样可接受的 `relevant_document_ids`。反例则编写普通寒暄、即时任务或全新话题，并保持 `maximum_retrieved_hits=0`。确认后把 `status` 从 `pending` 改为 `ready`。最终检索 query 由线上同一段确定性代码生成，模型自动生成的问题只能用于 smoke test，不能代替人工金标。
 
 把完成标注的文件保存为 `.data/rag-eval/haruhi/gold.jsonl`，在生产同款 embedding 和 Qdrant alias 上执行：
 
@@ -218,13 +218,13 @@ python scripts/build_haruhi_retrieval_gold.py
 python scripts/evaluate_haruhi_rag.py --app-id web-demo
 ```
 
-默认发布门槛为用例通过率不低于 90%、MRR 不低于 0.50，且 `app_id`、角色、时间线、剧透等级和 persona 隔离失败必须为 0。报告同时给出平均 Recall@K、逐用例命中文档与失败原因，写入 `.data/rag-eval/haruhi/report.json`。这一步必须使用生产 embedding；hash embedding 已被 Qdrant 门禁拒绝。
+默认发布门槛为用例通过率不低于 90%、MRR 不低于 0.50，所有反例必须保持空召回，且 `app_id`、检索通道角色、时间线、剧透等级和 persona 隔离失败必须为 0。导演桥段用例会以目标角色构造对话 query，但在阿虚的 `scene_memory` 通道上验收；不会把跨角色导演素材误报为隔离失败。报告同时给出平均 Recall@K、逐用例命中文档与失败原因，写入 `.data/rag-eval/haruhi/report.json`。这一步必须使用生产 embedding 和同一 `RAG_MIN_RELEVANCE_SCORE`；hash embedding 已被 Qdrant 门禁拒绝。
 
 至少覆盖以下查询组，并分别以五名角色和各篇章 persona 验证结果：
 
-- 具体事件：七夕、孤岛、漫无止境的八月、电脑游戏、雪山、入团考试；
-- 角色关系：春日如何对阿虚表达在意、长门何时主动选择、实玖瑠的任务边界、古泉如何区分推测与事实；
-- 话风：命令、拒绝、解释、安慰、遇到异常时的反应；
+- 自然桥段：用户拒绝普通活动、成员失约、临时比赛、误会、别扭关心、面对异常时的反应；
+- 角色应对：命令、拒绝、解释、安慰、转移话题和邀请用户参与；
+- 空召回：普通寒暄、实时业务问题和语料中没有对应关系模式的全新话题；
 - 越界反例：《忧郁》春日不能检索《消失》或《惊愕》，改写世界角色不能读取原世界秘密；
 - 视角反例：非阿虚角色不能把 `behavior_observation` 中的阿虚心理当成自己知道的事实。
 

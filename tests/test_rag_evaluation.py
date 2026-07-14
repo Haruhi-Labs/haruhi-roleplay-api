@@ -28,8 +28,10 @@ from haruhi_roleplay_api.infrastructure import (  # noqa: E402
 class FixedRagService:
     def __init__(self, chunks: tuple[RagChunk, ...]) -> None:
         self.chunks = chunks
+        self.calls: list[object] = []
 
     def retrieve(self, retrieve_input: object) -> RagRetrieveOutput:
+        self.calls.append(retrieve_input)
         return RagRetrieveOutput(
             chunks=self.chunks,
             provider="fixed-rag",
@@ -94,6 +96,86 @@ class RagEvaluationTests(unittest.TestCase):
         self.assertEqual(len(cases), 1)
         self.assertEqual(pending_count, 1)
 
+    def test_natural_conversation_builds_same_director_query_shape(self) -> None:
+        mapping = {
+            **_case_mapping(),
+            "query": "",
+            "retrieval_channel": "director_bridge",
+            "target_character_id": "haruhi",
+            "timeline": "sigh",
+            "conversation": [
+                {"role": "user", "content": "今天别安排普通活动了"},
+                {"role": "assistant", "content": "那你倒是说说什么才算有趣？"},
+            ],
+            "current_input": "不如把它变成全团调查？",
+            "filters": {
+                **_case_mapping()["filters"],
+                "record_kinds": ["scene_memory"],
+                "retrieval_channels": ["canonical_memory"],
+                "knowledge_owners": ["kyon"],
+            },
+            "expected_record_kinds": [],
+            "required_terms": [],
+            "relevant_document_ids": [],
+            "minimum_relevant_hits": 0,
+            "maximum_retrieved_hits": 8,
+        }
+        case = RagEvaluationCase.from_mapping(mapping)
+        service = FixedRagService(())
+
+        report = evaluate_rag_cases(service, (case,), app_id="web-demo")
+
+        self.assertEqual(report.passedCases, 1)
+        retrieve_input = service.calls[0]
+        self.assertEqual(str(retrieve_input.characterId), "kyon")
+        self.assertEqual(str(retrieve_input.personaMode), "sigh_kyon")
+        self.assertIn("目标角色：haruhi", retrieve_input.query)
+        self.assertIn("user: 今天别安排普通活动了", retrieve_input.query)
+        self.assertTrue(retrieve_input.query.endswith("不如把它变成全团调查？"))
+
+    def test_no_retrieval_case_applies_relevance_gate(self) -> None:
+        mapping = {
+            **_case_mapping(),
+            "relevant_document_ids": [],
+            "minimum_relevant_hits": 0,
+            "maximum_retrieved_hits": 0,
+            "expected_record_kinds": [],
+            "required_terms": [],
+        }
+        case = RagEvaluationCase.from_mapping(mapping)
+        low_relevance = _chunk("low", content="不相关内容", score=0.05)
+
+        report = evaluate_rag_cases(
+            FixedRagService((low_relevance,)),
+            (case,),
+            app_id="web-demo",
+            minimum_relevance_score=0.2,
+        )
+
+        self.assertEqual(report.passedCases, 1)
+        self.assertEqual(report.results[0].retrievedDocumentIds, ())
+
+    def test_no_retrieval_case_fails_when_relevant_gate_keeps_a_hit(self) -> None:
+        mapping = {
+            **_case_mapping(),
+            "relevant_document_ids": [],
+            "minimum_relevant_hits": 0,
+            "maximum_retrieved_hits": 0,
+            "expected_record_kinds": [],
+            "required_terms": [],
+        }
+        case = RagEvaluationCase.from_mapping(mapping)
+
+        report = evaluate_rag_cases(
+            FixedRagService((_chunk("unexpected", content="高相关候选"),)),
+            (case,),
+            app_id="web-demo",
+            minimum_relevance_score=0.2,
+        )
+
+        self.assertEqual(report.passedCases, 0)
+        self.assertIn("超过上限 0", report.results[0].failures[0])
+
 
 def _case_mapping() -> dict:
     return {
@@ -122,12 +204,13 @@ def _chunk(
     *,
     content: str,
     character_id: str = "haruhi",
+    score: float = 0.8,
 ) -> RagChunk:
     return RagChunk(
         chunkId=RagChunkId(f"{document_id}-chunk-1"),
         documentId=RagDocumentId(document_id),
         content=content,
-        score=0.8,
+        score=score,
         metadata=RagDocumentMetadata(
             appId=AppId("web-demo"),
             characterId=CharacterId(character_id),
