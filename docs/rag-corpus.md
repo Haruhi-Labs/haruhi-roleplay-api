@@ -81,6 +81,8 @@ uv run --with opencc-python-reimplemented python scripts/build_haruhi_corpus.py 
 
 最终构建会整体移除旧的自动 `dialogue_example`，以 Agent 审阅台词替换，不会新旧并存。只有 `current_scene`、目标五角色、`certain/probable` 且引号闭合的真实发言进入角色台本；心理话、术语、NPC 台词、转述和表演台词仍保留审阅结果，但不会污染目标角色话风。嵌套引用他人原话时，外层台词中的引用内容会被省略。
 
+`dialogue_example` 使用 `roleplay-dialogue-example.v2` 结构：每条记录明确保存 `dialogue_scene_id`、`stimulus_turns` 和 `response_turn`。场景按篇章内相邻发言的正文段落距离确定；相邻发言超过 5 个段落时开始新的对话场景。生成用正文只包含同一场景中目标发言之前最近两轮已确认说话人的台词，不再加入未来台词；未知说话人不会进入刺激上下文。目标角色回答单独标记并优先占用长度预算，构建器只会整轮舍弃过长的前置上下文，绝不会静默截断目标台词。
+
 `quality_report.json` 会报告 Luna 覆盖率、Luna/Sol 一致率、随机样本中的目标说话人精确率和召回率代理值，以及 Wilson 95% 区间。Sol 盲审复核是成本可控的模型质量代理，不等同于人工金标准确率；绝对准确率仍需要人类标注测试集。这里的“逐条”指全部引语 span，叙述性心理和行为段落仍由原有保守规则提取。
 
 ## 当前生成快照
