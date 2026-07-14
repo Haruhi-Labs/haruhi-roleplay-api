@@ -320,30 +320,59 @@ class PostgresSessionStore:
         )
 
     def admin_close_session(self, session_id: SessionId | str) -> Session:
-        session = self.get_session(session_id)
-        if session.status is SessionStatus.CLOSED:
-            return session
+        clean_session_id = str(session_id)
         now = _now()
         try:
             with self._connect() as connection:
-                connection.execute(
+                row = connection.execute(
                     f"""
-                    UPDATE {self._sessions_table}
-                    SET status = %s, updated_at = %s
+                    SELECT
+                        session_id,
+                        app_id,
+                        user_id,
+                        character_id,
+                        persona_mode,
+                        status,
+                        created_at,
+                        updated_at
+                    FROM {self._sessions_table}
                     WHERE session_id = %s
+                    FOR UPDATE
                     """,
-                    (SessionStatus.CLOSED.value, now, str(session_id)),
-                )
+                    (clean_session_id,),
+                ).fetchone()
+                if (
+                    row is not None
+                    and str(_row_value(row, "status"))
+                    != SessionStatus.CLOSED.value
+                ):
+                    cursor = connection.execute(
+                        f"""
+                        UPDATE {self._sessions_table}
+                        SET status = %s, updated_at = %s
+                        WHERE session_id = %s
+                        """,
+                        (SessionStatus.CLOSED.value, now, clean_session_id),
+                    )
+                    if cursor.rowcount != 1:
+                        row = None
         except Exception as exc:
             _raise_provider_error(exc)
+        if row is None:
+            raise AppError(
+                code=ErrorCode.SESSION_NOT_FOUND,
+                message="Session was not found.",
+            )
+        if str(_row_value(row, "status")) == SessionStatus.CLOSED.value:
+            return _session_from_row(row)
         return Session(
-            sessionId=session.sessionId,
-            appId=session.appId,
-            userId=session.userId,
-            characterId=session.characterId,
-            personaMode=session.personaMode,
+            sessionId=SessionId(clean_session_id),
+            appId=AppId(str(_row_value(row, "app_id"))),
+            userId=UserId(str(_row_value(row, "user_id"))),
+            characterId=CharacterId(str(_row_value(row, "character_id"))),
+            personaMode=PersonaModeId(str(_row_value(row, "persona_mode"))),
             status=SessionStatus.CLOSED,
-            createdAt=session.createdAt,
+            createdAt=str(_row_value(row, "created_at")),
             updatedAt=now,
         )
 

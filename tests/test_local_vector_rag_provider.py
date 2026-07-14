@@ -3,12 +3,16 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from haruhi_roleplay_api.adapters import LocalVectorRagService  # noqa: E402
-from haruhi_roleplay_api.adapters.rag_vector import ChromaVectorStore  # noqa: E402
+from haruhi_roleplay_api.adapters.rag_vector import (  # noqa: E402
+    ChromaVectorStore,
+    FaissVectorStore,
+)
 from haruhi_roleplay_api.api.rag import post_rag_search  # noqa: E402
 from haruhi_roleplay_api.domain import (  # noqa: E402
     AppId,
@@ -93,6 +97,18 @@ class FakeChromaCollection:
 class ExplodingRagService:
     def retrieve(self, *args: object, **kwargs: object) -> object:
         raise AssertionError("RAG provider should not be called")
+
+
+class FakeFaissIndex:
+    def __init__(self) -> None:
+        self.added: list[tuple[tuple[float, ...], ...]] = []
+        self.reset_count = 0
+
+    def add(self, vectors: tuple[tuple[float, ...], ...]) -> None:
+        self.added.append(vectors)
+
+    def reset(self) -> None:
+        self.reset_count += 1
 
 
 class LocalVectorRagProviderTests(unittest.TestCase):
@@ -192,6 +208,31 @@ class LocalVectorRagProviderTests(unittest.TestCase):
             )
         )
         self.assertEqual(collection.query_kwargs["where"], {"app_id": "app-a"})
+
+    def test_faiss_upsert_replaces_existing_chunk_ids(self) -> None:
+        index = FakeFaissIndex()
+        store = object.__new__(FaissVectorStore)
+        store._index = index
+        store._chunks = []
+        store._vectors = []
+        service = LocalVectorRagService(
+            chunk_size=200,
+            vector_store=store,
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_vector._float32_matrix",
+            side_effect=lambda vectors: vectors,
+        ):
+            first = service.ingest(ingest_input())
+            second = service.ingest(ingest_input())
+
+        self.assertEqual(first.documentId, second.documentId)
+        self.assertEqual(len(store.list_chunks()), first.chunkCount)
+        self.assertEqual(index.reset_count, 2)
+        self.assertEqual(
+            [len(vectors) for vectors in index.added],
+            [first.chunkCount, first.chunkCount],
+        )
 
     def test_rag_provider_factory_builds_local_vector_service(self) -> None:
         service = build_rag_service(

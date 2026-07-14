@@ -13,6 +13,14 @@ from haruhi_roleplay_api.domain.access_token import (
 )
 
 
+class _UnchangedQuota:
+    __slots__ = ()
+
+
+UNCHANGED_QUOTA = _UnchangedQuota()
+QuotaUpdate = int | None | _UnchangedQuota
+
+
 class AccessTokenStore(Protocol):
     def create_token(
         self,
@@ -50,11 +58,11 @@ class AccessTokenStore(Protocol):
         self,
         token_id: str,
         *,
-        quota_tokens: int | None,
-        daily_quota_tokens: int | None,
-        weekly_quota_tokens: int | None,
+        quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        daily_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        weekly_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
     ) -> AccessToken:
-        """同时修改生命周期、每日和每周 Token 额度。"""
+        """原子修改给定尺度的 Token 额度，省略尺度保持不变。"""
 
     def ensure_quota_available(self, token_id: str) -> AccessToken:
         """确认令牌仍有模型 Token 额度，否则抛出稳定错误。"""

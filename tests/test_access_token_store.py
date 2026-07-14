@@ -309,6 +309,24 @@ class SQLiteAccessTokenStoreTests(unittest.TestCase):
             ErrorCode.ACCESS_TOKEN_QUOTA_EXCEEDED,
         )
 
+    def test_partial_quota_update_preserves_omitted_scopes(self) -> None:
+        issued = self.store.create_token(
+            app_id="partial-update-app",
+            name="部分额度更新服务",
+            quota_tokens=1000,
+            daily_quota_tokens=100,
+            weekly_quota_tokens=500,
+        )
+
+        updated = self.store.update_quotas(
+            issued.token.tokenId,
+            daily_quota_tokens=200,
+        )
+
+        self.assertEqual(updated.quotaTokens, 1000)
+        self.assertEqual(updated.dailyQuotaTokens, 200)
+        self.assertEqual(updated.weeklyQuotaTokens, 500)
+
     def test_period_usage_resets_without_losing_lifecycle_usage(self) -> None:
         issued = self.store.create_token(
             app_id="reset-app",

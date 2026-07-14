@@ -134,9 +134,23 @@ class FaissVectorStore:
         chunks: tuple[RagChunk, ...],
         vectors: tuple[tuple[float, ...], ...],
     ) -> None:
-        self._chunks.extend(chunks)
-        self._vectors.extend(vectors)
-        self._index.add(_float32_matrix(vectors))
+        if not chunks:
+            return
+        replacements = {
+            str(chunk.chunkId): (chunk, vector)
+            for chunk, vector in zip(chunks, vectors, strict=True)
+        }
+        records = [
+            (chunk, vector)
+            for chunk, vector in zip(self._chunks, self._vectors, strict=True)
+            if str(chunk.chunkId) not in replacements
+        ]
+        records.extend(replacements.values())
+        self._chunks = [chunk for chunk, _ in records]
+        self._vectors = [vector for _, vector in records]
+        self._index.reset()
+        if self._vectors:
+            self._index.add(_float32_matrix(tuple(self._vectors)))
 
     def search(
         self,

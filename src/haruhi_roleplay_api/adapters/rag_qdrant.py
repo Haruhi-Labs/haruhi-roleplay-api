@@ -164,29 +164,42 @@ class QdrantRagService:
         *,
         app_id: str | None = None,
     ) -> tuple[RagManagedDocument, ...]:
-        payload: dict[str, Any] = {
-            "limit": 1000,
-            "with_payload": True,
-            "with_vector": False,
-        }
-        if app_id is not None:
-            payload["filter"] = {
-                "must": [{"key": "app_id", "match": {"value": app_id}}]
+        all_points: list[Any] = []
+        offset: Any = None
+        while True:
+            payload: dict[str, Any] = {
+                "limit": 1000,
+                "with_payload": True,
+                "with_vector": False,
             }
-        response = self._request_json(
-            "POST",
-            f"/collections/{self._collection}/points/scroll",
-            payload,
-            error_code=ErrorCode.RAG_PROVIDER_ERROR,
-        )
-        result = response.get("result", {})
-        points = result.get("points", []) if isinstance(result, Mapping) else []
-        if not isinstance(points, list):
-            raise AppError(
-                code=ErrorCode.RAG_PROVIDER_ERROR,
-                message="Qdrant RAG management response was invalid.",
+            if app_id is not None:
+                payload["filter"] = {
+                    "must": [{"key": "app_id", "match": {"value": app_id}}]
+                }
+            if offset is not None:
+                payload["offset"] = offset
+            response = self._request_json(
+                "POST",
+                f"/collections/{self._collection}/points/scroll",
+                payload,
+                error_code=ErrorCode.RAG_PROVIDER_ERROR,
             )
-        chunks = tuple(_chunk_from_qdrant_hit(point) for point in points)
+            result = response.get("result", {})
+            points = result.get("points", []) if isinstance(result, Mapping) else []
+            if not isinstance(points, list):
+                raise AppError(
+                    code=ErrorCode.RAG_PROVIDER_ERROR,
+                    message="Qdrant RAG management response was invalid.",
+                )
+            all_points.extend(points)
+            offset = (
+                result.get("next_page_offset")
+                if isinstance(result, Mapping)
+                else None
+            )
+            if offset is None:
+                break
+        chunks = tuple(_chunk_from_qdrant_hit(point) for point in all_points)
         return _managed_documents(
             chunks,
             provider=self.provider_name,

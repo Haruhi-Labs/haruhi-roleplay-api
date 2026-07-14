@@ -109,30 +109,16 @@ def patch_access_token(
         )
         if not any(field in body for field in quota_fields):
             raise DTOValidationError("at least one quota field is required")
-        existing = GetAccessToken(store).execute(token_id)
-
-        def quota_value(field_name: str, current: int | None) -> int | None:
-            if field_name not in body:
-                return current
-            raw_value = body.get(field_name)
-            return (
+        quota_updates = {
+            field_name: (
                 None
-                if raw_value is None
-                else _optional_positive_int(raw_value, field_name)
+                if body.get(field_name) is None
+                else _optional_positive_int(body.get(field_name), field_name)
             )
-
-        item = UpdateAccessTokenQuota(store).execute(
-            token_id,
-            quota_tokens=quota_value("quota_tokens", existing.quotaTokens),
-            daily_quota_tokens=quota_value(
-                "daily_quota_tokens",
-                existing.dailyQuotaTokens,
-            ),
-            weekly_quota_tokens=quota_value(
-                "weekly_quota_tokens",
-                existing.weeklyQuotaTokens,
-            ),
-        )
+            for field_name in quota_fields
+            if field_name in body
+        }
+        item = UpdateAccessTokenQuota(store).execute(token_id, **quota_updates)
     except Exception as exc:
         return error_response(exc, request_id)
     return success_response(item.to_mapping(), request_id)

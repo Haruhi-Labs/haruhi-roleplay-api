@@ -9,6 +9,7 @@ from haruhi_roleplay_api.domain import (
     AccessTokenUsageOverview,
 )
 from haruhi_roleplay_api.ports import AccessTokenStore
+from haruhi_roleplay_api.ports.access_tokens import QuotaUpdate, UNCHANGED_QUOTA
 
 
 class CreateAccessToken:
@@ -67,9 +68,9 @@ class UpdateAccessTokenQuota:
         self,
         token_id: str,
         *,
-        quota_tokens: int | None,
-        daily_quota_tokens: int | None,
-        weekly_quota_tokens: int | None,
+        quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        daily_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        weekly_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
     ) -> AccessToken:
         return self._store.update_quotas(
             token_id,

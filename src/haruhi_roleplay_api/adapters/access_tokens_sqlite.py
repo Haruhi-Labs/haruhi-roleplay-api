@@ -24,6 +24,7 @@ from haruhi_roleplay_api.domain.access_token import (
     AdminAuditLog,
     IssuedAccessToken,
 )
+from haruhi_roleplay_api.ports.access_tokens import QuotaUpdate, UNCHANGED_QUOTA
 
 
 class SQLiteAccessTokenStore:
@@ -161,37 +162,53 @@ class SQLiteAccessTokenStore:
         self,
         token_id: str,
         *,
-        quota_tokens: int | None,
-        daily_quota_tokens: int | None,
-        weekly_quota_tokens: int | None,
+        quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        daily_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        weekly_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
     ) -> AccessToken:
-        self.get_token(token_id)
-        clean_quota = _optional_positive_int(quota_tokens, "quota_tokens")
-        clean_daily_quota = _optional_positive_int(
+        quota_changed, clean_quota = _quota_update_value(
+            quota_tokens,
+            "quota_tokens",
+        )
+        daily_changed, clean_daily_quota = _quota_update_value(
             daily_quota_tokens,
             "daily_quota_tokens",
         )
-        clean_weekly_quota = _optional_positive_int(
+        weekly_changed, clean_weekly_quota = _quota_update_value(
             weekly_quota_tokens,
             "weekly_quota_tokens",
         )
+        if not any((quota_changed, daily_changed, weekly_changed)):
+            return self.get_token(token_id)
         with self._connect() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 UPDATE access_tokens
                 SET
-                    quota_tokens = ?,
-                    daily_quota_tokens = ?,
-                    weekly_quota_tokens = ?
+                    quota_tokens = CASE WHEN ? THEN ? ELSE quota_tokens END,
+                    daily_quota_tokens = CASE
+                        WHEN ? THEN ? ELSE daily_quota_tokens
+                    END,
+                    weekly_quota_tokens = CASE
+                        WHEN ? THEN ? ELSE weekly_quota_tokens
+                    END
                 WHERE token_id = ?
                 """,
                 (
+                    quota_changed,
                     clean_quota,
+                    daily_changed,
                     clean_daily_quota,
+                    weekly_changed,
                     clean_weekly_quota,
                     token_id,
                 ),
             )
+            if cursor.rowcount == 0:
+                raise AppError(
+                    code=ErrorCode.ACCESS_TOKEN_NOT_FOUND,
+                    message="Access token was not found.",
+                )
         return self.get_token(token_id)
 
     def update_quota(
@@ -200,12 +217,9 @@ class SQLiteAccessTokenStore:
         *,
         quota_tokens: int | None,
     ) -> AccessToken:
-        existing = self.get_token(token_id)
         return self.update_quotas(
             token_id,
             quota_tokens=quota_tokens,
-            daily_quota_tokens=existing.dailyQuotaTokens,
-            weekly_quota_tokens=existing.weeklyQuotaTokens,
         )
 
     def ensure_quota_available(self, token_id: str) -> AccessToken:
@@ -778,6 +792,15 @@ def _optional_positive_int(value: int | None, field_name: str) -> int | None:
     if parsed <= 0:
         raise DTOValidationError(f"{field_name} must be a positive integer")
     return parsed
+
+
+def _quota_update_value(
+    value: QuotaUpdate,
+    field_name: str,
+) -> tuple[bool, int | None]:
+    if value is UNCHANGED_QUOTA:
+        return False, None
+    return True, _optional_positive_int(value, field_name)
 
 
 def _bounded_limit(value: int) -> int:

@@ -41,6 +41,12 @@ class FakeCursor:
             return []
         return self._cursor.fetchall()
 
+    @property
+    def rowcount(self) -> int:
+        if self._cursor is None:
+            return -1
+        return self._cursor.rowcount
+
 
 class FakePostgresConnection:
     def __init__(self) -> None:
@@ -162,7 +168,8 @@ class PostgresSessionStoreTests(unittest.TestCase):
         self.assertEqual(recent[0].content, "云端消息")
 
     def test_admin_can_filter_count_and_close_sessions(self) -> None:
-        store = create_store(FakePostgresDatabase())
+        database = FakePostgresDatabase()
+        store = create_store(database)
         session = store.create_session(
             app_id=AppId("web"),
             user_id=UserId("user-1"),
@@ -178,19 +185,23 @@ class PostgresSessionStoreTests(unittest.TestCase):
         page = store.admin_list_sessions(
             SessionAdminQuery(appId="web", status=SessionStatus.ACTIVE)
         )
+        connection_count = len(database.urls)
         closed = store.admin_close_session(session.sessionId)
 
         self.assertEqual(page.total, 1)
         self.assertEqual(page.items[0].messageCount, 1)
         self.assertEqual(closed.status, SessionStatus.CLOSED)
+        self.assertEqual(len(database.urls), connection_count + 1)
 
     def test_missing_session_returns_stable_error(self) -> None:
         store = create_store(FakePostgresDatabase())
 
-        with self.assertRaises(AppError) as raised:
-            store.get_session("sess-missing")
+        for operation in (store.get_session, store.admin_close_session):
+            with self.subTest(operation=operation.__name__):
+                with self.assertRaises(AppError) as raised:
+                    operation("sess-missing")
 
-        self.assertEqual(raised.exception.code, ErrorCode.SESSION_NOT_FOUND)
+                self.assertEqual(raised.exception.code, ErrorCode.SESSION_NOT_FOUND)
 
     def test_provider_errors_are_mapped(self) -> None:
         def failing_factory(_: str) -> object:
@@ -240,6 +251,7 @@ def _sqlite_sql(sql: str) -> str | None:
         "roleplay_session_messages",
     )
     translated = translated.replace("%s", "?")
+    translated = translated.replace("FOR UPDATE", "")
     translated = translated.replace("BIGSERIAL PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT")
     return translated
 

@@ -228,6 +228,48 @@ class QdrantRagProviderTests(unittest.TestCase):
             {"key": "document_id", "match": {"value": "doc-qdrant-haruhi"}},
         )
 
+    def test_qdrant_admin_list_follows_scroll_pagination(self) -> None:
+        second_hit = qdrant_hit()
+        second_hit["id"] = "point-2"
+        second_hit["payload"] = {
+            **second_hit["payload"],
+            "document_id": "doc-qdrant-kyon",
+            "chunk_id": "doc-qdrant-kyon-chunk-1",
+            "title": "Qdrant 阿虚资料",
+            "metadata": {"title": "Qdrant 阿虚资料"},
+        }
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            side_effect=[
+                FakeHTTPResponse(
+                    {
+                        "result": {
+                            "points": [qdrant_hit()],
+                            "next_page_offset": "point-1",
+                        }
+                    }
+                ),
+                FakeHTTPResponse(
+                    {"result": {"points": [second_hit], "next_page_offset": None}}
+                ),
+            ],
+        ) as urlopen:
+            documents = service.list_documents(app_id="web")
+
+        self.assertEqual(len(documents), 2)
+        second_payload = json.loads(
+            urlopen.call_args_list[1].args[0].data.decode("utf-8")
+        )
+        self.assertEqual(second_payload["offset"], "point-1")
+        self.assertEqual(
+            second_payload["filter"]["must"],
+            [{"key": "app_id", "match": {"value": "web"}}],
+        )
+
     def test_qdrant_retrieve_maps_provider_error(self) -> None:
         http_error = urllib.error.HTTPError(
             url="https://qdrant.example/collections/haruhi_rag/points/search",
