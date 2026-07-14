@@ -34,6 +34,36 @@ from haruhi_roleplay_api.domain import (
 from haruhi_roleplay_api.ports import TextEmbeddingProvider
 
 
+_QDRANT_PAYLOAD_INDEXES: tuple[tuple[str, str | Mapping[str, Any]], ...] = (
+    ("app_id", {"type": "keyword", "is_tenant": True}),
+    ("character_id", "keyword"),
+    ("persona_mode", "keyword"),
+    ("allowed_persona_modes", "keyword"),
+    ("language", "keyword"),
+    ("source_type", "keyword"),
+    ("timeline", "keyword"),
+    ("record_kind", "keyword"),
+    ("perspective", "keyword"),
+    ("corpus_version", "keyword"),
+    ("retrieval_channel", "keyword"),
+    ("knowledge_owner", "keyword"),
+    ("subject_character_id", "keyword"),
+    ("usage", "keyword"),
+    ("document_id", "keyword"),
+    ("scene_id", "keyword"),
+    ("conversation_id", "keyword"),
+    ("spoiler_level", "integer"),
+    (
+        "content",
+        {
+            "type": "text",
+            "tokenizer": "multilingual",
+            "lowercase": True,
+        },
+    ),
+)
+
+
 class QdrantRagService:
     provider_name = "qdrant-rag"
 
@@ -99,8 +129,7 @@ class QdrantRagService:
         )
         try:
             if self._ensure_collection and not self._collection_ready:
-                self._create_collection_if_needed()
-                self._collection_ready = True
+                self.ensure_collection_schema()
             self._request_json(
                 "PUT",
                 f"/collections/{self._collection}/points?wait=true",
@@ -243,30 +272,87 @@ class QdrantRagService:
         )
         return document.chunkCount
 
-    def _create_collection_if_needed(self) -> None:
-        self._request_json(
-            "PUT",
+    @property
+    def collection(self) -> str:
+        return self._collection
+
+    def ensure_collection_schema(self) -> None:
+        """先创建过滤索引，再允许语料写入集合。"""
+
+        if self._collection_ready:
+            return
+        collection_info = self._request_json(
+            "GET",
             f"/collections/{self._collection}",
-            {
-                "vectors": {
-                    "size": self._embedding_provider.dimensions,
-                    "distance": "Cosine",
-                }
-            },
+            None,
             error_code=ErrorCode.RAG_PROVIDER_ERROR,
+            allow_not_found=True,
         )
+        if collection_info is None:
+            self._request_json(
+                "PUT",
+                f"/collections/{self._collection}",
+                {
+                    "vectors": {
+                        "size": self._embedding_provider.dimensions,
+                        "distance": "Cosine",
+                    }
+                },
+                error_code=ErrorCode.RAG_PROVIDER_ERROR,
+            )
+            indexed_fields: set[str] = set()
+        else:
+            self._validate_collection_dimensions(collection_info)
+            indexed_fields = _indexed_payload_fields(collection_info)
+
+        for field_name, field_schema in _QDRANT_PAYLOAD_INDEXES:
+            if field_name in indexed_fields:
+                continue
+            self._request_json(
+                "PUT",
+                f"/collections/{self._collection}/index?wait=true",
+                {
+                    "field_name": field_name,
+                    "field_schema": field_schema,
+                },
+                error_code=ErrorCode.RAG_PROVIDER_ERROR,
+            )
+        self._collection_ready = True
+
+    def _validate_collection_dimensions(
+        self,
+        collection_info: Mapping[str, Any],
+    ) -> None:
+        configured_size = _collection_vector_size(collection_info)
+        if (
+            configured_size is not None
+            and configured_size != self._embedding_provider.dimensions
+        ):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message=(
+                    f"Qdrant 集合 {self._collection} 的向量维度为 "
+                    f"{configured_size}，当前 embedding provider 输出维度为 "
+                    f"{self._embedding_provider.dimensions}。"
+                ),
+            )
 
     def _request_json(
         self,
         method: str,
         path: str,
-        payload: Mapping[str, Any],
+        payload: Mapping[str, Any] | None,
         *,
         error_code: ErrorCode,
-    ) -> Mapping[str, Any]:
+        allow_not_found: bool = False,
+    ) -> Mapping[str, Any] | None:
         request = urllib.request.Request(
             f"{self._base_url}{path}",
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            data=(
+                json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                if payload is not None
+                else None
+            ),
             headers=self._headers(),
             method=method,
         )
@@ -282,6 +368,8 @@ class QdrantRagService:
                 message="Qdrant RAG provider timed out.",
             ) from exc
         except urllib.error.HTTPError as exc:
+            if allow_not_found and exc.code == 404:
+                return None
             raise AppError(
                 code=error_code,
                 message=f"Qdrant RAG provider failed with HTTP {exc.code}.",
@@ -455,6 +543,33 @@ def _chunk_from_qdrant_hit(hit: Mapping[str, Any]) -> RagChunk:
 
 def _point_id(collection: str, chunk_id: RagChunkId) -> str:
     return str(uuid5(NAMESPACE_URL, f"{collection}:{chunk_id}"))
+
+
+def _indexed_payload_fields(collection_info: Mapping[str, Any]) -> set[str]:
+    result = collection_info.get("result")
+    if not isinstance(result, Mapping):
+        return set()
+    payload_schema = result.get("payload_schema")
+    if not isinstance(payload_schema, Mapping):
+        return set()
+    return {str(field_name) for field_name in payload_schema}
+
+
+def _collection_vector_size(collection_info: Mapping[str, Any]) -> int | None:
+    result = collection_info.get("result")
+    if not isinstance(result, Mapping):
+        return None
+    config = result.get("config")
+    if not isinstance(config, Mapping):
+        return None
+    params = config.get("params")
+    if not isinstance(params, Mapping):
+        return None
+    vectors = params.get("vectors")
+    if not isinstance(vectors, Mapping):
+        return None
+    size = vectors.get("size")
+    return size if isinstance(size, int) else None
 
 
 def _contextual_embedding_text(chunk: RagChunk) -> str:

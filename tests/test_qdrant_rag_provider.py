@@ -123,6 +123,70 @@ def qdrant_hit(*, app_id: str = "web") -> dict:
 
 
 class QdrantRagProviderTests(unittest.TestCase):
+    def test_qdrant_creates_payload_indexes_before_first_ingest(self) -> None:
+        not_found = urllib.error.HTTPError(
+            url="https://qdrant.example/collections/haruhi_rag",
+            code=404,
+            msg="not found",
+            hdrs=None,
+            fp=None,
+        )
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+            ensure_collection=True,
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            side_effect=[not_found]
+            + [FakeHTTPResponse({"result": {"status": "ok"}})] * 21,
+        ) as urlopen:
+            service.ingest(ingest_input())
+
+        requests = [call.args[0] for call in urlopen.call_args_list]
+        self.assertEqual(requests[0].method, "GET")
+        self.assertEqual(requests[1].method, "PUT")
+        self.assertEqual(
+            requests[1].full_url,
+            "https://qdrant.example/collections/haruhi_rag",
+        )
+        index_requests = [
+            request for request in requests if request.full_url.endswith("/index?wait=true")
+        ]
+        schemas = {
+            payload["field_name"]: payload["field_schema"]
+            for payload in (
+                json.loads(request.data.decode("utf-8")) for request in index_requests
+            )
+        }
+        self.assertEqual(schemas["app_id"], {"type": "keyword", "is_tenant": True})
+        self.assertEqual(schemas["spoiler_level"], "integer")
+        self.assertEqual(schemas["content"]["tokenizer"], "multilingual")
+        self.assertTrue(requests[-1].full_url.endswith("/points?wait=true"))
+
+    def test_qdrant_rejects_existing_collection_dimension_mismatch(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+            ensure_collection=True,
+        )
+        collection_info = {
+            "result": {
+                "config": {"params": {"vectors": {"size": 768}}},
+                "payload_schema": {},
+            }
+        }
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            return_value=FakeHTTPResponse(collection_info),
+        ):
+            with self.assertRaises(AppError) as context:
+                service.ingest(ingest_input())
+
+        self.assertEqual(context.exception.code, ErrorCode.RAG_PROVIDER_ERROR)
+        self.assertIn("向量维度为 768", context.exception.public_message)
+        self.assertIn("输出维度为 384", context.exception.public_message)
+
     def test_qdrant_ingest_upserts_points(self) -> None:
         service = QdrantRagService(
             base_url="https://qdrant.example",
