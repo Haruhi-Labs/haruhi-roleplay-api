@@ -27,10 +27,10 @@ class PersonaPromptBuilder:
                     role="system",
                     content=_output_rules(prompt_input.generation),
                 ),
-                *_recent_message_section(prompt_input),
                 *_memory_item_section(prompt_input),
                 *_rag_chunk_section(prompt_input),
                 *_backend_context_section(prompt_input),
+                *_recent_message_section(prompt_input),
                 PromptMessage(role="user", content=prompt_input.userMessage),
             )
         )
@@ -100,12 +100,10 @@ def _output_rules(generation: GenerationConfig) -> str:
 def _recent_message_section(
     prompt_input: PromptBuildInput,
 ) -> tuple[PromptMessage, ...]:
-    if not prompt_input.recentMessages:
-        return ()
-    lines = ["最近会话消息："]
-    for message in prompt_input.recentMessages:
-        lines.append(f"- {message.role}: {message.content}")
-    return (PromptMessage(role="system", content="\n".join(lines)),)
+    return tuple(
+        PromptMessage(role=message.role, content=message.content)
+        for message in prompt_input.recentMessages
+    )
 
 
 def _memory_item_section(

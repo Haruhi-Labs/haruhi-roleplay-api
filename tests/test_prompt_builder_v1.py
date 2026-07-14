@@ -14,6 +14,7 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
     CapabilityConfig,
     CharacterProfile,
     GenerationConfig,
+    MessageId,
     PersonaPreset,
     PromptBuildInput,
     AppId,
@@ -22,6 +23,8 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
     RagChunkId,
     RagDocumentId,
     RagDocumentMetadata,
+    SessionId,
+    SessionMessage,
 )
 
 
@@ -144,6 +147,42 @@ class PromptBuilderV1Tests(unittest.TestCase):
         self.assertEqual(provider_messages[0]["role"], "system")
         self.assertIn("content", provider_messages[0])
         self.assertEqual(provider_messages[-1]["role"], "user")
+
+    def test_recent_dialogue_keeps_native_message_roles(self) -> None:
+        base = prompt_input("haruhi", "mid_late_haruhi")
+        recent_messages = (
+            SessionMessage(
+                messageId=MessageId("msg-user"),
+                sessionId=SessionId("sess-test"),
+                role="user",
+                content="第一轮",
+                createdAt="2026-07-14T00:00:00Z",
+            ),
+            SessionMessage(
+                messageId=MessageId("msg-assistant"),
+                sessionId=SessionId("sess-test"),
+                role="assistant",
+                content="角色回复",
+                createdAt="2026-07-14T00:00:01Z",
+            ),
+        )
+
+        output = PersonaPromptBuilder().build(
+            replace(base, recentMessages=recent_messages)
+        )
+
+        self.assertEqual(
+            [(message.role, message.content) for message in output.messages[-3:]],
+            [
+                ("user", "第一轮"),
+                ("assistant", "角色回复"),
+                ("user", "今天有什么计划？"),
+            ],
+        )
+        self.assertNotIn(
+            "最近会话消息",
+            "\n".join(message.content for message in output.messages),
+        )
 
     def test_rag_chunks_are_partitioned_by_roleplay_usage(self) -> None:
         base = prompt_input("haruhi", "mid_late_haruhi")

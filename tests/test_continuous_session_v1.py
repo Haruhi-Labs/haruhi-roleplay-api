@@ -170,11 +170,16 @@ class ContinuousSessionV1Tests(unittest.TestCase):
         self.assertTrue(second["ok"])
         self.assertEqual(second["data"]["session_id"], session_id)
 
-        second_prompt = "\n".join(message.content for message in router.calls[1])
+        second_prompt = router.calls[1]
 
-        self.assertIn("最近会话消息", second_prompt)
-        self.assertIn("user: 第一轮", second_prompt)
-        self.assertIn("assistant: recorded: 第一轮", second_prompt)
+        self.assertEqual(
+            [(message.role, message.content) for message in second_prompt[-3:]],
+            [
+                ("user", "第一轮"),
+                ("assistant", "recorded: 第一轮"),
+                ("user", "第二轮"),
+            ],
+        )
         self.assertEqual(len(store.recent_messages(session_id, limit=10)), 4)
 
     def test_rag_query_uses_recent_dialogue_and_roleplay_scope(self) -> None:
