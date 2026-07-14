@@ -50,6 +50,13 @@ class PersonasCatalogApiTests(unittest.TestCase):
                 "surprise_haruhi",
             },
         )
+        default_mode = next(
+            mode
+            for mode in haruhi["modes"]
+            if mode["persona_mode"] == "mid_late_haruhi"
+        )
+        self.assertTrue(default_mode["rag_enabled_by_default"])
+        self.assertTrue(default_mode["memory_enabled_by_default"])
 
     def test_get_personas_does_not_return_draft_presets(self) -> None:
         response = get_personas(
