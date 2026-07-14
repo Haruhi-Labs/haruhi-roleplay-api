@@ -187,6 +187,94 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertIn("向量维度为 768", context.exception.public_message)
         self.assertIn("输出维度为 384", context.exception.public_message)
 
+    def test_qdrant_switches_existing_alias_atomically(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag__v2",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            side_effect=[
+                FakeHTTPResponse(
+                    {
+                        "result": {
+                            "aliases": [
+                                {
+                                    "alias_name": "haruhi_rag_live",
+                                    "collection_name": "haruhi_rag__v1",
+                                }
+                            ]
+                        }
+                    }
+                ),
+                FakeHTTPResponse({"result": {"status": "ok"}}),
+            ],
+        ) as urlopen:
+            previous = service.switch_alias("haruhi_rag_live")
+
+        self.assertEqual(previous, "haruhi_rag__v1")
+        switch_request = urlopen.call_args_list[1].args[0]
+        self.assertEqual(
+            switch_request.full_url,
+            "https://qdrant.example/collections/aliases",
+        )
+        self.assertEqual(
+            json.loads(switch_request.data.decode("utf-8"))["actions"],
+            [
+                {"delete_alias": {"alias_name": "haruhi_rag_live"}},
+                {
+                    "create_alias": {
+                        "collection_name": "haruhi_rag__v2",
+                        "alias_name": "haruhi_rag_live",
+                    }
+                },
+            ],
+        )
+
+    def test_qdrant_counts_points_with_app_scope(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag__v2",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            return_value=FakeHTTPResponse({"result": {"count": 17043}}),
+        ) as urlopen:
+            count = service.count_points(app_id="web-demo")
+
+        self.assertEqual(count, 17043)
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertTrue(payload["exact"])
+        self.assertEqual(
+            payload["filter"]["must"],
+            [{"key": "app_id", "match": {"value": "web-demo"}}],
+        )
+
+    def test_qdrant_refuses_to_delete_aliased_collection(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag__v2",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            return_value=FakeHTTPResponse(
+                {
+                    "result": {
+                        "aliases": [
+                            {
+                                "alias_name": "haruhi_rag_live",
+                                "collection_name": "haruhi_rag__v2",
+                            }
+                        ]
+                    }
+                }
+            ),
+        ):
+            with self.assertRaises(AppError) as context:
+                service.delete_collection()
+
+        self.assertIn("仍被 alias 引用", context.exception.public_message)
+
     def test_qdrant_ingest_upserts_points(self) -> None:
         service = QdrantRagService(
             base_url="https://qdrant.example",

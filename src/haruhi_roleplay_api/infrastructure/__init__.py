@@ -36,6 +36,13 @@ from haruhi_roleplay_api.infrastructure.models import (
 from haruhi_roleplay_api.infrastructure.provider_config_facade import (
     apply_provider_config_facade,
 )
+from haruhi_roleplay_api.infrastructure.qdrant_corpus_release import (
+    QdrantCorpusReleaseSummary,
+    activate_qdrant_collection,
+    corpus_version_from_file,
+    publish_qdrant_corpus,
+    versioned_collection_name,
+)
 from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     RagProviderSettings,
     build_rag_service,
@@ -65,6 +72,7 @@ __all__ = [
     "ModelProviderSettings",
     "RagProviderSettings",
     "CorpusIngestSummary",
+    "QdrantCorpusReleaseSummary",
     "RoleplayHttpRuntime",
     "RuntimeConfigStore",
     "SessionStoreSettings",
@@ -79,7 +87,11 @@ __all__ = [
     "build_model_router",
     "build_rag_service",
     "build_rag_service_from_env",
+    "activate_qdrant_collection",
+    "corpus_version_from_file",
     "ingest_corpus_file",
+    "publish_qdrant_corpus",
+    "versioned_collection_name",
     "build_session_store",
     "build_session_store_from_env",
     "create_local_runtime",

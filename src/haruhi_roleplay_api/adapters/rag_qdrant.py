@@ -276,6 +276,116 @@ class QdrantRagService:
     def collection(self) -> str:
         return self._collection
 
+    def collection_exists(self) -> bool:
+        return self._request_json(
+            "GET",
+            f"/collections/{self._collection}",
+            None,
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+            allow_not_found=True,
+        ) is not None
+
+    def count_points(self, *, app_id: str | None = None) -> int:
+        payload: dict[str, Any] = {"exact": True}
+        if app_id is not None:
+            payload["filter"] = {
+                "must": [{"key": "app_id", "match": {"value": app_id}}]
+            }
+        response = self._request_json(
+            "POST",
+            f"/collections/{self._collection}/points/count",
+            payload,
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        result = response.get("result") if response is not None else None
+        count = result.get("count") if isinstance(result, Mapping) else None
+        if not isinstance(count, int):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message="Qdrant point 计数响应格式无效。",
+            )
+        return count
+
+    def aliases(self) -> dict[str, str]:
+        response = self._request_json(
+            "GET",
+            "/aliases",
+            None,
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        result = response.get("result") if response is not None else None
+        aliases = result.get("aliases") if isinstance(result, Mapping) else None
+        if not isinstance(aliases, list):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message="Qdrant alias 列表响应格式无效。",
+            )
+        mapped: dict[str, str] = {}
+        for item in aliases:
+            if not isinstance(item, Mapping):
+                continue
+            alias_name = item.get("alias_name")
+            collection_name = item.get("collection_name")
+            if isinstance(alias_name, str) and isinstance(collection_name, str):
+                mapped[alias_name] = collection_name
+        return mapped
+
+    def switch_alias(self, alias_name: str) -> str | None:
+        alias = alias_name.strip()
+        if not alias:
+            raise ValueError("Qdrant alias 不能为空")
+        if alias == self._collection:
+            raise ValueError("Qdrant alias 不能与物理集合重名")
+        aliases = self.aliases()
+        previous_collection = aliases.get(alias)
+        if previous_collection == self._collection:
+            return previous_collection
+        actions: list[dict[str, Any]] = []
+        if previous_collection is not None:
+            actions.append({"delete_alias": {"alias_name": alias}})
+        actions.append(
+            {
+                "create_alias": {
+                    "collection_name": self._collection,
+                    "alias_name": alias,
+                }
+            }
+        )
+        self._request_json(
+            "POST",
+            "/collections/aliases",
+            {"actions": actions},
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        return previous_collection
+
+    def delete_collection(self) -> None:
+        referenced_by = [
+            alias_name
+            for alias_name, collection_name in self.aliases().items()
+            if collection_name == self._collection
+        ]
+        if referenced_by:
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message=(
+                    f"不能删除仍被 alias 引用的 Qdrant 集合 {self._collection}："
+                    + "、".join(sorted(referenced_by))
+                ),
+            )
+        response = self._request_json(
+            "DELETE",
+            f"/collections/{self._collection}",
+            None,
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+            allow_not_found=True,
+        )
+        if response is None:
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message=f"Qdrant 集合不存在：{self._collection}",
+            )
+
     def ensure_collection_schema(self) -> None:
         """先创建过滤索引，再允许语料写入集合。"""
 

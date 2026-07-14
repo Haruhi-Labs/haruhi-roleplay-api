@@ -164,6 +164,27 @@ python scripts/ingest_haruhi_corpus.py --app-id web-demo
 
 持久化 provider 完成导入后应取消 `RAG_BOOTSTRAP_CORPUS_PATH`，避免每次启动重复计算 embedding。生产环境建议使用中文/多语 embedding；内置 hash embedding 适合离线测试，不应作为语义检索质量基准。
 
+生产 Qdrant 不要把运行时直接绑定到某个物理集合。配置稳定 alias（例如 `RAG_INDEX=haruhi_rag_live`），再通过发布脚本创建带 `corpus_version` 的新集合。脚本会先创建所有过滤字段及中文全文 payload index，导入后核对指定 `app_id` 的精确 point 数，只有计数一致才原子切换 alias：
+
+```bash
+python scripts/publish_haruhi_qdrant.py publish --app-id web-demo
+```
+
+发布输出会记录“上一个集合”。需要回滚时直接把 alias 切回该集合，不需要重新计算 embedding：
+
+```bash
+python scripts/publish_haruhi_qdrant.py activate \
+  --collection haruhi_rag_live__haruhi-rag-上一版本
+```
+
+旧集合默认保留。确认观察期结束后才能显式删除；脚本拒绝删除仍被任何 alias 引用的集合，并要求重复输入集合名：
+
+```bash
+python scripts/publish_haruhi_qdrant.py delete \
+  --collection haruhi_rag_live__haruhi-rag-旧版本 \
+  --confirm haruhi_rag_live__haruhi-rag-旧版本
+```
+
 ## 验收建议
 
 至少覆盖以下查询组，并分别以五名角色和各篇章 persona 验证结果：
