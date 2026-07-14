@@ -220,14 +220,17 @@ character 字段：
 | timeline     | 时间线   |
 | description  | 简短说明 |
 
-内置示例：
+内置角色与默认 preset：
 
-| character_id   | persona_mode         | 显示名       |
-| -------------- | -------------------- | ------------ |
-| haruhi       | mid_late_haruhi | 中后期的春日 |
-| kyon         | default_kyon    | 阿虚         |
+| character_id | persona_mode | 显示名 |
+| --- | --- | --- |
+| haruhi | mid_late_haruhi | 凉宫春日·主设定 |
+| kyon | default_kyon | 阿虚·主设定 |
+| mikuru | default_mikuru | 朝比奈实玖瑠·主设定 |
+| yuki | default_yuki | 长门有希·主设定 |
+| itsuki | default_itsuki | 古泉一树·主设定 |
 
-以上是当前 catalog 中真实公开的 preset。其它角色和春日模式属于后续卡片，不应作为当前可调用值。
+每名角色另有 `melancholy_*`、`sigh_*`、`endless_eight_*`、`disappearance_*` 和 `surprise_*` 五个公开篇章 preset。阿虚的 `narrator_kyon` 仍是 draft，不会出现在公开 catalog。调用方应始终以接口返回为准，不维护内置名单。
 
 ## 后台角色管理
 

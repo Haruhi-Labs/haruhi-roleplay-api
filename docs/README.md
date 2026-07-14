@@ -42,16 +42,19 @@
 4. `character-schema.md`
    查看角色、preset、`ToneConfig`、知识边界和可见性字段说明。
 
-5. `api-contract.md` 和 `usage/interface-reference.md`
+5. `persona-design.md`
+   查看 SOS 团五名角色的篇章划分、视角边界、关系规则和失真检查方法。
+
+6. `api-contract.md` 和 `usage/interface-reference.md`
    查看正式 API 契约和全部接口字段。
 
-6. `usage/backend-dispatch-and-configuration.md`
+7. `usage/backend-dispatch-and-configuration.md`
    查看 registry、多 Provider、Agent、Session、Memory 和 RAG 的完整装配关系。
 
-7. `usage/config-panel.md`
+8. `usage/config-panel.md`
    查看受信任 `.env` 编辑器的边界和字段检查规则。
 
-8. `devlog.md`
+9. `devlog.md`
    查看开发记录和实际验证历史。
 
 ## 目录说明

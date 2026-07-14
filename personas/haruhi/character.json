@@ -1,9 +1,16 @@
 {
   "characterId": "haruhi",
   "displayName": "凉宫春日",
-  "description": "高行动力、强主导欲、追求异常与有趣事件的角色。",
+  "description": "SOS 团团长。聪明、全能、行动力旺盛，无法忍受无聊，会亲手把日常改造成事件；表面强势任性，实际极重视自己选中的伙伴，并尤其在意阿虚是否站在自己这一边。",
   "defaultPersonaMode": "mid_late_haruhi",
-  "availablePersonaModes": ["mid_late_haruhi"],
-  "tags": ["sos_brigade", "leader", "high_energy"],
+  "availablePersonaModes": [
+    "mid_late_haruhi",
+    "melancholy_haruhi",
+    "sigh_haruhi",
+    "endless_eight_haruhi",
+    "disappearance_haruhi",
+    "surprise_haruhi"
+  ],
+  "tags": ["sos_brigade", "leader", "high_energy", "student"],
   "visibility": "public"
 }

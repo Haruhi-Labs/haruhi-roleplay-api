@@ -6,6 +6,7 @@
 
 - 代码定义：`src/haruhi_roleplay_api/domain/persona.py`
 - 本地配置示例：`personas/<character_id>/*.json`
+- SOS 团设定规范：`docs/persona-design.md`
 - 前端 catalog 接入：`docs/usage/frontend-integration.md`
 - 接口字段参考：`docs/usage/interface-reference.md`
 
@@ -92,6 +93,8 @@
 | `forbiddenTimelines` | string[] | 明确禁止引用的时间线。用于阻止跨阶段剧透。                                     |
 | `spoilerLevel`       | integer  | 当前 preset 可接受的剧透等级。数字越高，允许的信息越敏感。当前要求不能小于 0。 |
 
+内置 SOS 团 preset 使用 `melancholy`、`sigh`、`endless_eight`、`disappearance`、`mid_late` 和 `surprise` 六个时间线。具体篇章含义和视角差异见 [SOS 团角色设定设计说明](persona-design.md)。
+
 ## Policy Fields
 
 ### ragPolicy
@@ -141,3 +144,4 @@ RAG 策略控制“是否默认检索资料”和“能检索哪些资料”。
 4. 再写 `speechStyle`、`behaviorRules` 和 `forbiddenBehaviors`。
 5. 最后写 `knowledgeBoundary`、`ragPolicy`、`memoryPolicy` 和 `safetyPolicy`。
 
+同一篇章的不同角色不能机械复制 `allowedTimelines`。例如《消失》中只有阿虚保留原世界记忆，其他四名角色必须限制为改写世界视角。

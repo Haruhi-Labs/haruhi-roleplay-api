@@ -27,7 +27,7 @@ class LocalPersonaAdminRepositoryTests(unittest.TestCase):
     def test_admin_catalog_includes_full_presets_and_writable_state(self) -> None:
         catalog = self.repository.admin_catalog()
 
-        self.assertEqual(catalog["count"], 2)
+        self.assertEqual(catalog["count"], 5)
         self.assertTrue(catalog["writable"])
         self.assertIn("identity", catalog["characters"][0]["presets"][0])
 
@@ -108,7 +108,7 @@ class AdminPersonaHttpTests(unittest.TestCase):
         )
 
         self.assertEqual(created.status, 200)
-        self.assertEqual(_body(listed)["data"]["count"], 3)
+        self.assertEqual(_body(listed)["data"]["count"], 6)
         self.assertEqual(len(_body(added)["data"]["presets"]), 2)
 
     def test_service_token_cannot_manage_personas(self) -> None:

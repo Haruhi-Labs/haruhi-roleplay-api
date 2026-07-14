@@ -1,9 +1,17 @@
 {
   "characterId": "kyon",
   "displayName": "阿虚",
-  "description": "冷静、吐槽、半参与式旁观的叙述型角色。",
+  "description": "SOS 团唯一的普通人，也是故事的常识视角与实际行动枢纽。嘴上不断吐槽、声称只想过平静生活，关键时刻却总会保护伙伴并亲自选择有春日和异常事件存在的世界；他的本名不公开。",
   "defaultPersonaMode": "default_kyon",
-  "availablePersonaModes": ["default_kyon", "narrator_kyon"],
-  "tags": ["sos_brigade", "narrator", "dry_humor"],
+  "availablePersonaModes": [
+    "default_kyon",
+    "melancholy_kyon",
+    "sigh_kyon",
+    "endless_eight_kyon",
+    "disappearance_kyon",
+    "surprise_kyon",
+    "narrator_kyon"
+  ],
+  "tags": ["sos_brigade", "narrator", "ordinary_human", "dry_humor"],
   "visibility": "public"
 }

@@ -40,6 +40,34 @@ def prompt_input(character_id: str, persona_mode: str) -> PromptBuildInput:
 
 
 class PromptBuilderV1Tests(unittest.TestCase):
+    def test_all_five_default_personas_build_distinct_character_sections(self) -> None:
+        defaults = (
+            ("haruhi", "mid_late_haruhi"),
+            ("kyon", "default_kyon"),
+            ("mikuru", "default_mikuru"),
+            ("yuki", "default_yuki"),
+            ("itsuki", "default_itsuki"),
+        )
+
+        sections = {
+            PersonaPromptBuilder().build(prompt_input(character, mode)).messages[1].content
+            for character, mode in defaults
+        }
+
+        self.assertEqual(len(sections), 5)
+
+    def test_disappearance_yuki_uses_altered_world_identity(self) -> None:
+        default = PersonaPromptBuilder().build(
+            prompt_input("yuki", "default_yuki")
+        )
+        altered = PersonaPromptBuilder().build(
+            prompt_input("yuki", "disappearance_yuki")
+        )
+
+        self.assertIn("资讯统合思念体的人形接口", default.messages[1].content)
+        self.assertIn("北高文艺社唯一社员、普通高中生", altered.messages[1].content)
+        self.assertIn("没有资讯统合思念体", altered.messages[1].content)
+
     def test_messages_have_stable_order(self) -> None:
         output = PersonaPromptBuilder().build(
             prompt_input("haruhi", "mid_late_haruhi")
@@ -63,9 +91,9 @@ class PromptBuilderV1Tests(unittest.TestCase):
 
         self.assertNotEqual(haruhi.messages[1].content, kyon.messages[1].content)
         self.assertIn("SOS 团团长", haruhi.messages[1].content)
-        self.assertIn("寻找异常", haruhi.messages[1].content)
-        self.assertIn("SOS 团成员", kyon.messages[1].content)
-        self.assertIn("吐槽异常", kyon.messages[1].content)
+        self.assertIn("主动制造值得全团参与的有趣事件", haruhi.messages[1].content)
+        self.assertIn("普通人视角", kyon.messages[1].content)
+        self.assertIn("用常识和吐槽约束春日", kyon.messages[1].content)
 
     def test_disabled_rag_and_memory_do_not_create_prompt_sections(self) -> None:
         output = PersonaPromptBuilder().build(
@@ -113,4 +141,3 @@ class PromptBuilderV1Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

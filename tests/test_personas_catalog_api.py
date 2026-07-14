@@ -27,8 +27,10 @@ class PersonasCatalogApiTests(unittest.TestCase):
         characters = response["data"]["characters"]
         character_ids = {character["character_id"] for character in characters}
 
-        self.assertIn("haruhi", character_ids)
-        self.assertIn("kyon", character_ids)
+        self.assertEqual(
+            character_ids,
+            {"haruhi", "kyon", "mikuru", "yuki", "itsuki"},
+        )
 
         haruhi = next(
             character
@@ -36,7 +38,18 @@ class PersonasCatalogApiTests(unittest.TestCase):
             if character["character_id"] == "haruhi"
         )
         self.assertEqual(haruhi["default_persona_mode"], "mid_late_haruhi")
-        self.assertEqual(haruhi["modes"][0]["persona_mode"], "mid_late_haruhi")
+        modes = {mode["persona_mode"] for mode in haruhi["modes"]}
+        self.assertEqual(
+            modes,
+            {
+                "mid_late_haruhi",
+                "melancholy_haruhi",
+                "sigh_haruhi",
+                "endless_eight_haruhi",
+                "disappearance_haruhi",
+                "surprise_haruhi",
+            },
+        )
 
     def test_get_personas_does_not_return_draft_presets(self) -> None:
         response = get_personas(
@@ -51,7 +64,17 @@ class PersonasCatalogApiTests(unittest.TestCase):
         )
         modes = {mode["persona_mode"] for mode in kyon["modes"]}
 
-        self.assertEqual(modes, {"default_kyon"})
+        self.assertEqual(
+            modes,
+            {
+                "default_kyon",
+                "melancholy_kyon",
+                "sigh_kyon",
+                "endless_eight_kyon",
+                "disappearance_kyon",
+                "surprise_kyon",
+            },
+        )
         self.assertNotIn("narrator_kyon", modes)
 
     def test_missing_catalog_config_returns_error_envelope(self) -> None:

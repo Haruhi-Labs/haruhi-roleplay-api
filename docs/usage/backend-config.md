@@ -272,5 +272,5 @@ http://127.0.0.1:8000/config
 - 请求资源上限使用代码常量，不新增 `.env` 字段：body 1 MiB、chat message 16,000 字符、RAG content 500,000 字符、`top_k` 20、`max_tokens` 8,192。
 - `SafetyGuard` 尚未接入，`safety_filter` 目前不是内容审核保证。
 - model-backed planner 尚未实现，使用 `AGENT_CONTEXT_PLANNER=model` 会导致 chat 返回 `MODEL_PROVIDER_ERROR`。
-- 当前公开 persona 只有 `haruhi/mid_late_haruhi` 和 `kyon/default_kyon`；应通过 `GET /v1/personas` 获取实际 catalog。
+- 当前公开角色为 SOS 团五人，每人包含主设定与五个篇章 preset；应通过 `GET /v1/personas` 获取实际 catalog。
 - 配置编辑器适合本地或受信任后台，不是普通聊天前端接口。
