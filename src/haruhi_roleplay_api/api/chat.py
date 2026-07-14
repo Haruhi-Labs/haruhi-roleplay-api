@@ -54,6 +54,7 @@ def post_chat(
     agent_context_planner: AgentContextPlanner | None = None,
     recent_message_limit: int = 12,
     memory_read_limit: int = 5,
+    rag_min_relevance_score: float = 0.2,
     debug_trace_enabled: bool = True,
     include_error_details: bool = False,
 ) -> ApiResponse:
@@ -75,6 +76,7 @@ def post_chat(
                 agent_context_planner=agent_context_planner,
                 recent_message_limit=recent_message_limit,
                 memory_read_limit=memory_read_limit,
+                rag_min_relevance_score=rag_min_relevance_score,
                 debug_trace_enabled=debug_trace_enabled,
             )
         ).execute(chat_input)
@@ -103,6 +105,7 @@ def post_chat_stream(
     agent_context_planner: AgentContextPlanner | None = None,
     recent_message_limit: int = 12,
     memory_read_limit: int = 5,
+    rag_min_relevance_score: float = 0.2,
     debug_trace_enabled: bool = True,
     include_error_details: bool = False,
 ) -> ApiResponse:
@@ -123,6 +126,7 @@ def post_chat_stream(
                 agent_context_planner=agent_context_planner,
                 recent_message_limit=recent_message_limit,
                 memory_read_limit=memory_read_limit,
+                rag_min_relevance_score=rag_min_relevance_score,
                 debug_trace_enabled=debug_trace_enabled,
             )
         )
@@ -154,6 +158,7 @@ def iter_chat_stream_events(
     agent_context_planner: AgentContextPlanner | None = None,
     recent_message_limit: int = 12,
     memory_read_limit: int = 5,
+    rag_min_relevance_score: float = 0.2,
     debug_trace_enabled: bool = True,
 ) -> Iterable[ChatStreamEvent]:
     effective_request_id = _effective_request_id(body, request_id)
@@ -177,6 +182,7 @@ def iter_chat_stream_events(
             agent_context_planner=agent_context_planner,
             recent_message_limit=recent_message_limit,
             memory_read_limit=memory_read_limit,
+            rag_min_relevance_score=rag_min_relevance_score,
             debug_trace_enabled=debug_trace_enabled,
         )
     ).stream(chat_input)

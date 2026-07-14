@@ -241,6 +241,7 @@ class ProviderConfigFacadeTests(unittest.TestCase):
             "RAG_INDEX": "haruhi_rag",
             "RAG_API_KEY": "qdrant-secret",
             "RAG_ALLOW_TEST_EMBEDDING": "true",
+            "RAG_MIN_RELEVANCE_SCORE": "0.35",
         }
         settings = RagProviderSettings.from_mapping(env)
 
@@ -248,6 +249,7 @@ class ProviderConfigFacadeTests(unittest.TestCase):
         self.assertEqual(settings.qdrantUrl, "https://qdrant.example")
         self.assertEqual(settings.qdrantCollection, "haruhi_rag")
         self.assertEqual(settings.qdrantApiKey, "qdrant-secret")
+        self.assertEqual(settings.minimumRelevanceScore, 0.35)
 
         with patch(
             "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",

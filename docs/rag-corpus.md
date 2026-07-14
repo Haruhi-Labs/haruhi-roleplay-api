@@ -160,6 +160,7 @@ uv run --with opencc-python-reimplemented python scripts/build_haruhi_corpus.py 
 ```dotenv
 RAG_API_TYPE=local
 RAG_CHUNK_SIZE=700
+RAG_MIN_RELEVANCE_SCORE=0.2
 RAG_BOOTSTRAP_CORPUS_PATH=.data/rag-corpus/haruhi/records.jsonl
 RAG_BOOTSTRAP_APP_ID=web-demo
 ```
@@ -179,6 +180,8 @@ python scripts/ingest_haruhi_corpus.py --app-id web-demo
 发布默认以 64 条为一批调用 embedding API 并批量 upsert Qdrant，可通过 `QDRANT_INGEST_BATCH_SIZE` 调整。批处理只减少网络往返，不合并语料记录：JSONL 仍严格保持一条记录对应一个 point，也不会调用生成模型。
 
 建议同时开启 `QDRANT_HYBRID_SEARCH=true`。此模式并行取得 dense 向量候选和 `multilingual` 全文候选，用 RRF 合并后再执行本地字符重排、去重和类型配额。它不调用 LLM，不增加生成 Token；主要用于补回七夕、雪山症候群等专名被向量召回漏掉的记录。需要兼容未创建 `content` 全文索引的旧集合时保持关闭，完成版本化发布后再开启。
+
+聊天编排会在模型提示词前应用 `RAG_MIN_RELEVANCE_SCORE`，默认 `0.2`；低于阈值时允许返回空召回，不会为了凑满 Top-K 注入无关桥段。Qdrant 混合检索会用内部保留的 dense 相似度或词面覆盖作为门禁依据，而不是把 RRF 排名分数误当相关度。该默认值只是安全起点，生产值必须用包含“应召回”和“应不召回”的自然多轮对话金标集校准。
 
 ```bash
 python scripts/publish_haruhi_qdrant.py publish --app-id web-demo

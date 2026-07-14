@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from ipaddress import ip_address
@@ -36,8 +37,8 @@ class EnvConfigField:
     hotReload: bool = False
     restartRequired: bool = False
     required: bool = False
-    minValue: int | None = None
-    maxValue: int | None = None
+    minValue: int | float | None = None
+    maxValue: int | float | None = None
     advanced: bool = True
 
     def to_data(self) -> dict[str, Any]:
@@ -104,8 +105,8 @@ def _field(
     hot_reload: bool | None = None,
     restart_required: bool | None = None,
     required: bool = False,
-    min_value: int | None = None,
-    max_value: int | None = None,
+    min_value: int | float | None = None,
+    max_value: int | float | None = None,
     advanced: bool = True,
 ) -> EnvConfigField:
     restart = restart_required if restart_required is not None else key in _RESTART_KEYS
@@ -238,6 +239,7 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("QDRANT_ENSURE_COLLECTION", "RAG", "bool", "Create Qdrant collection when missing.", default="false"),
     _field("QDRANT_HYBRID_SEARCH", "RAG", "bool", "Merge dense and multilingual full-text Qdrant candidates.", default="false"),
     _field("QDRANT_INGEST_BATCH_SIZE", "RAG", "int", "Embedding and upsert batch size for corpus publication.", default="64", min_value=1),
+    _field("RAG_MIN_RELEVANCE_SCORE", "RAG", "float", "Minimum relevance required before a retrieved item enters the model prompt.", default="0.2", min_value=0.0, max_value=1.0),
     _field("QDRANT_API_KEY", "Secrets", "secret", "Qdrant API key.", secret=True, hot_reload=True),
     _simple_field("EMBEDDING_API_TYPE", "Simple Embedding", "enum", "Embedding API type/provider.", default="hash", enum=("hash", "openai", "openai_compatible", "local_openai_compatible", "ollama")),
     _simple_field("EMBEDDING_BASE_URL", "Simple Embedding", "url", "Embedding API base URL."),
@@ -535,6 +537,8 @@ def _check_field(
         _check_cors_origins(value, errors)
     if field.valueType == "int":
         _check_int_field(field, value, errors)
+    if field.valueType == "float":
+        _check_float_field(field, value, errors)
     if field.valueType == "bool":
         _check_bool_field(field, value, errors)
     if field.valueType == "enum":
@@ -611,6 +615,25 @@ def _check_int_field(
         parsed = int(value)
     except ValueError:
         errors.append(f"{field.key} must be an integer")
+        return
+    if field.minValue is not None and parsed < field.minValue:
+        errors.append(f"{field.key} must be >= {field.minValue}")
+    if field.maxValue is not None and parsed > field.maxValue:
+        errors.append(f"{field.key} must be <= {field.maxValue}")
+
+
+def _check_float_field(
+    field: EnvConfigField,
+    value: str,
+    errors: list[str],
+) -> None:
+    try:
+        parsed = float(value)
+    except ValueError:
+        errors.append(f"{field.key} must be a number")
+        return
+    if not math.isfinite(parsed):
+        errors.append(f"{field.key} must be a finite number")
         return
     if field.minValue is not None and parsed < field.minValue:
         errors.append(f"{field.key} must be >= {field.minValue}")

@@ -41,6 +41,7 @@ class RagProviderSettings:
     qdrantEnsureCollection: bool = False
     qdrantHybridSearch: bool = False
     qdrantIngestBatchSize: int = 64
+    minimumRelevanceScore: float = 0.2
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, str]) -> "RagProviderSettings":
@@ -77,6 +78,13 @@ class RagProviderSettings:
                 data,
                 "QDRANT_INGEST_BATCH_SIZE",
                 default=64,
+            ),
+            minimumRelevanceScore=_float_from_mapping(
+                data,
+                "RAG_MIN_RELEVANCE_SCORE",
+                default=0.2,
+                minimum=0.0,
+                maximum=1.0,
             ),
         )
 
@@ -238,6 +246,32 @@ def _int_from_mapping(
             code=ErrorCode.RAG_PROVIDER_ERROR,
             message=f"{key} must be an integer.",
         ) from exc
+
+
+def _float_from_mapping(
+    data: Mapping[str, str],
+    key: str,
+    *,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    value = data.get(key)
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise AppError(
+            code=ErrorCode.RAG_PROVIDER_ERROR,
+            message=f"{key} must be a number.",
+        ) from exc
+    if not minimum <= parsed <= maximum:
+        raise AppError(
+            code=ErrorCode.RAG_PROVIDER_ERROR,
+            message=f"{key} must be between {minimum:g} and {maximum:g}.",
+        )
+    return parsed
 
 
 def _bool_from_mapping(value: str) -> bool:

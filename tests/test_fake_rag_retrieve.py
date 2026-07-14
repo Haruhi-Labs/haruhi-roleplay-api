@@ -223,6 +223,50 @@ class FakeRagRetrieveTests(unittest.TestCase):
         self.assertIn("那就去找更有趣的事", prompt_text)
         self.assertIn("春日立刻把抱怨改造成全团调查", prompt_text)
 
+    def test_low_relevance_results_do_not_enter_model_prompt(self) -> None:
+        router = RecordingModelRouter()
+        rag_service = RecordingRagService(
+            (
+                _rag_chunk(
+                    "low-actor",
+                    character_id="haruhi",
+                    persona_mode="mid_late_haruhi",
+                    record_kind="dialogue_example",
+                    retrieval_channel="dialogue_style",
+                    knowledge_owner="haruhi",
+                    usage="style_only",
+                    content="完全不相干的应对片段",
+                    score=0.9,
+                    retrieval_relevance=0.05,
+                ),
+                _rag_chunk(
+                    "low-director",
+                    character_id="kyon",
+                    persona_mode=None,
+                    record_kind="scene_memory",
+                    retrieval_channel="canonical_memory",
+                    knowledge_owner="kyon",
+                    usage="knowledge",
+                    content="完全不相干的桥段",
+                    score=0.9,
+                    retrieval_relevance=0.05,
+                ),
+            )
+        )
+
+        response = call_chat(
+            chat_body(rag=True, message="我们聊点别的吧"),
+            model_router=router,
+            rag_service=rag_service,
+        )
+
+        self.assertTrue(response["ok"])
+        self.assertTrue(response["data"]["rag"]["enabled"])
+        self.assertEqual(response["data"]["rag"]["hit_count"], 0)
+        prompt_text = "\n".join(message.content for message in router.calls[0])
+        self.assertNotIn("可借鉴的原作互动素材", prompt_text)
+        self.assertNotIn("完全不相干", prompt_text)
+
     def test_long_current_message_is_bounded_for_retrieval(self) -> None:
         router = RecordingModelRouter()
         rag = RecordingRagService()
@@ -284,12 +328,22 @@ def _rag_chunk(
     knowledge_owner: str,
     usage: str,
     content: str,
+    score: float = 0.9,
+    retrieval_relevance: float | None = None,
 ) -> RagChunk:
+    extra = {
+        "record_kind": record_kind,
+        "retrieval_channel": retrieval_channel,
+        "knowledge_owner": knowledge_owner,
+        "usage": usage,
+    }
+    if retrieval_relevance is not None:
+        extra["_retrieval_relevance"] = retrieval_relevance
     return RagChunk(
         chunkId=RagChunkId(f"chunk-{name}"),
         documentId=RagDocumentId(f"doc-{name}"),
         content=content,
-        score=0.9,
+        score=score,
         metadata=RagDocumentMetadata(
             appId=AppId("web"),
             characterId=CharacterId(character_id),
@@ -300,12 +354,7 @@ def _rag_chunk(
             spoilerLevel=2,
             language="zh-CN",
             sourceType="scene",
-            extra={
-                "record_kind": record_kind,
-                "retrieval_channel": retrieval_channel,
-                "knowledge_owner": knowledge_owner,
-                "usage": usage,
-            },
+            extra=extra,
         ),
     )
 

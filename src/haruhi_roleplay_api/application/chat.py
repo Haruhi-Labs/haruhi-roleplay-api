@@ -101,6 +101,7 @@ class RoleplayOrchestrator:
         recent_message_limit: int = 12,
         memory_read_limit: int = 5,
         rag_top_k: int = 5,
+        rag_min_relevance_score: float = 0.2,
         debug_trace_enabled: bool = True,
     ) -> None:
         self._persona_repository = persona_repository
@@ -117,6 +118,13 @@ class RoleplayOrchestrator:
         self._recent_message_limit = recent_message_limit
         self._memory_read_limit = memory_read_limit
         self._rag_top_k = rag_top_k
+        if (
+            isinstance(rag_min_relevance_score, bool)
+            or not isinstance(rag_min_relevance_score, int | float)
+            or not 0.0 <= rag_min_relevance_score <= 1.0
+        ):
+            raise ValueError("rag_min_relevance_score must be between 0 and 1")
+        self._rag_min_relevance_score = float(rag_min_relevance_score)
         self._debug_trace_enabled = debug_trace_enabled
 
     def run(self, chat_input: ChatInput) -> ChatOutput:
@@ -457,6 +465,10 @@ class RoleplayOrchestrator:
                 if chunk.metadata.extra.get("record_kind") != "scene_memory"
             ),
         )
+        actor_output = _filter_rag_output_by_relevance(
+            actor_output,
+            minimum_score=self._rag_min_relevance_score,
+        )
         director_output = self._rag_service.retrieve(
             RagRetrieveInput(
                 appId=chat_input.appId,
@@ -473,6 +485,10 @@ class RoleplayOrchestrator:
                 ),
                 debug=chat_input.capabilities.debugTrace,
             )
+        )
+        director_output = _filter_rag_output_by_relevance(
+            director_output,
+            minimum_score=self._rag_min_relevance_score,
         )
         return _merge_roleplay_rag_outputs(
             actor_output,
@@ -682,6 +698,31 @@ def _director_persona_mode(persona: PersonaPreset) -> PersonaModeId:
     if persona.timeline == "mid_late":
         return PersonaModeId("default_kyon")
     return PersonaModeId(f"{persona.timeline}_kyon")
+
+
+def _filter_rag_output_by_relevance(
+    output: RagRetrieveOutput,
+    *,
+    minimum_score: float,
+) -> RagRetrieveOutput:
+    return replace(
+        output,
+        chunks=tuple(
+            chunk
+            for chunk in output.chunks
+            if _rag_chunk_relevance(chunk) >= minimum_score
+        ),
+    )
+
+
+def _rag_chunk_relevance(chunk: RagChunk) -> float:
+    internal_score = chunk.metadata.extra.get("_retrieval_relevance")
+    if (
+        isinstance(internal_score, int | float)
+        and not isinstance(internal_score, bool)
+    ):
+        return float(internal_score)
+    return chunk.score
 
 
 def _merge_roleplay_rag_outputs(

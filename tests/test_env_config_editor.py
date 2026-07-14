@@ -76,6 +76,9 @@ class EnvConfigEditorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             editor = editor_for(Path(temp_dir) / ".env")
             bad_int = editor.check({"key": "MODEL_TIMEOUT_MS", "value": "0"})
+            bad_float = editor.check(
+                {"key": "RAG_MIN_RELEVANCE_SCORE", "value": "1.1"}
+            )
             bad_enum = editor.check({"key": "RAG_PROVIDER", "value": "bad"})
             bad_bool = editor.check({"key": "ENABLE_DEBUG_TRACE", "value": "maybe"})
             bad_json = editor.check({"key": "MODEL_PROVIDER_REGISTRY", "value": "{"})
@@ -90,6 +93,11 @@ class EnvConfigEditorTests(unittest.TestCase):
 
         self.assertFalse(bad_int.valid)
         self.assertIn("MODEL_TIMEOUT_MS must be >= 1", bad_int.errors)
+        self.assertFalse(bad_float.valid)
+        self.assertIn(
+            "RAG_MIN_RELEVANCE_SCORE must be <= 1.0",
+            bad_float.errors,
+        )
         self.assertFalse(bad_enum.valid)
         self.assertFalse(bad_bool.valid)
         self.assertFalse(bad_json.valid)
