@@ -13,6 +13,7 @@ from haruhi_roleplay_api.application.errors import (
 )
 from haruhi_roleplay_api.application.agent import DeterministicAgentContextPlanner
 from haruhi_roleplay_api.application.memory import DefaultMemoryPolicyEngine
+from haruhi_roleplay_api.application.rag_query import build_roleplay_rag_query
 from haruhi_roleplay_api.domain import (
     ChatInput,
     ChatOutput,
@@ -46,7 +47,6 @@ from haruhi_roleplay_api.domain import (
     Visibility,
     model_messages_from_prompt,
 )
-from haruhi_roleplay_api.domain.request_limits import MAX_RAG_QUERY_LENGTH
 from haruhi_roleplay_api.ports import (
     AgentContextPlanner,
     BackendContextProvider,
@@ -454,10 +454,14 @@ class RoleplayOrchestrator:
             return None
         if self._rag_service is None:
             raise DTOValidationError("ragService is required for RAG")
-        query = _build_roleplay_rag_query(
-            chat_input,
-            persona,
-            recent_messages,
+        query = build_roleplay_rag_query(
+            character_id=str(chat_input.characterId),
+            persona_mode=str(chat_input.personaMode),
+            timeline=persona.timeline,
+            current_message=chat_input.message,
+            recent_messages=(
+                (message.role, message.content) for message in recent_messages
+            ),
         )
         base_filters = _rag_filters_for_chat(chat_input, persona)
         actor_output = self._rag_service.retrieve(
@@ -531,44 +535,6 @@ class RoleplayOrchestrator:
                 sources=context_plan.backendFetches,
             )
         )
-
-
-def _build_roleplay_rag_query(
-    chat_input: ChatInput,
-    persona: PersonaPreset,
-    recent_messages: tuple[SessionMessage, ...],
-) -> str:
-    header = (
-        f"目标角色：{chat_input.characterId}\n"
-        f"角色模式：{chat_input.personaMode}\n"
-        f"当前时间线：{persona.timeline}"
-    )
-    current_label = "当前用户输入：\n"
-    current_budget = MAX_RAG_QUERY_LENGTH - len(header) - len(current_label) - 2
-    current = _bounded_rag_excerpt(chat_input.message, max_chars=current_budget)
-    suffix = f"{current_label}{current}"
-    selected: list[str] = []
-    for message in reversed(recent_messages[-6:]):
-        line = f"{message.role}: {_bounded_rag_excerpt(message.content, max_chars=600)}"
-        candidate = [line, *selected]
-        history = "最近对话：\n" + "\n".join(candidate) + "\n"
-        if len(f"{header}\n{history}{suffix}") > MAX_RAG_QUERY_LENGTH:
-            break
-        selected = candidate
-    history = "最近对话：\n" + "\n".join(selected) + "\n" if selected else ""
-    return f"{header}\n{history}{suffix}"
-
-
-def _bounded_rag_excerpt(text: str, *, max_chars: int) -> str:
-    if len(text) <= max_chars:
-        return text
-    marker = "……[中间省略]……"
-    available = max_chars - len(marker)
-    if available <= 0:
-        return text[:max_chars]
-    head = (available * 2) // 3
-    tail = available - head
-    return f"{text[:head]}{marker}{text[-tail:]}"
 
 
 def _ensure_v1_capabilities(chat_input: ChatInput, *, allow_stream: bool) -> None:
