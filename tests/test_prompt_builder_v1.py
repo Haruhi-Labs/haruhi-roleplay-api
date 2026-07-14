@@ -189,7 +189,10 @@ class PromptBuilderV1Tests(unittest.TestCase):
         chunks = (
             _rag_chunk(
                 "memory",
-                content="春日记得孤岛事件。",
+                content=(
+                    "作品：测试；篇章：测试；资料类型：场景；角色：阿虚。\n"
+                    "春日记得孤岛事件。"
+                ),
                 record_kind="scene_memory",
                 channel="canonical_memory",
                 owner="haruhi",
@@ -217,20 +220,40 @@ class PromptBuilderV1Tests(unittest.TestCase):
         rag_section = next(
             message.content
             for message in output.messages
-            if "检索资料摘要" in message.content
+            if "可借鉴的原作互动素材" in message.content
         )
 
         self.assertLess(
-            rag_section.index("原作事实与角色记忆"),
-            rag_section.index("目标角色台词与应对范例"),
+            rag_section.index("相似桥段"),
+            rag_section.index("角色应对范例"),
         )
         self.assertLess(
-            rag_section.index("目标角色台词与应对范例"),
-            rag_section.index("内心语气与外部行为观察"),
+            rag_section.index("角色应对范例"),
+            rag_section.index("动作与语气参考"),
         )
-        self.assertIn("knowledgeOwner=kyon, usage=style_only", rag_section)
-        self.assertIn("观察者知道的内容不等于目标角色知道", rag_section)
-        self.assertIn("风格范例只能决定如何表达，不能新增角色知识", rag_section)
+        self.assertIn("春日记得孤岛事件", rag_section)
+        self.assertIn("幕后构思参考", rag_section)
+        self.assertIn("不自动属于当前角色的知识", rag_section)
+        self.assertNotIn("资料类型：", rag_section)
+        for internal_value in (
+            "title=",
+            "kind=",
+            "perspective=",
+            "knowledgeOwner=",
+            "usage=",
+            "confidence=",
+            "review=",
+            "timeline=",
+            "spoilerLevel=",
+            "source=",
+            "doc-memory",
+            "chunk-memory",
+            "agent-reviewed",
+            "probable",
+            "luna",
+            "sol",
+        ):
+            self.assertNotIn(internal_value, rag_section)
 
 
 def _rag_chunk(
@@ -261,6 +284,10 @@ def _rag_chunk(
                 "usage": usage,
                 "perspective": "test",
                 "confidence": 0.95,
+                "title": "内部标题",
+                "review_method": "agent-reviewed",
+                "review_certainty": "probable",
+                "review_model": "luna/sol",
             },
         ),
     )

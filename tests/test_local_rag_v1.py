@@ -200,7 +200,7 @@ class LocalRagV1Tests(unittest.TestCase):
         self.assertTrue(rag["enabled"])
         self.assertEqual(rag["provider"], "local-rag")
         self.assertEqual(rag["sources"][0]["document_id"], "doc-local-haruhi")
-        self.assertIn("检索资料摘要", prompt_text)
+        self.assertIn("可借鉴的原作互动素材", prompt_text)
         self.assertIn("社团 活动 计划", prompt_text)
 
     def test_chat_rag_does_not_leak_other_character_document(self) -> None:

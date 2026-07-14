@@ -148,7 +148,7 @@ class FakeRagRetrieveTests(unittest.TestCase):
 
         self.assertTrue(response["ok"])
         self.assertEqual(response["data"]["rag"], {"enabled": False})
-        self.assertNotIn("检索资料摘要", prompt_text)
+        self.assertNotIn("可借鉴的原作互动素材", prompt_text)
 
     def test_rag_true_adds_chunks_to_prompt_and_sources(self) -> None:
         router = RecordingModelRouter()
@@ -166,7 +166,7 @@ class FakeRagRetrieveTests(unittest.TestCase):
         self.assertTrue(rag["enabled"])
         self.assertEqual(rag["provider"], "fake-rag")
         self.assertEqual(rag["hit_count"], 2)
-        self.assertIn("检索资料摘要", prompt_text)
+        self.assertIn("可借鉴的原作互动素材", prompt_text)
         self.assertIn("中后期的春日仍然主动推动社团活动", prompt_text)
         self.assertEqual(rag["sources"][0]["document_id"], "doc-haruhi-timeline")
         self.assertEqual(rag["sources"][0]["chunk_id"], "chunk-haruhi-mid-late-1")
