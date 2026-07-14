@@ -17,6 +17,7 @@ from haruhi_roleplay_api.infrastructure import (  # noqa: E402
     RuntimeConfigStore,
     build_rag_service_from_env,
     ingest_corpus_file,
+    require_production_embedding,
 )
 
 
@@ -30,6 +31,11 @@ def main() -> int:
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
     parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
     parser.add_argument("--app-id", default=None)
+    parser.add_argument(
+        "--allow-test-embedding",
+        action="store_true",
+        help="仅供非生产测试显式允许 hash embedding。",
+    )
     args = parser.parse_args()
 
     store = RuntimeConfigStore(
@@ -47,6 +53,13 @@ def main() -> int:
             "一次性导入只适用于 Chroma/Qdrant 等持久化 provider；"
             "纯内存 local provider 请使用 RAG_BOOTSTRAP_CORPUS_PATH 随服务启动装载"
         )
+
+    require_production_embedding(
+        env,
+        allow_test_embedding=args.allow_test_embedding,
+    )
+    if args.allow_test_embedding:
+        env["RAG_ALLOW_TEST_EMBEDDING"] = "true"
 
     # 避免 factory 先按启动配置自动装载一遍，再由本脚本重复调用。
     env.pop("RAG_BOOTSTRAP_CORPUS_PATH", None)

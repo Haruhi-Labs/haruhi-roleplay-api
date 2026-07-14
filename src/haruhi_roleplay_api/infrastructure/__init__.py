@@ -14,6 +14,7 @@ from haruhi_roleplay_api.infrastructure.embedding_provider_factory import (
     EmbeddingProviderSettings,
     build_embedding_provider,
     build_embedding_provider_from_env,
+    require_production_embedding,
 )
 from haruhi_roleplay_api.infrastructure.http_runtime import (
     HttpRuntimeResponse,
@@ -82,6 +83,7 @@ __all__ = [
     "build_backend_context_provider_from_env",
     "build_embedding_provider",
     "build_embedding_provider_from_env",
+    "require_production_embedding",
     "build_memory_store",
     "build_memory_store_from_env",
     "build_model_router",

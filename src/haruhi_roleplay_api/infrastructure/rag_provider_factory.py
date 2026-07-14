@@ -16,6 +16,7 @@ from haruhi_roleplay_api.adapters.rag_vector import LocalVectorRagService
 from haruhi_roleplay_api.infrastructure.embedding_provider_factory import (
     EmbeddingProviderSettings,
     build_embedding_provider,
+    require_production_embedding,
 )
 from haruhi_roleplay_api.infrastructure.provider_config_facade import (
     apply_provider_config_facade,
@@ -138,6 +139,13 @@ def build_rag_service_from_env(env: Mapping[str, str]):
     env = apply_provider_config_facade(env)
     settings = RagProviderSettings.from_mapping(env)
     provider = settings.provider.strip().lower().replace("-", "_")
+    if provider in {"qdrant", "cloud_rag"}:
+        require_production_embedding(
+            env,
+            allow_test_embedding=_bool_from_mapping(
+                env.get("RAG_ALLOW_TEST_EMBEDDING", "false")
+            ),
+        )
     embedding_provider = (
         build_embedding_provider(EmbeddingProviderSettings.from_mapping(env))
         if _requires_embedding_provider(provider)

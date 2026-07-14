@@ -227,6 +227,7 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("RAG_PROVIDER", "RAG", "enum", "RAG provider.", default="local", enum=("fake", "local", "local_vector", "chroma", "faiss", "qdrant")),
     _field("RAG_CHUNK_SIZE", "RAG", "int", "RAG chunk size.", default="320", min_value=1),
     _field("RAG_EMBEDDING_DIMENSIONS", "RAG", "int", "RAG vector dimensions.", default="384", min_value=1),
+    _field("RAG_ALLOW_TEST_EMBEDDING", "RAG", "bool", "Allow hash embedding for explicit non-production tests.", default="false"),
     _field("RAG_VECTOR_BACKEND", "RAG", "enum", "Local vector backend.", default="memory", enum=("memory", "chroma", "faiss")),
     _field("LOCAL_VECTOR_RAG_BACKEND", "RAG", "enum", "Local vector backend override.", default="memory", enum=("memory", "chroma", "faiss")),
     _field("CHROMA_COLLECTION", "RAG", "string", "Chroma collection name.", default="haruhi_rag"),
@@ -718,6 +719,14 @@ def _check_dependencies(env: Mapping[str, str]) -> tuple[tuple[str, ...], tuple[
         if not env.get("CHROMA_PERSIST_PATH"):
             warnings.append("CHROMA_PERSIST_PATH is empty; Chroma will be in-memory")
     embedding_provider = _normalized(env.get("EMBEDDING_PROVIDER", "hash"))
+    if (
+        rag_provider in {"qdrant", "cloud_rag"}
+        and embedding_provider in {"hash", "local_hash"}
+        and _normalized(env.get("RAG_ALLOW_TEST_EMBEDDING", "false")) != "true"
+    ):
+        errors.append(
+            "Qdrant 生产语料禁止使用 hash embedding；请配置真实中文/多语 embedding"
+        )
     if embedding_provider == "openai" and not (
         env.get("EMBEDDING_API_KEY")
         or env.get("OPENAI_API_KEY")

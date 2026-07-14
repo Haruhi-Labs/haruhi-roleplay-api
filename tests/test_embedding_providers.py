@@ -86,6 +86,33 @@ def retrieve_input() -> RagRetrieveInput:
 
 
 class EmbeddingProviderTests(unittest.TestCase):
+    def test_qdrant_factory_rejects_hash_embedding_without_test_override(self) -> None:
+        with self.assertRaises(AppError) as context:
+            build_rag_service_from_env(
+                {
+                    "RAG_PROVIDER": "qdrant",
+                    "QDRANT_URL": "https://qdrant.example",
+                    "QDRANT_COLLECTION": "haruhi_rag_live",
+                    "EMBEDDING_PROVIDER": "hash",
+                }
+            )
+
+        self.assertEqual(context.exception.code, ErrorCode.RAG_PROVIDER_ERROR)
+        self.assertIn("禁止使用 hash embedding", context.exception.public_message)
+
+    def test_qdrant_factory_allows_explicit_hash_test_override(self) -> None:
+        service = build_rag_service_from_env(
+            {
+                "RAG_PROVIDER": "qdrant",
+                "QDRANT_URL": "https://qdrant.example",
+                "QDRANT_COLLECTION": "haruhi_rag_test",
+                "EMBEDDING_PROVIDER": "hash",
+                "RAG_ALLOW_TEST_EMBEDDING": "true",
+            }
+        )
+
+        self.assertEqual(service.provider_name, "qdrant-rag")
+
     def test_hash_embedding_is_deterministic(self) -> None:
         provider = HashEmbeddingProvider(dimensions=16)
 

@@ -240,6 +240,7 @@ class ProviderConfigFacadeTests(unittest.TestCase):
             "RAG_BASE_URL": "https://qdrant.example",
             "RAG_INDEX": "haruhi_rag",
             "RAG_API_KEY": "qdrant-secret",
+            "RAG_ALLOW_TEST_EMBEDDING": "true",
         }
         settings = RagProviderSettings.from_mapping(env)
 
@@ -321,6 +322,10 @@ class ProviderConfigFacadeTests(unittest.TestCase):
                     "RAG_API_TYPE": "qdrant",
                     "RAG_BASE_URL": "https://qdrant.example",
                     "RAG_INDEX": "haruhi_rag",
+                    "EMBEDDING_API_TYPE": "local_openai_compatible",
+                    "EMBEDDING_BASE_URL": "http://embedding.local/v1",
+                    "EMBEDDING_MODEL": "multilingual-embed",
+                    "EMBEDDING_DIMENSIONS": "768",
                 }
             }
         )

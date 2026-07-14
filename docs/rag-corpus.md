@@ -162,7 +162,7 @@ RAG_BOOTSTRAP_APP_ID=web-demo
 python scripts/ingest_haruhi_corpus.py --app-id web-demo
 ```
 
-持久化 provider 完成导入后应取消 `RAG_BOOTSTRAP_CORPUS_PATH`，避免每次启动重复计算 embedding。生产环境建议使用中文/多语 embedding；内置 hash embedding 适合离线测试，不应作为语义检索质量基准。
+持久化 provider 完成导入后应取消 `RAG_BOOTSTRAP_CORPUS_PATH`，避免每次启动重复计算 embedding。生产 Qdrant 和一次性持久化导入现在会硬性拒绝内置 hash embedding；必须配置真实中文/多语 embedding、模型和正确维度。只有明确的非生产测试才能给旧导入脚本传 `--allow-test-embedding`，或设置 `RAG_ALLOW_TEST_EMBEDDING=true`。该例外不要进入生产配置。
 
 生产 Qdrant 不要把运行时直接绑定到某个物理集合。配置稳定 alias（例如 `RAG_INDEX=haruhi_rag_live`），再通过发布脚本创建带 `corpus_version` 的新集合。脚本会先创建所有过滤字段及中文全文 payload index，导入后核对指定 `app_id` 的精确 point 数，只有计数一致才原子切换 alias：
 
