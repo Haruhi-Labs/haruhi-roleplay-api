@@ -445,16 +445,17 @@ class RoleplayOrchestrator:
                 personaMode=chat_input.personaMode,
                 query=query,
                 topK=self._rag_top_k,
-                filters=replace(
-                    base_filters,
-                    recordKinds=(
-                        "dialogue_example",
-                        "inner_monologue",
-                        "behavior_observation",
-                    ),
-                ),
+                filters=base_filters,
                 debug=chat_input.capabilities.debugTrace,
             )
+        )
+        actor_output = replace(
+            actor_output,
+            chunks=tuple(
+                chunk
+                for chunk in actor_output.chunks
+                if chunk.metadata.extra.get("record_kind") != "scene_memory"
+            ),
         )
         director_output = self._rag_service.retrieve(
             RagRetrieveInput(

@@ -208,10 +208,7 @@ class FakeRagRetrieveTests(unittest.TestCase):
         self.assertEqual(len(rag_service.calls), 2)
         actor_call, director_call = rag_service.calls
         self.assertEqual(str(actor_call.characterId), "haruhi")
-        self.assertEqual(
-            actor_call.filters.recordKinds,
-            ("dialogue_example", "inner_monologue", "behavior_observation"),
-        )
+        self.assertEqual(actor_call.filters.recordKinds, ())
         self.assertEqual(str(director_call.characterId), "kyon")
         self.assertEqual(director_call.filters.recordKinds, ("scene_memory",))
         self.assertEqual(
