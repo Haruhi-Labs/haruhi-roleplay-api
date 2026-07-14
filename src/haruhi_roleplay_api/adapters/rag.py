@@ -23,6 +23,19 @@ from haruhi_roleplay_api.domain import (
 )
 
 
+_COMMON_QUERY_NGRAMS = frozenset(
+    {
+        "请告诉",
+        "告诉我",
+        "你会怎",
+        "会怎么",
+        "怎么办",
+        "怎么样",
+        "如果是",
+    }
+)
+
+
 class FakeRagService:
     provider_name = "fake-rag"
 
@@ -319,21 +332,41 @@ def _simple_score(query: str, chunk: RagChunk) -> float:
             chunk.metadata.timeline,
         )
     ).lower()
-    terms = _query_terms(query)
+    query_focus = _query_focus(query)
+    terms = _query_terms(query_focus)
     if not terms:
         return 0.0
     hits = sum(1 for term in terms if term in haystack)
     if hits:
         return hits / len(terms)
-    query_chars = {char for char in query.lower() if not char.isspace()}
-    if not query_chars:
+    query_ngrams = _text_ngrams(query_focus) - _COMMON_QUERY_NGRAMS
+    if not query_ngrams:
         return 0.0
-    overlap = sum(1 for char in query_chars if char in haystack)
-    return overlap / len(query_chars)
+    content_ngrams = _text_ngrams(haystack)
+    overlap_count = len(query_ngrams & content_ngrams)
+    coverage = overlap_count / len(query_ngrams)
+    evidence = min(1.0, overlap_count / 6)
+    return max(coverage, evidence)
 
 
 def _query_terms(query: str) -> tuple[str, ...]:
     return tuple(term for term in query.lower().split() if term)
+
+
+def _query_focus(query: str) -> str:
+    current_marker = "当前用户输入：\n"
+    if current_marker not in query:
+        return query
+    return query.rsplit(current_marker, maxsplit=1)[-1]
+
+
+def _text_ngrams(text: str) -> set[str]:
+    compact = "".join(character for character in text.casefold() if character.isalnum())
+    width = 3 if len(compact) >= 3 else 2
+    return {
+        compact[index : index + width]
+        for index in range(len(compact) - width + 1)
+    }
 
 
 def _managed_documents(

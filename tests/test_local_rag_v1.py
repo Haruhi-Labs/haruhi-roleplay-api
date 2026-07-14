@@ -229,6 +229,25 @@ class LocalRagV1Tests(unittest.TestCase):
         self.assertEqual(rag["sources"], [])
         self.assertNotIn("社团 活动 计划", prompt_text)
 
+    def test_chat_does_not_inject_local_rag_for_unrelated_live_request(self) -> None:
+        service = LocalRagService()
+        router = RecordingModelRouter()
+        ingest_document(service)
+
+        response = post_chat(
+            chat_body(message="请告诉我上海现在的实时天气和地铁延误。"),
+            persona_repository=LocalPersonaRepository(ROOT / "personas"),
+            prompt_builder=PersonaPromptBuilder(),
+            model_router=router,
+            rag_service=service,
+            request_id="req-local-rag-unrelated",
+        )
+
+        prompt_text = "\n".join(message.content for message in router.calls[0])
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["data"]["rag"]["hit_count"], 0)
+        self.assertNotIn("可借鉴的原作互动素材", prompt_text)
+
 
 if __name__ == "__main__":
     unittest.main()
