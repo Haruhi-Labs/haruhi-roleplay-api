@@ -17,6 +17,7 @@ from haruhi_roleplay_api.adapters.rag import (
     _scoped_chunk_id,
 )
 from haruhi_roleplay_api.adapters.embeddings import HashEmbeddingProvider
+from haruhi_roleplay_api.adapters.rag_ranking import rank_roleplay_chunks
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
     AppId,
@@ -156,15 +157,17 @@ class QdrantRagService:
         filtered = tuple(
             chunk for chunk in raw_chunks if _matches_filters(chunk, retrieve_input)
         )
-        ranked = tuple(
-            sorted(filtered, key=lambda chunk: chunk.score, reverse=True)
-        )[: retrieve_input.topK]
+        ranked = rank_roleplay_chunks(
+            filtered,
+            query=retrieve_input.query,
+            top_k=retrieve_input.topK,
+        )
         return RagRetrieveOutput(
             chunks=ranked,
             provider=self.provider_name,
             rawHitCount=len(result),
             filteredHitCount=len(filtered),
-            rerankApplied=False,
+            rerankApplied=bool(filtered),
         )
 
     def list_documents(

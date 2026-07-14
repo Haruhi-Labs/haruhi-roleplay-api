@@ -17,6 +17,7 @@ from haruhi_roleplay_api.adapters.rag import (
     _metadata_with_title,
     _scoped_chunk_id,
 )
+from haruhi_roleplay_api.adapters.rag_ranking import rank_roleplay_chunks
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
     AppId,
@@ -362,18 +363,21 @@ class LocalVectorRagService:
             query_vector=query_vector,
             retrieve_input=retrieve_input,
         )
-        chunks = tuple(
+        candidates = tuple(
             _chunk_with_score(hit.chunk, hit.score)
-            for hit in sorted(hits, key=lambda item: item.score, reverse=True)[
-                : retrieve_input.topK
-            ]
+            for hit in hits
+        )
+        chunks = rank_roleplay_chunks(
+            candidates,
+            query=retrieve_input.query,
+            top_k=retrieve_input.topK,
         )
         return RagRetrieveOutput(
             chunks=chunks,
             provider=self.provider_name,
             rawHitCount=len(hits),
-            filteredHitCount=len(chunks),
-            rerankApplied=False,
+            filteredHitCount=len(candidates),
+            rerankApplied=bool(candidates),
         )
 
     def list_documents(

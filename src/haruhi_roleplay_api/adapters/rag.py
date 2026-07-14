@@ -6,6 +6,7 @@ import hashlib
 from uuid import uuid4
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
+from haruhi_roleplay_api.adapters.rag_ranking import rank_roleplay_chunks
 from haruhi_roleplay_api.domain import (
     AppId,
     CharacterId,
@@ -32,15 +33,17 @@ class FakeRagService:
         filtered = tuple(
             chunk for chunk in self._chunks if _matches_filters(chunk, retrieve_input)
         )
-        ranked = tuple(
-            sorted(filtered, key=lambda chunk: chunk.score, reverse=True)
-        )[: retrieve_input.topK]
+        ranked = rank_roleplay_chunks(
+            filtered,
+            query=retrieve_input.query,
+            top_k=retrieve_input.topK,
+        )
         return RagRetrieveOutput(
             chunks=ranked,
             provider=self.provider_name,
             rawHitCount=len(self._chunks),
             filteredHitCount=len(filtered),
-            rerankApplied=False,
+            rerankApplied=bool(filtered),
         )
 
     def list_documents(
@@ -120,16 +123,18 @@ class LocalRagService:
             )
             for chunk in metadata_filtered
         )
-        ranked = tuple(
-            chunk for chunk in sorted(scored, key=lambda item: item.score, reverse=True)
-            if chunk.score > 0
-        )[: retrieve_input.topK]
+        candidates = tuple(chunk for chunk in scored if chunk.score > 0)
+        ranked = rank_roleplay_chunks(
+            candidates,
+            query=retrieve_input.query,
+            top_k=retrieve_input.topK,
+        )
         return RagRetrieveOutput(
             chunks=ranked,
             provider=self.provider_name,
             rawHitCount=len(self._chunks),
             filteredHitCount=len(metadata_filtered),
-            rerankApplied=False,
+            rerankApplied=bool(candidates),
         )
 
     def list_documents(
