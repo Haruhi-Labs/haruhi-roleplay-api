@@ -339,12 +339,24 @@ def _qdrant_filter(retrieve_input: RagRetrieveInput) -> dict[str, Any]:
         must.append({"key": "timeline", "match": {"value": filters.timelines[0]}})
     elif filters.timelines:
         must.append({"key": "timeline", "match": {"any": list(filters.timelines)}})
+    for values, field in (
+        (filters.recordKinds, "record_kind"),
+        (filters.perspectives, "perspective"),
+        (filters.corpusVersions, "corpus_version"),
+        (filters.retrievalChannels, "retrieval_channel"),
+        (filters.knowledgeOwners, "knowledge_owner"),
+        (filters.usages, "usage"),
+    ):
+        if len(values) == 1:
+            must.append({"key": field, "match": {"value": values[0]}})
+        elif values:
+            must.append({"key": field, "match": {"any": list(values)}})
     return {"must": must}
 
 
 def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
     allowed_persona_modes = chunk.metadata.extra.get("allowed_persona_modes")
-    return {
+    payload = {
         "app_id": (
             str(chunk.metadata.appId)
             if chunk.metadata.appId is not None
@@ -372,6 +384,21 @@ def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
         ),
         "metadata": dict(chunk.metadata.extra),
     }
+    for field in (
+        "record_kind",
+        "perspective",
+        "corpus_version",
+        "retrieval_channel",
+        "knowledge_owner",
+        "subject_character_id",
+        "usage",
+        "scene_id",
+        "conversation_id",
+    ):
+        value = chunk.metadata.extra.get(field)
+        if value is not None:
+            payload[field] = value
+    return payload
 
 
 def _chunk_from_qdrant_hit(hit: Mapping[str, Any]) -> RagChunk:
@@ -387,6 +414,19 @@ def _chunk_from_qdrant_hit(hit: Mapping[str, Any]) -> RagChunk:
     title = payload.get("title")
     if title:
         metadata_extra = {**dict(metadata_extra), "title": str(title)}
+    for field in (
+        "record_kind",
+        "perspective",
+        "corpus_version",
+        "retrieval_channel",
+        "knowledge_owner",
+        "subject_character_id",
+        "usage",
+        "scene_id",
+        "conversation_id",
+    ):
+        if field in payload and field not in metadata_extra:
+            metadata_extra = {**dict(metadata_extra), field: payload[field]}
     return RagChunk(
         chunkId=RagChunkId(str(payload["chunk_id"])),
         documentId=RagDocumentId(str(payload["document_id"])),

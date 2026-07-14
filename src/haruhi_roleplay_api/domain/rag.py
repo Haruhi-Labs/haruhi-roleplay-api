@@ -203,12 +203,27 @@ def _spoiler_level(value: Any) -> int:
 class RagRetrieveFilters:
     sourceTypes: tuple[str, ...] = ()
     timelines: tuple[str, ...] = ()
+    recordKinds: tuple[str, ...] = ()
+    perspectives: tuple[str, ...] = ()
+    corpusVersions: tuple[str, ...] = ()
+    retrievalChannels: tuple[str, ...] = ()
+    knowledgeOwners: tuple[str, ...] = ()
+    usages: tuple[str, ...] = ()
     spoilerLevelMax: int | None = None
     language: LanguageCode | None = None
 
     def __post_init__(self) -> None:
         _non_empty_string_tuple(self.sourceTypes, "filters.sourceTypes")
         _non_empty_string_tuple(self.timelines, "filters.timelines")
+        _non_empty_string_tuple(self.recordKinds, "filters.recordKinds")
+        _non_empty_string_tuple(self.perspectives, "filters.perspectives")
+        _non_empty_string_tuple(self.corpusVersions, "filters.corpusVersions")
+        _non_empty_string_tuple(
+            self.retrievalChannels,
+            "filters.retrievalChannels",
+        )
+        _non_empty_string_tuple(self.knowledgeOwners, "filters.knowledgeOwners")
+        _non_empty_string_tuple(self.usages, "filters.usages")
         if self.spoilerLevelMax is not None:
             if isinstance(self.spoilerLevelMax, bool) or not isinstance(
                 self.spoilerLevelMax, int
@@ -274,6 +289,13 @@ class RagChunk:
             "review_certainty",
             "review_model",
             "span_id",
+            "corpus_version",
+            "retrieval_channel",
+            "knowledge_owner",
+            "subject_character_id",
+            "usage",
+            "scene_id",
+            "conversation_id",
         ):
             value = self.metadata.extra.get(field)
             if value is not None:

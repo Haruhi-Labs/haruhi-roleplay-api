@@ -7,7 +7,7 @@ import json
 import re
 import unicodedata
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
@@ -21,6 +21,7 @@ from haruhi_roleplay_api.corpus.haruhi import (
 
 
 PIPELINE_VERSION = "1.0"
+CORPUS_RECORD_SCHEMA_VERSION = "haruhi-rag-record.v2"
 TARGET_CHARACTERS = tuple(CHARACTER_DISPLAY_NAMES)
 MIN_DIALOGUE_CONFIDENCE = 0.65
 MAX_RECORD_CONTENT_CHARS = 760
@@ -137,7 +138,7 @@ class CorpusRecord:
     metadata: Mapping[str, Any]
 
     def to_mapping(self) -> dict[str, Any]:
-        return {
+        mapping = {
             "document_id": self.document_id,
             "title": self.title,
             "character_id": self.character_id,
@@ -149,12 +150,61 @@ class CorpusRecord:
             "content": self.content,
             "metadata": dict(self.metadata),
         }
+        schema_version = self.metadata.get("record_schema_version")
+        if schema_version is not None:
+            mapping["schema_version"] = schema_version
+        for field in (
+            "corpus_version",
+            "record_kind",
+            "perspective",
+            "retrieval_channel",
+            "knowledge_owner",
+            "subject_character_id",
+            "usage",
+        ):
+            value = self.metadata.get(field)
+            if value is not None:
+                mapping[field] = value
+        return mapping
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "CorpusRecord":
         metadata = data.get("metadata", {})
         if not isinstance(metadata, Mapping):
             raise ValueError("语料记录的 metadata 必须是对象")
+        normalized_metadata = dict(metadata)
+        schema_version = data.get("schema_version")
+        if schema_version is not None:
+            if schema_version != CORPUS_RECORD_SCHEMA_VERSION:
+                raise ValueError("语料记录 schema_version 不受支持")
+            normalized_metadata["record_schema_version"] = schema_version
+        for field in (
+            "corpus_version",
+            "record_kind",
+            "perspective",
+            "retrieval_channel",
+            "knowledge_owner",
+            "subject_character_id",
+            "usage",
+        ):
+            value = data.get(field)
+            existing = normalized_metadata.get(field)
+            if value is not None and existing is not None and value != existing:
+                raise ValueError(f"语料记录顶层 {field} 与 metadata 不一致")
+            if value is not None:
+                normalized_metadata[field] = value
+        if schema_version is not None:
+            for field in (
+                "corpus_version",
+                "record_kind",
+                "perspective",
+                "retrieval_channel",
+                "knowledge_owner",
+                "subject_character_id",
+                "usage",
+            ):
+                if not normalized_metadata.get(field):
+                    raise ValueError(f"语料记录缺少必填字段 {field}")
         return cls(
             document_id=str(data["document_id"]),
             title=str(data["title"]),
@@ -165,7 +215,7 @@ class CorpusRecord:
             source_type=str(data["source_type"]),
             trust_level=str(data["trust_level"]),
             content=str(data["content"]),
-            metadata=dict(metadata),
+            metadata=normalized_metadata,
         )
 
 
@@ -247,6 +297,10 @@ def build_haruhi_corpus(
             attribution_stats.update(section_attribution)
 
     records = _deduplicate_records(records)
+    records, corpus_version = finalize_corpus_records(
+        records,
+        pipeline_version=PIPELINE_VERSION,
+    )
     quality = _quality_report(records, build_stats, attribution_stats)
     if quality["errors"]:
         joined = "；".join(str(item) for item in quality["errors"])
@@ -259,7 +313,9 @@ def build_haruhi_corpus(
             handle.write("\n")
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "record_schema_version": CORPUS_RECORD_SCHEMA_VERSION,
+        "corpus_version": corpus_version,
         "pipeline_version": PIPELINE_VERSION,
         "language": "zh-CN",
         "source_policy": {
@@ -284,6 +340,93 @@ def build_haruhi_corpus(
         record_count=len(records),
         stats=quality["stats"],
     )
+
+
+def finalize_corpus_records(
+    records: Iterable[CorpusRecord],
+    *,
+    pipeline_version: str,
+) -> tuple[list[CorpusRecord], str]:
+    enriched: list[CorpusRecord] = []
+    for record in records:
+        semantics = _record_semantics(record)
+        enriched.append(
+            replace(
+                record,
+                metadata={
+                    **dict(record.metadata),
+                    "record_schema_version": CORPUS_RECORD_SCHEMA_VERSION,
+                    **semantics,
+                },
+            )
+        )
+    digest = hashlib.blake2b(digest_size=12)
+    digest.update(pipeline_version.encode("utf-8"))
+    for record in sorted(enriched, key=lambda item: item.document_id):
+        metadata = {
+            key: value
+            for key, value in record.metadata.items()
+            if key not in {"corpus_version", "dataset_version", "atomic_record"}
+        }
+        digest.update(
+            json.dumps(
+                {
+                    "document_id": record.document_id,
+                    "character_id": record.character_id,
+                    "timeline": record.timeline,
+                    "content": record.content,
+                    "metadata": metadata,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+    corpus_version = f"haruhi-rag-{digest.hexdigest()}"
+    finalized = [
+        replace(
+            record,
+            metadata={
+                **dict(record.metadata),
+                "corpus_version": corpus_version,
+                "dataset_version": corpus_version,
+            },
+        )
+        for record in enriched
+    ]
+    return finalized, corpus_version
+
+
+def _record_semantics(record: CorpusRecord) -> dict[str, str]:
+    record_kind = str(record.metadata.get("record_kind", ""))
+    profiles = {
+        "scene_memory": {
+            "retrieval_channel": "canonical_memory",
+            "knowledge_owner": "kyon",
+            "usage": "knowledge",
+        },
+        "inner_monologue": {
+            "retrieval_channel": "internal_voice",
+            "knowledge_owner": "kyon",
+            "usage": "style_and_memory",
+        },
+        "dialogue_example": {
+            "retrieval_channel": "dialogue_style",
+            "knowledge_owner": record.character_id,
+            "usage": "style_only",
+        },
+        "behavior_observation": {
+            "retrieval_channel": "style_observation",
+            "knowledge_owner": "kyon",
+            "usage": "style_only",
+        },
+    }
+    if record_kind not in profiles:
+        raise ValueError(f"不支持的语料记录类型：{record_kind}")
+    return {
+        **profiles[record_kind],
+        "subject_character_id": record.character_id,
+    }
 
 
 def load_corpus_records(path: Path) -> tuple[CorpusRecord, ...]:

@@ -15,6 +15,7 @@ from haruhi_roleplay_api.corpus.pipeline import (
     BuildResult,
     CorpusRecord,
     build_haruhi_corpus,
+    finalize_corpus_records,
     load_corpus_records,
 )
 from haruhi_roleplay_api.corpus.reviewed_dialogue import (
@@ -32,6 +33,7 @@ __all__ = [
     "DialogueOverlayResult",
     "ReviewAnnotation",
     "build_haruhi_corpus",
+    "finalize_corpus_records",
     "apply_reviewed_dialogue_overlay",
     "export_dialogue_review_candidates",
     "load_corpus_records",

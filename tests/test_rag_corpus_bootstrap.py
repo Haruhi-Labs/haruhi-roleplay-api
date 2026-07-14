@@ -101,6 +101,18 @@ class RagCorpusBootstrapTests(unittest.TestCase):
             output.chunks[0].to_source_mapping()["perspective"],
             "spoken_by_character",
         )
+        rejected = service.retrieve(
+            RagRetrieveInput(
+                appId=AppId("web-demo"),
+                userId=UserId("user-1"),
+                characterId=CharacterId("haruhi"),
+                personaMode=PersonaModeId("melancholy_haruhi"),
+                query="社团 招募",
+                topK=3,
+                filters=RagRetrieveFilters(recordKinds=("scene_memory",)),
+            )
+        )
+        self.assertEqual(rejected.chunks, ())
 
     def test_bootstrap_requires_explicit_app_id(self) -> None:
         with self.assertRaises(AppError) as context:

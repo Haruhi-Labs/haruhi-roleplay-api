@@ -47,6 +47,7 @@ def ingest_input(
     *,
     app_id: str = "web",
     atomic_record: bool = False,
+    structured: bool = False,
 ) -> RagIngestInput:
     return RagIngestInput(
         appId=AppId(app_id),
@@ -61,7 +62,23 @@ def ingest_input(
             spoilerLevel=2,
             language="zh-CN",
             sourceType="timeline",
-            extra={"atomic_record": True} if atomic_record else {},
+            extra={
+                **({"atomic_record": True} if atomic_record else {}),
+                **(
+                    {
+                        "record_kind": "dialogue_example",
+                        "perspective": "spoken_by_character",
+                        "corpus_version": "haruhi-rag-test",
+                        "retrieval_channel": "dialogue_style",
+                        "knowledge_owner": "haruhi",
+                        "subject_character_id": "haruhi",
+                        "usage": "style_only",
+                        "scene_id": "scene-test",
+                    }
+                    if structured
+                    else {}
+                ),
+            },
         ),
     )
 
@@ -151,6 +168,65 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(result.chunkCount, 1)
         self.assertEqual(len(payload["points"]), 1)
         self.assertTrue(payload["points"][0]["payload"]["metadata"]["atomic_record"])
+
+    def test_qdrant_flattens_roleplay_routing_payload(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            return_value=FakeHTTPResponse({"result": {"status": "ok"}}),
+        ) as urlopen:
+            service.ingest(ingest_input(structured=True))
+
+        request = urlopen.call_args.args[0]
+        point = json.loads(request.data.decode("utf-8"))["points"][0]
+
+        self.assertEqual(point["payload"]["record_kind"], "dialogue_example")
+        self.assertEqual(point["payload"]["retrieval_channel"], "dialogue_style")
+        self.assertEqual(point["payload"]["knowledge_owner"], "haruhi")
+        self.assertEqual(point["payload"]["scene_id"], "scene-test")
+
+    def test_qdrant_pushes_roleplay_filters_to_server(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        scoped_input = RagRetrieveInput(
+            appId=AppId("web"),
+            userId=UserId("user-1"),
+            characterId=CharacterId("haruhi"),
+            personaMode=PersonaModeId("mid_late_haruhi"),
+            query="社团 活动",
+            topK=3,
+            filters=RagRetrieveFilters(
+                recordKinds=("dialogue_example",),
+                perspectives=("spoken_by_character",),
+                corpusVersions=("haruhi-rag-test",),
+                retrievalChannels=("dialogue_style",),
+                knowledgeOwners=("haruhi",),
+                usages=("style_only",),
+            ),
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            return_value=FakeHTTPResponse({"result": []}),
+        ) as urlopen:
+            service.retrieve(scoped_input)
+
+        request = urlopen.call_args.args[0]
+        must = json.loads(request.data.decode("utf-8"))["filter"]["must"]
+
+        for field, value in (
+            ("record_kind", "dialogue_example"),
+            ("perspective", "spoken_by_character"),
+            ("corpus_version", "haruhi-rag-test"),
+            ("retrieval_channel", "dialogue_style"),
+            ("knowledge_owner", "haruhi"),
+            ("usage", "style_only"),
+        ):
+            self.assertIn({"key": field, "match": {"value": value}}, must)
 
     def test_qdrant_retrieve_returns_filtered_sources(self) -> None:
         service = QdrantRagService(

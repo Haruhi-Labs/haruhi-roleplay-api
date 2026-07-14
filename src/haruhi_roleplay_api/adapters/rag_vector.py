@@ -439,7 +439,7 @@ def _chunk_with_score(chunk: RagChunk, score: float) -> RagChunk:
 
 
 def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
-    return {
+    payload = {
         "app_id": (
             str(chunk.metadata.appId)
             if chunk.metadata.appId is not None
@@ -460,6 +460,21 @@ def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
         "title": str(chunk.metadata.extra.get("title", "")),
         "metadata_json": json.dumps(dict(chunk.metadata.extra), ensure_ascii=False),
     }
+    for field in (
+        "record_kind",
+        "perspective",
+        "corpus_version",
+        "retrieval_channel",
+        "knowledge_owner",
+        "subject_character_id",
+        "usage",
+        "scene_id",
+        "conversation_id",
+    ):
+        value = chunk.metadata.extra.get(field)
+        if value is not None:
+            payload[field] = str(value)
+    return payload
 
 
 def _chunk_from_payload(

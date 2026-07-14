@@ -14,6 +14,7 @@ from haruhi_roleplay_api.corpus.pipeline import (  # noqa: E402
     CorpusRecord,
     _clean_source_lines,
     _speaker_candidates,
+    finalize_corpus_records,
     load_corpus_records,
 )
 
@@ -89,6 +90,68 @@ class HaruhiCorpusPipelineTests(unittest.TestCase):
             loaded = load_corpus_records(path)
 
         self.assertEqual(loaded, (record,))
+
+    def test_finalizer_promotes_roleplay_routing_fields_and_versions(self) -> None:
+        record = CorpusRecord(
+            document_id="haruhi-test-observation",
+            title="春日行为观察",
+            character_id="haruhi",
+            timeline="melancholy",
+            spoiler_level=1,
+            language="zh-CN",
+            source_type="scene",
+            trust_level="canonical_heuristic",
+            content="作品：测试。\n春日露出不耐烦的表情。",
+            metadata={
+                "record_kind": "behavior_observation",
+                "perspective": "kyon_observation_not_character_memory",
+            },
+        )
+
+        finalized, corpus_version = finalize_corpus_records(
+            (record,),
+            pipeline_version="test.v1",
+        )
+        mapping = finalized[0].to_mapping()
+
+        self.assertEqual(mapping["schema_version"], "haruhi-rag-record.v2")
+        self.assertEqual(mapping["corpus_version"], corpus_version)
+        self.assertEqual(mapping["retrieval_channel"], "style_observation")
+        self.assertEqual(mapping["knowledge_owner"], "kyon")
+        self.assertEqual(mapping["subject_character_id"], "haruhi")
+        self.assertEqual(mapping["usage"], "style_only")
+
+    def test_loader_rejects_conflicting_promoted_field(self) -> None:
+        record = CorpusRecord(
+            document_id="haruhi-test-conflict",
+            title="冲突记录",
+            character_id="haruhi",
+            timeline="melancholy",
+            spoiler_level=1,
+            language="zh-CN",
+            source_type="scene",
+            trust_level="canonical",
+            content="测试内容",
+            metadata={
+                "record_kind": "dialogue_example",
+                "perspective": "spoken_by_character",
+            },
+        )
+        finalized, _ = finalize_corpus_records(
+            (record,),
+            pipeline_version="test.v1",
+        )
+        mapping = finalized[0].to_mapping()
+        mapping["record_kind"] = "scene_memory"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "records.jsonl"
+            path.write_text(
+                json.dumps(mapping, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "与 metadata 不一致"):
+                load_corpus_records(path)
 
 
 if __name__ == "__main__":

@@ -183,6 +183,17 @@ def _matches_filters(chunk: RagChunk, retrieve_input: RagRetrieveInput) -> bool:
         return False
     if filters.timelines and metadata.timeline not in filters.timelines:
         return False
+    extra_filters = (
+        (filters.recordKinds, "record_kind"),
+        (filters.perspectives, "perspective"),
+        (filters.corpusVersions, "corpus_version"),
+        (filters.retrievalChannels, "retrieval_channel"),
+        (filters.knowledgeOwners, "knowledge_owner"),
+        (filters.usages, "usage"),
+    )
+    for allowed, field in extra_filters:
+        if allowed and str(metadata.extra.get(field, "")) not in allowed:
+            return False
     if (
         filters.spoilerLevelMax is not None
         and metadata.spoilerLevel > filters.spoilerLevelMax

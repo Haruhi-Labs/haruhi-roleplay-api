@@ -24,6 +24,7 @@ from haruhi_roleplay_api.corpus.pipeline import (
     PIPELINE_VERSION,
     CorpusRecord,
     SimplifiedChineseConverter,
+    finalize_corpus_records,
     load_corpus_records,
 )
 
@@ -100,6 +101,10 @@ def apply_reviewed_dialogue_overlay(
             record.document_id,
         )
     )
+    records, corpus_version = finalize_corpus_records(
+        records,
+        pipeline_version=REVIEWED_PIPELINE_VERSION,
+    )
     with records_path.open("w", encoding="utf-8", newline="\n") as handle:
         for record in records:
             handle.write(json.dumps(record.to_mapping(), ensure_ascii=False, sort_keys=True))
@@ -146,6 +151,9 @@ def apply_reviewed_dialogue_overlay(
         }
     )
     manifest["pipeline_version"] = REVIEWED_PIPELINE_VERSION
+    manifest["schema_version"] = 2
+    manifest["record_schema_version"] = "haruhi-rag-record.v2"
+    manifest["corpus_version"] = corpus_version
     manifest["stats"] = stats
     manifest["dialogue_review"] = review_stats
     quality = manifest.setdefault("quality", {})

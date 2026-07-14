@@ -16,6 +16,10 @@
 
 导入器会给离线记录附加 `atomic_record=true`，Local、Chroma/Faiss 和 Qdrant provider 都会保持“一条 JSONL 记录对应一个检索 chunk”，不会再按通用文档的 `RAG_CHUNK_SIZE` 二次切开结构化台词或目标回答。通过管理 API 上传的普通长文档仍按原有规则分块。
 
+正式记录遵循 [`schemas/haruhi-rag-record-v2.schema.json`](../schemas/haruhi-rag-record-v2.schema.json)。`record_kind`、`perspective`、`retrieval_channel`、`knowledge_owner`、`subject_character_id`、`usage` 和 `corpus_version` 同时位于 JSONL 顶层和 metadata；加载时两处不一致会直接失败。这样既保留现有 `RagDocumentMetadata.extra` 兼容性，也能在 Qdrant/Chroma payload 中扁平索引和过滤。
+
+其中 `behavior_observation` 的 `knowledge_owner=kyon`、`subject_character_id=<被观察角色>`、`usage=style_only`，明确表示资料来自阿虚视角，只能校准目标角色的外显演绎；`dialogue_example` 使用 `retrieval_channel=dialogue_style`，不作为当前事件事实；`scene_memory` 才属于 `usage=knowledge`。每次确定性构建都会根据全部记录正文和元数据生成 `haruhi-rag-<digest>` 形式的 `corpus_version`，并写入 manifest 和每条记录。
+
 | 记录类型 | 检索角色 | 用途 | 视角约束 |
 |---|---|---|---|
 | `scene_memory` | 阿虚 | 约 300～400 字的连续场景 | 阿虚第一人称经历 |
