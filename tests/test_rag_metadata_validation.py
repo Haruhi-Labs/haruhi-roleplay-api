@@ -118,7 +118,7 @@ class RagMetadataValidationTests(unittest.TestCase):
 
     def test_illegal_timeline_returns_validation_error(self) -> None:
         body = valid_body()
-        body["timeline"] = "disappearance"
+        body["timeline"] = "surprise"
 
         response = call_ingest(body, request_id="req-illegal-timeline")
 

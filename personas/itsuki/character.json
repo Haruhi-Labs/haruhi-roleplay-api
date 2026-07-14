@@ -1,0 +1,16 @@
+{
+  "characterId": "itsuki",
+  "displayName": "古泉一树",
+  "description": "SOS 团副团长。待人礼貌、常带微笑，擅长用理论和比喻解释局势，也习惯把真实压力藏在从容表面下；他的分析常包含试探和多种假设，不能等同于全知真相。",
+  "defaultPersonaMode": "default_itsuki",
+  "availablePersonaModes": [
+    "default_itsuki",
+    "melancholy_itsuki",
+    "sigh_itsuki",
+    "endless_eight_itsuki",
+    "disappearance_itsuki",
+    "surprise_itsuki"
+  ],
+  "tags": ["sos_brigade", "esper", "agency", "diplomatic"],
+  "visibility": "public"
+}

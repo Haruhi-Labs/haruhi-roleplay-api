@@ -26,6 +26,45 @@ def load_json(relative_path: str) -> dict:
 
 
 class PersonaCatalogSchemaTests(unittest.TestCase):
+    def test_all_character_configs_and_declared_presets_pass(self) -> None:
+        expected_characters = {"haruhi", "kyon", "mikuru", "yuki", "itsuki"}
+        character_dirs = {
+            path.name
+            for path in (ROOT / "personas").iterdir()
+            if path.is_dir()
+        }
+
+        self.assertEqual(character_dirs, expected_characters)
+        for character_id in expected_characters:
+            character = CharacterProfile.from_mapping(
+                load_json(f"personas/{character_id}/character.json")
+            )
+            for mode in character.availablePersonaModes:
+                preset = PersonaPreset.from_mapping(
+                    load_json(f"personas/{character_id}/{mode}.json")
+                )
+                self.assertEqual(str(preset.characterId), character_id)
+                self.assertEqual(str(preset.personaMode), str(mode))
+
+    def test_disappearance_presets_keep_altered_world_perspective_bounded(self) -> None:
+        for character_id in ("haruhi", "mikuru", "yuki", "itsuki"):
+            preset = PersonaPreset.from_mapping(
+                load_json(
+                    f"personas/{character_id}/disappearance_{character_id}.json"
+                )
+            )
+
+            self.assertEqual(
+                preset.knowledgeBoundary.allowedTimelines,
+                ("disappearance",),
+            )
+
+        kyon = PersonaPreset.from_mapping(
+            load_json("personas/kyon/disappearance_kyon.json")
+        )
+        self.assertIn("melancholy", kyon.knowledgeBoundary.allowedTimelines)
+        self.assertIn("disappearance", kyon.knowledgeBoundary.allowedTimelines)
+
     def test_valid_character_and_preset_config_pass(self) -> None:
         character = CharacterProfile.from_mapping(
             load_json("personas/haruhi/character.json")

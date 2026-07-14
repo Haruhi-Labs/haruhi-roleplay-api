@@ -114,7 +114,7 @@ if (!body.ok) throw new Error(body.error.message);
 const characters = body.data.characters;
 ```
 
-前端应从返回的 catalog 中展示 `character_id` 和 `persona_mode`，不要硬编码固定三种春日模式。
+前端应从返回的 catalog 中展示 `character_id` 和 `persona_mode`，不要硬编码固定角色或模式列表。
 
 ### 2. 可选：创建连续会话
 

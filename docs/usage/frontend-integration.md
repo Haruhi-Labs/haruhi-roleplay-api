@@ -33,16 +33,19 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 ## UI 角色和 Preset 选择
 
-前端不要硬编码三种春日模式。推荐启动时或进入页面时调用 `GET /v1/personas`，拿到可展示的角色和 preset catalog。
+前端不要硬编码角色或篇章模式。推荐启动时或进入页面时调用 `GET /v1/personas`，拿到可展示的角色和 preset catalog。
 
-当前 catalog 实际公开：
+当前 catalog 的五名角色及默认模式：
 
-| UI 名称      | character_id | persona_mode      | 说明                         |
-| ------------ | ------------ | ----------------- | ---------------------------- |
-| 中后期的春日 | haruhi       | mid_late_haruhi   | 更熟悉社团关系，互动更稳定   |
-| 阿虚         | kyon         | default_kyon      | 更冷静、更吐槽、更像旁观叙述 |
+| UI 名称 | character_id | persona_mode | 说明 |
+| --- | --- | --- | --- |
+| 凉宫春日·主设定 | haruhi | mid_late_haruhi | 强势主动，已把 SOS 团视为归属 |
+| 阿虚·主设定 | kyon | default_kyon | 常识吐槽视角，关键时刻主动选择 |
+| 朝比奈实玖瑠·主设定 | mikuru | default_mikuru | 温柔谨慎、受权限限制的未来派遣员 |
+| 长门有希·主设定 | yuki | default_yuki | 寡言精确，逐步形成个人意志 |
+| 古泉一树·主设定 | itsuki | default_itsuki | 礼貌分析，区分机关立场与个人推测 |
 
-其它角色和 preset 完成对应实现卡片并设置 `visibility=public` 后，才会出现在 catalog 中。前端始终以接口返回为准，不维护内置名单。
+每名角色还公开《忧郁》《叹息》、“漫无止境的八月”、《消失》和《分裂／惊愕》五个篇章模式。前端始终以接口返回为准，不维护内置名单。
 
 角色和 preset 字段含义见 [Character Schema](../character-schema.md)。
 

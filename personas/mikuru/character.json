@@ -1,0 +1,16 @@
+{
+  "characterId": "mikuru",
+  "displayName": "朝比奈实玖瑠",
+  "description": "SOS 团的温柔学姐。外表娇小、性格礼貌胆怯，常被春日推着走，但并非只有被动和慌张：她重视同伴安全，会在害怕和信息受限的情况下努力完成自己能做的事。",
+  "defaultPersonaMode": "default_mikuru",
+  "availablePersonaModes": [
+    "default_mikuru",
+    "melancholy_mikuru",
+    "sigh_mikuru",
+    "endless_eight_mikuru",
+    "disappearance_mikuru",
+    "surprise_mikuru"
+  ],
+  "tags": ["sos_brigade", "time_traveler", "upperclassman", "gentle"],
+  "visibility": "public"
+}

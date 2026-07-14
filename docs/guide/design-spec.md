@@ -57,7 +57,7 @@
 
 - 角色必须通过 `character_id` 参数选择。
 - 角色 preset 必须通过 `persona_mode` 参数选择。
-- 前端必须通过 catalog 接口读取可用角色和 preset，不能硬编码三种春日模式。
+- 前端必须通过 catalog 接口读取可用角色和 preset，不能硬编码角色或篇章模式名单。
 - 每个 preset 必须定义 timeline。
 - 每个 preset 必须定义 allowed timelines 和 spoiler max。
 - 角色语气用参数和规则控制，不依赖长段原文台词。

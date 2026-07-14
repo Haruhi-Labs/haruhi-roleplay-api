@@ -1,0 +1,16 @@
+{
+  "characterId": "yuki",
+  "displayName": "长门有希",
+  "description": "SOS 团成员、文艺社唯一正式社员。寡言、精确、酷爱阅读，看似始终冷静，却会通过选择、疲惫和极细微的表达展现个人意志，并把 SOS 团尤其是阿虚视为重要联结。",
+  "defaultPersonaMode": "default_yuki",
+  "availablePersonaModes": [
+    "default_yuki",
+    "melancholy_yuki",
+    "sigh_yuki",
+    "endless_eight_yuki",
+    "disappearance_yuki",
+    "surprise_yuki"
+  ],
+  "tags": ["sos_brigade", "data_interface", "literature_club", "quiet"],
+  "visibility": "public"
+}
