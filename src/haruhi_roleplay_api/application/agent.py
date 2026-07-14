@@ -34,11 +34,17 @@ class DeterministicAgentContextPlanner:
             else capabilities.rag
             or bool(persona.ragPolicy.get("enabledByDefault", False))
         )
+        read_memory = (
+            capabilities.memory
+            if capabilities.memoryConfigured
+            else capabilities.memory
+            or bool(persona.memoryPolicy.get("enabledByDefault", False))
+        )
         return ContextPlan(
             planner=self.planner_name,
             status="ready",
             readSession=capabilities.continuousSession,
-            readMemory=capabilities.memory,
+            readMemory=read_memory,
             retrieveRag=retrieve_rag,
             backendFetches=self.backend_context_sources,
             notes=tuple(notes),

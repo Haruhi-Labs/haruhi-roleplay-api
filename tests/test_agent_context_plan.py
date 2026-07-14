@@ -159,6 +159,28 @@ class AgentContextPlanTests(unittest.TestCase):
         self.assertTrue(debug["memoryEnabled"])
         self.assertEqual(debug["memoryReadCount"], 0)
 
+    def test_persona_policy_enables_memory_when_client_omits_override(self) -> None:
+        body = chat_body()
+        body["capabilities"].pop("memory")
+
+        response = call_chat(body, memory_store=InMemoryMemoryStore())
+
+        self.assertTrue(response["ok"])
+        debug = response["data"]["debug"]
+        self.assertTrue(debug["contextPlan"]["readMemory"])
+        self.assertTrue(debug["memoryEnabled"])
+
+    def test_persona_default_memory_safely_degrades_without_store(self) -> None:
+        body = chat_body()
+        body["capabilities"].pop("memory")
+
+        response = call_chat(body)
+
+        self.assertTrue(response["ok"])
+        debug = response["data"]["debug"]
+        self.assertFalse(debug["contextPlan"]["readMemory"])
+        self.assertFalse(debug["memoryEnabled"])
+
     def test_session_plan_enables_session_read(self) -> None:
         session_store = InMemorySessionStore()
         session = session_store.create_session(

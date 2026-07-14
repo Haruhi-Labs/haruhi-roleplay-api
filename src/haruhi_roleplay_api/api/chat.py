@@ -243,7 +243,6 @@ def _capabilities_to_internal(
     if not isinstance(value, Mapping):
         raise DTOValidationError("capabilities must be an object")
     capabilities = {
-        "memory": value.get("memory", False),
         "continuousSession": value.get("continuous_session", False),
         "safetyFilter": value.get("safety_filter", True),
         "debugTrace": value.get("debug_trace", False),
@@ -251,6 +250,8 @@ def _capabilities_to_internal(
     }
     if "rag" in value:
         capabilities["rag"] = value["rag"]
+    if "memory" in value:
+        capabilities["memory"] = value["memory"]
     return capabilities
 
 

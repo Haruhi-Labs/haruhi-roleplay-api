@@ -215,6 +215,16 @@ class RoleplayOrchestrator:
                 retrieveRag=False,
                 notes=(*context_plan.notes, "rag-provider-unavailable"),
             )
+        if (
+            context_plan.readMemory
+            and self._memory_store is None
+            and not chat_input.capabilities.memoryConfigured
+        ):
+            context_plan = replace(
+                context_plan,
+                readMemory=False,
+                notes=(*context_plan.notes, "memory-store-unavailable"),
+            )
         _record_event(events, "load_session")
         session = self._session_for_chat(chat_input, context_plan)
         _record_event(events, "read_session_messages")
@@ -270,7 +280,11 @@ class RoleplayOrchestrator:
             _record_event(prepared.events, "write_session_messages")
             self._write_session_messages(chat_input, model_response.reply)
         _record_event(prepared.events, "write_memory")
-        written_memories = self._write_memory_for_chat(chat_input, prepared.persona)
+        written_memories = self._write_memory_for_chat(
+            chat_input,
+            prepared.persona,
+            prepared.context_plan,
+        )
         _record_event(prepared.events, "build_response")
 
         return ChatOutput(
@@ -286,9 +300,9 @@ class RoleplayOrchestrator:
             },
             rag=_rag_output_to_chat_metadata(prepared.rag_output),
             memory=_memory_output_to_chat_metadata(
-                chat_input,
                 prepared.memory_items,
                 written_memories,
+                enabled=prepared.context_plan.readMemory,
             ),
             safety={
                 "enabled": chat_input.capabilities.safetyFilter,
@@ -370,7 +384,7 @@ class RoleplayOrchestrator:
             userId=chat_input.userId,
             characterId=chat_input.characterId,
             personaMode=chat_input.personaMode,
-            enabled=chat_input.capabilities.memory,
+            enabled=context_plan.readMemory,
             allowedTypes=_memory_types_for_persona(persona),
             maxItems=self._memory_read_limit,
         )
@@ -391,8 +405,9 @@ class RoleplayOrchestrator:
         self,
         chat_input: ChatInput,
         persona: PersonaPreset,
+        context_plan: ContextPlan,
     ) -> tuple[MemoryItem, ...]:
-        if not chat_input.capabilities.memory:
+        if not context_plan.readMemory:
             return ()
         if self._memory_store is None:
             raise DTOValidationError("memoryStore is required for memory")
@@ -409,7 +424,7 @@ class RoleplayOrchestrator:
                 userId=chat_input.userId,
                 characterId=chat_input.characterId,
                 personaMode=chat_input.personaMode,
-                enabled=chat_input.capabilities.memory,
+                enabled=context_plan.readMemory,
                 allowedTypes=allowed_types,
                 candidate=candidate,
             )
@@ -663,7 +678,7 @@ def _capability_trace(
     capabilities = chat_input.capabilities
     return {
         "rag": context_plan.retrieveRag,
-        "memory": capabilities.memory,
+        "memory": context_plan.readMemory,
         "continuousSession": capabilities.continuousSession,
         "safetyFilter": capabilities.safetyFilter,
         "stream": capabilities.stream,
@@ -838,11 +853,12 @@ def _rag_output_to_chat_metadata(
 
 
 def _memory_output_to_chat_metadata(
-    chat_input: ChatInput,
     memory_items: tuple[MemoryItem, ...],
     written_memories: tuple[MemoryItem, ...],
+    *,
+    enabled: bool,
 ) -> dict[str, object]:
-    if not chat_input.capabilities.memory:
+    if not enabled:
         return {"enabled": False}
     return {
         "enabled": True,
