@@ -242,7 +242,7 @@ class RagChunk:
             raise DTOValidationError("metadata must be RagDocumentMetadata")
 
     def to_source_mapping(self) -> dict[str, Any]:
-        return {
+        mapping = {
             "app_id": (
                 str(self.metadata.appId)
                 if self.metadata.appId is not None
@@ -263,6 +263,22 @@ class RagChunk:
             "language": self.metadata.language,
             "score": self.score,
         }
+        for field in (
+            "record_kind",
+            "perspective",
+            "confidence",
+            "book_title",
+            "section_title",
+            "branch",
+            "review_method",
+            "review_certainty",
+            "review_model",
+            "span_id",
+        ):
+            value = self.metadata.extra.get(field)
+            if value is not None:
+                mapping[field] = value
+        return mapping
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -167,6 +167,14 @@ def _matches_filters(chunk: RagChunk, retrieve_input: RagRetrieveInput) -> bool:
         and metadata.personaMode != retrieve_input.personaMode
     ):
         return False
+    allowed_persona_modes = metadata.extra.get("allowed_persona_modes")
+    if allowed_persona_modes:
+        if not isinstance(allowed_persona_modes, list | tuple):
+            return False
+        if str(retrieve_input.personaMode) not in {
+            str(item) for item in allowed_persona_modes
+        }:
+            return False
     if filters.sourceTypes and metadata.sourceType not in filters.sourceTypes:
         return False
     if filters.timelines and metadata.timeline not in filters.timelines:
@@ -185,12 +193,48 @@ def _chunk_text(content: str, chunk_size: int) -> tuple[str, ...]:
     normalized = "\n".join(line.strip() for line in content.splitlines())
     paragraphs = tuple(part for part in normalized.split("\n") if part)
     chunks: list[str] = []
+    current: list[str] = []
+    current_length = 0
+
+    def flush() -> None:
+        nonlocal current, current_length
+        if current:
+            chunks.append("\n".join(current))
+        current = []
+        current_length = 0
+
     for paragraph in paragraphs or (content.strip(),):
-        for start in range(0, len(paragraph), chunk_size):
-            chunk = paragraph[start : start + chunk_size].strip()
-            if chunk:
-                chunks.append(chunk)
+        pieces = _split_long_paragraph(paragraph, chunk_size)
+        for piece in pieces:
+            extra_length = len(piece) + (1 if current else 0)
+            if current and current_length + extra_length > chunk_size:
+                flush()
+            current.append(piece)
+            current_length += len(piece) + (1 if len(current) > 1 else 0)
+    flush()
     return tuple(chunks)
+
+
+def _split_long_paragraph(paragraph: str, chunk_size: int) -> tuple[str, ...]:
+    if len(paragraph) <= chunk_size:
+        return (paragraph,)
+    pieces: list[str] = []
+    remaining = paragraph
+    punctuation = "。！？；.!?;"
+    while len(remaining) > chunk_size:
+        candidate = remaining[:chunk_size]
+        split_at = max(candidate.rfind(mark) for mark in punctuation)
+        if split_at < chunk_size // 2:
+            split_at = chunk_size
+        else:
+            split_at += 1
+        piece = remaining[:split_at].strip()
+        if piece:
+            pieces.append(piece)
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        pieces.append(remaining)
+    return tuple(pieces)
 
 
 def _metadata_with_title(
@@ -231,10 +275,15 @@ def _scoped_chunk_id(
 
 
 def _simple_score(query: str, chunk: RagChunk) -> float:
+    contextual_metadata = " ".join(
+        str(chunk.metadata.extra.get(field, ""))
+        for field in ("book_title", "section_title", "record_kind", "perspective")
+    )
     haystack = " ".join(
         (
             chunk.content,
             str(chunk.metadata.extra.get("title", "")),
+            contextual_metadata,
             chunk.metadata.sourceType,
             chunk.metadata.timeline,
         )

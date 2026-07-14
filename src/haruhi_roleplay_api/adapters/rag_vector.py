@@ -337,7 +337,9 @@ class LocalVectorRagService:
             )
         )
         vectors = tuple(
-            _normalize_embedding(self._embedding_provider.embed(chunk.content))
+            _normalize_embedding(
+                self._embedding_provider.embed(_contextual_embedding_text(chunk))
+            )
             for chunk in chunks
         )
         self._vector_store.upsert(chunks, vectors)
@@ -505,6 +507,21 @@ def _document_id_for_content(app_id: AppId, content: str) -> str:
         digest_size=8,
     ).hexdigest()
     return f"ragdoc-{digest}"
+
+
+def _contextual_embedding_text(chunk: RagChunk) -> str:
+    context = "；".join(
+        str(value)
+        for value in (
+            chunk.metadata.extra.get("title"),
+            chunk.metadata.extra.get("book_title"),
+            chunk.metadata.extra.get("section_title"),
+            chunk.metadata.extra.get("record_kind"),
+            chunk.metadata.extra.get("perspective"),
+        )
+        if value
+    )
+    return f"{context}\n{chunk.content}" if context else chunk.content
 
 
 def _optional_module(module_name: str, *, package_name: str):

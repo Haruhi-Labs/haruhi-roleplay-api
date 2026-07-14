@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "凉宫引语审阅批次",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["batch_id", "annotations"],
+  "properties": {
+    "batch_id": {
+      "type": "string"
+    },
+    "annotations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "span_id",
+          "function",
+          "scope",
+          "speaker",
+          "word_owner",
+          "certainty",
+          "evidence",
+          "rationale"
+        ],
+        "properties": {
+          "span_id": {"type": "string"},
+          "function": {
+            "type": "string",
+            "enum": ["speech", "thought", "written", "term", "title", "sound", "other", "unclear"]
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["current_scene", "reported_or_recalled", "performed_or_scripted", "recorded_playback", "not_applicable", "unclear"]
+          },
+          "speaker": {"type": "string"},
+          "word_owner": {"type": "string"},
+          "certainty": {
+            "type": "string",
+            "enum": ["certain", "probable", "uncertain"]
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": ["explicit_same", "explicit_previous", "explicit_next", "explicit_cross", "pronoun", "turn_continuity", "response_pair", "scene_participants", "style_only", "none"]
+            }
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 80
+          }
+        }
+      }
+    }
+  }
+}

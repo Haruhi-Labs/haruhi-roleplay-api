@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
 from haruhi_roleplay_api.adapters import (
@@ -19,6 +20,7 @@ from haruhi_roleplay_api.infrastructure.embedding_provider_factory import (
 from haruhi_roleplay_api.infrastructure.provider_config_facade import (
     apply_provider_config_facade,
 )
+from haruhi_roleplay_api.infrastructure.rag_corpus import ingest_corpus_file
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.ports import TextEmbeddingProvider
 
@@ -136,7 +138,37 @@ def build_rag_service_from_env(env: Mapping[str, str]):
         if _requires_embedding_provider(provider)
         else None
     )
-    return build_rag_service(settings, embedding_provider=embedding_provider)
+    service = build_rag_service(settings, embedding_provider=embedding_provider)
+    corpus_path = env.get("RAG_BOOTSTRAP_CORPUS_PATH", "").strip()
+    if corpus_path:
+        corpus_app_id = env.get("RAG_BOOTSTRAP_APP_ID", "").strip()
+        if not corpus_app_id:
+            raise AppError(
+                code=ErrorCode.RAG_INGEST_FAILED,
+                message=(
+                    "配置 RAG_BOOTSTRAP_CORPUS_PATH 时必须同时配置 "
+                    "RAG_BOOTSTRAP_APP_ID。"
+                ),
+            )
+        if not hasattr(service, "ingest"):
+            raise AppError(
+                code=ErrorCode.RAG_INGEST_FAILED,
+                message="当前配置的 RAG provider 不支持装载启动语料。",
+            )
+        try:
+            ingest_corpus_file(
+                service,
+                path=Path(corpus_path),
+                app_id=corpus_app_id,
+            )
+        except AppError:
+            raise
+        except Exception as exc:
+            raise AppError(
+                code=ErrorCode.RAG_INGEST_FAILED,
+                message=f"装载 RAG 启动语料失败：{corpus_path}",
+            ) from exc
+    return service
 
 
 def _requires_embedding_provider(provider: str) -> bool:

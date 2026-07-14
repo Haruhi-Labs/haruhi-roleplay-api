@@ -125,13 +125,34 @@ def _memory_item_section(
 def _rag_chunk_section(prompt_input: PromptBuildInput) -> tuple[PromptMessage, ...]:
     if not prompt_input.ragChunks:
         return ()
-    lines = ["检索资料摘要："]
+    lines = [
+        "检索资料摘要：",
+        "- scene_memory/inner_monologue 只代表当前角色可用的第一人称经历或内心材料。",
+        "- dialogue_example 是说话与应对范例，不表示当前场景正在重演。",
+        "- behavior_observation 是外部行为观察，只用于校准演绎；不得把观察者内心当成角色已知事实。",
+        "- 低于 0.90 的自动标注属于辅助线索，和角色边界冲突时必须舍弃。",
+        "- agent-reviewed 台词已逐条检查；probable 仍是话风参考，不能据此新增角色知识。",
+    ]
     for index, chunk in enumerate(prompt_input.ragChunks, start=1):
+        extra = chunk.metadata.extra
+        title = str(extra.get("title") or chunk.documentId)
+        record_kind = str(extra.get("record_kind") or chunk.metadata.sourceType)
+        perspective = str(extra.get("perspective") or "unspecified")
+        confidence = extra.get("confidence")
+        confidence_text = (
+            f"{float(confidence):.2f}"
+            if isinstance(confidence, int | float) and not isinstance(confidence, bool)
+            else "unspecified"
+        )
+        review_method = str(extra.get("review_method") or "automatic")
+        review_certainty = str(extra.get("review_certainty") or "unspecified")
         lines.append(
-            f"- [{index}] {chunk.content} "
-            f"(source={chunk.documentId}/{chunk.chunkId}, "
+            f"- [{index}] title={title}, kind={record_kind}, "
+            f"perspective={perspective}, confidence={confidence_text}, "
+            f"review={review_method}/{review_certainty}, "
             f"timeline={chunk.metadata.timeline}, "
-            f"spoilerLevel={chunk.metadata.spoilerLevel})"
+            f"spoilerLevel={chunk.metadata.spoilerLevel}: {chunk.content} "
+            f"(source={chunk.documentId}/{chunk.chunkId})"
         )
     lines.append("- 只把这些资料作为当前对话的辅助上下文，不要逐字复述来源。")
     return (PromptMessage(role="system", content="\n".join(lines)),)

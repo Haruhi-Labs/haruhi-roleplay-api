@@ -103,7 +103,11 @@ class QdrantRagService:
                     "points": [
                         {
                             "id": _point_id(self._collection, chunk.chunkId),
-                            "vector": list(self._embedding_provider.embed(chunk.content)),
+                            "vector": list(
+                                self._embedding_provider.embed(
+                                    _contextual_embedding_text(chunk)
+                                )
+                            ),
                             "payload": _payload_from_chunk(chunk),
                         }
                         for chunk in chunks
@@ -307,7 +311,17 @@ def _qdrant_filter(retrieve_input: RagRetrieveInput) -> dict[str, Any]:
     filters = retrieve_input.filters
     must: list[dict[str, Any]] = [
         {"key": "app_id", "match": {"value": str(retrieve_input.appId)}},
-        {"key": "character_id", "match": {"value": str(retrieve_input.characterId)}}
+        {"key": "character_id", "match": {"value": str(retrieve_input.characterId)}},
+        {
+            "should": [
+                {"key": "allowed_persona_modes", "match": {"value": "*"}},
+                {
+                    "key": "allowed_persona_modes",
+                    "match": {"value": str(retrieve_input.personaMode)},
+                },
+                {"is_empty": {"key": "allowed_persona_modes"}},
+            ]
+        },
     ]
     if filters.language is not None:
         must.append({"key": "language", "match": {"value": filters.language}})
@@ -315,12 +329,17 @@ def _qdrant_filter(retrieve_input: RagRetrieveInput) -> dict[str, Any]:
         must.append({"key": "spoiler_level", "range": {"lte": filters.spoilerLevelMax}})
     if len(filters.sourceTypes) == 1:
         must.append({"key": "source_type", "match": {"value": filters.sourceTypes[0]}})
+    elif filters.sourceTypes:
+        must.append({"key": "source_type", "match": {"any": list(filters.sourceTypes)}})
     if len(filters.timelines) == 1:
         must.append({"key": "timeline", "match": {"value": filters.timelines[0]}})
+    elif filters.timelines:
+        must.append({"key": "timeline", "match": {"any": list(filters.timelines)}})
     return {"must": must}
 
 
 def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
+    allowed_persona_modes = chunk.metadata.extra.get("allowed_persona_modes")
     return {
         "app_id": (
             str(chunk.metadata.appId)
@@ -342,6 +361,11 @@ def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
         "language": chunk.metadata.language,
         "source_type": chunk.metadata.sourceType,
         "trust_level": chunk.metadata.trustLevel or "",
+        "allowed_persona_modes": (
+            list(allowed_persona_modes)
+            if isinstance(allowed_persona_modes, list | tuple)
+            else ["*"]
+        ),
         "metadata": dict(chunk.metadata.extra),
     }
 
@@ -384,3 +408,18 @@ def _chunk_from_qdrant_hit(hit: Mapping[str, Any]) -> RagChunk:
 
 def _point_id(collection: str, chunk_id: RagChunkId) -> str:
     return str(uuid5(NAMESPACE_URL, f"{collection}:{chunk_id}"))
+
+
+def _contextual_embedding_text(chunk: RagChunk) -> str:
+    context = "；".join(
+        str(value)
+        for value in (
+            chunk.metadata.extra.get("title"),
+            chunk.metadata.extra.get("book_title"),
+            chunk.metadata.extra.get("section_title"),
+            chunk.metadata.extra.get("record_kind"),
+            chunk.metadata.extra.get("perspective"),
+        )
+        if value
+    )
+    return f"{context}\n{chunk.content}" if context else chunk.content

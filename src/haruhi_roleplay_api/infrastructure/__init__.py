@@ -41,6 +41,10 @@ from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     build_rag_service,
     build_rag_service_from_env,
 )
+from haruhi_roleplay_api.infrastructure.rag_corpus import (
+    CorpusIngestSummary,
+    ingest_corpus_file,
+)
 from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
 from haruhi_roleplay_api.infrastructure.session_store_factory import (
     SessionStoreSettings,
@@ -60,6 +64,7 @@ __all__ = [
     "ModelProviderConfig",
     "ModelProviderSettings",
     "RagProviderSettings",
+    "CorpusIngestSummary",
     "RoleplayHttpRuntime",
     "RuntimeConfigStore",
     "SessionStoreSettings",
@@ -74,6 +79,7 @@ __all__ = [
     "build_model_router",
     "build_rag_service",
     "build_rag_service_from_env",
+    "ingest_corpus_file",
     "build_session_store",
     "build_session_store_from_env",
     "create_local_runtime",
