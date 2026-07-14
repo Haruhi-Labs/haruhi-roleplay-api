@@ -363,7 +363,7 @@ async function renderOverview(force) {
       </section>
       <section class="surface">
         <header class="surface-head">
-          <div><h3>额度使用</h3><p>有限额服务令牌的合计消耗</p></div>
+          <div><h3>生命周期额度</h3><p>设置了总额度的服务令牌合计消耗</p></div>
         </header>
         <div class="surface-body capacity-figure">
           <div class="capacity-total">
@@ -372,8 +372,8 @@ async function renderOverview(force) {
           </div>
           <progress class="capacity-bar" max="100" value="${capacity.toFixed(2)}" aria-label="有限额令牌使用率"></progress>
           <div class="capacity-legend">
-            <div><span>有限额令牌</span><strong>${formatNumber(items.filter((item) => item.quota_tokens !== null).length)}</strong></div>
-            <div><span>不限额令牌</span><strong>${formatNumber(items.filter((item) => item.quota_tokens === null).length)}</strong></div>
+            <div><span>设总额度</span><strong>${formatNumber(items.filter((item) => item.quota_tokens !== null).length)}</strong></div>
+            <div><span>无总额度</span><strong>${formatNumber(items.filter((item) => item.quota_tokens === null).length)}</strong></div>
             <div><span>已吊销</span><strong>${formatNumber(items.filter((item) => item.status === "revoked").length)}</strong></div>
           </div>
         </div>
@@ -557,7 +557,7 @@ function paintTokens(query = "", status = "all") {
   const items = filteredTokens(query, status);
   const active = (state.tokens || []).filter((item) => item.status === "active").length;
   const exhausted = (state.tokens || []).filter(
-    (item) => item.quota_tokens !== null && item.remaining_tokens === 0,
+    (item) => (item.exhausted_quota_scopes || []).length > 0,
   ).length;
   els.routeView.innerHTML = `
     <div class="page-lead">
@@ -567,7 +567,7 @@ function paintTokens(query = "", status = "all") {
     <section class="metric-rack compact-metrics">
       ${metricCell("全部令牌", formatNumber((state.tokens || []).length), "包含已吊销凭证")}
       ${metricCell("活跃令牌", formatNumber(active), "当前可通过鉴权")}
-      ${metricCell("额度耗尽", formatNumber(exhausted), "下一次模型请求将被拒绝")}
+      ${metricCell("任一额度耗尽", formatNumber(exhausted), "总、日或周任一耗尽即拒绝")}
       ${metricCell("累计 Token", formatCompactNumber((state.tokens || []).reduce((sum, item) => sum + Number(item.total_tokens || 0), 0)), "全部服务历史累计")}
     </section>
     <section class="surface data-surface">
@@ -640,16 +640,71 @@ function tokenTable(items) {
 }
 
 function quotaCell(item) {
-  if (item.quota_tokens === null) {
-    return `<strong>不限额</strong><small>无硬性 Token 上限</small>`;
+  const configured = quotaScopes(item).filter((scope) => scope.quota !== null);
+  if (!configured.length) {
+    return `<strong>不限额</strong><small>总、日、周均未设上限</small>`;
   }
-  const used = Number(item.total_tokens || 0);
-  const quota = Number(item.quota_tokens || 0);
-  const ratio = quota ? Math.min((used / quota) * 100, 100) : 0;
   return `
-    <strong>${formatCompactNumber(item.remaining_tokens)} 剩余</strong>
-    <progress class="quota-progress" max="100" value="${ratio.toFixed(2)}" aria-label="额度已使用 ${ratio.toFixed(0)}%"></progress>
-    <small>${formatCompactNumber(used)} / ${formatCompactNumber(quota)}</small>
+    <div class="quota-stack">
+      ${configured.map((scope) => `
+        <span${scope.remaining === 0 ? ' class="is-exhausted"' : ""}>
+          <b>${scope.shortLabel}</b>
+          <strong>${formatCompactNumber(scope.remaining)} 剩余</strong>
+          <small>${formatCompactNumber(scope.used)} / ${formatCompactNumber(scope.quota)}</small>
+        </span>
+      `).join("")}
+    </div>
+  `;
+}
+
+function quotaScopes(item) {
+  return [
+    {
+      label: "生命周期总额度",
+      shortLabel: "总",
+      quota: item.quota_tokens ?? null,
+      used: Number(item.total_tokens || 0),
+      remaining: item.remaining_tokens ?? null,
+      resetAt: null,
+      resetLabel: "令牌存续期间持续累计",
+    },
+    {
+      label: "每日额度",
+      shortLabel: "日",
+      quota: item.daily_quota_tokens ?? null,
+      used: Number(item.daily_tokens || 0),
+      remaining: item.daily_remaining_tokens ?? null,
+      resetAt: item.daily_reset_at || null,
+      resetLabel: "每日 00:00 UTC 重置",
+    },
+    {
+      label: "每周额度",
+      shortLabel: "周",
+      quota: item.weekly_quota_tokens ?? null,
+      used: Number(item.weekly_tokens || 0),
+      remaining: item.weekly_remaining_tokens ?? null,
+      resetAt: item.weekly_reset_at || null,
+      resetLabel: "每周一 00:00 UTC 重置",
+    },
+  ];
+}
+
+function quotaDetailCard(scope) {
+  if (scope.quota === null) {
+    return `
+      <article class="quota-detail-card">
+        <div><span>${scope.label}</span><strong>不限额</strong></div>
+        <p>${scope.resetLabel}</p>
+      </article>
+    `;
+  }
+  const ratio = scope.quota ? Math.min((scope.used / scope.quota) * 100, 100) : 0;
+  return `
+    <article class="quota-detail-card${scope.remaining === 0 ? " is-exhausted" : ""}">
+      <div><span>${scope.label}</span><strong>${formatNumber(scope.remaining)} 剩余</strong></div>
+      <progress class="quota-progress" max="100" value="${ratio.toFixed(2)}" aria-label="${scope.label}已使用 ${ratio.toFixed(0)}%"></progress>
+      <p>${formatCompactNumber(scope.used)} / ${formatCompactNumber(scope.quota)} · ${scope.resetAt ? `${formatUtcBoundary(scope.resetAt)} 重置` : scope.resetLabel}</p>
+    </article>
   `;
 }
 
@@ -659,7 +714,9 @@ async function showCreateTokenDialog() {
     <form id="createTokenForm" class="dialog-form">
       <label><span>服务名称</span><input name="name" required maxlength="120" placeholder="例如：订单服务生产环境" /></label>
       <label><span>App ID</span><input name="app_id" required maxlength="128" placeholder="例如：order-service" /></label>
-      <label><span>Token 总额度</span><input name="quota_tokens" type="number" min="1" step="1" placeholder="留空表示不限额" /></label>
+      <label><span>生命周期总额度</span><input name="quota_tokens" type="number" min="1" step="1" placeholder="留空表示不限额" /><small>令牌存续期间持续累计，不自动重置。</small></label>
+      <label><span>每日额度</span><input name="daily_quota_tokens" type="number" min="1" step="1" placeholder="留空表示不限额" /><small>每日 00:00 UTC 重置。</small></label>
+      <label><span>每周额度</span><input name="weekly_quota_tokens" type="number" min="1" step="1" placeholder="留空表示不限额" /><small>每周一 00:00 UTC 重置。</small></label>
       <label><span>过期时间</span><input name="expires_at" type="datetime-local" /><small>留空表示永不过期；时间按当前浏览器时区解释。</small></label>
       <div class="dialog-notice"><i></i><p>令牌创建后无法修改 App ID。明文只显示一次，请准备好安全的 Secret Manager。</p></div>
       <div class="dialog-actions"><button class="ghost-action" type="button" data-close>取消</button><button class="primary-action" type="submit">签发令牌</button></div>
@@ -673,6 +730,8 @@ async function showCreateTokenDialog() {
     try {
       const data = new FormData(form);
       const quota = String(data.get("quota_tokens") || "").trim();
+      const dailyQuota = String(data.get("daily_quota_tokens") || "").trim();
+      const weeklyQuota = String(data.get("weekly_quota_tokens") || "").trim();
       const expires = String(data.get("expires_at") || "").trim();
       const issued = await request("/v1/access-tokens", {
         method: "POST",
@@ -680,6 +739,8 @@ async function showCreateTokenDialog() {
           name: String(data.get("name") || "").trim(),
           app_id: String(data.get("app_id") || "").trim(),
           quota_tokens: quota ? Number(quota) : null,
+          daily_quota_tokens: dailyQuota ? Number(dailyQuota) : null,
+          weekly_quota_tokens: weeklyQuota ? Number(weeklyQuota) : null,
           expires_at: expires ? new Date(expires).toISOString() : null,
         },
       });
@@ -732,11 +793,16 @@ async function showTokenDetails(tokenId) {
       <div class="detail-metrics">
         <div><span>状态</span>${statusBadge(token.status)}</div>
         <div><span>累计 Token</span><strong>${formatNumber(token.total_tokens)}</strong></div>
-        <div><span>剩余额度</span><strong>${token.remaining_tokens === null ? "不限额" : formatNumber(token.remaining_tokens)}</strong></div>
+        <div><span>已耗尽尺度</span><strong>${(token.exhausted_quota_scopes || []).length ? (token.exhausted_quota_scopes || []).map((scope) => ({ total: "总", daily: "日", weekly: "周" })[scope] || scope).join("、") : "无"}</strong></div>
         <div><span>最后使用</span><strong>${formatDate(token.last_used_at, "尚未使用")}</strong></div>
       </div>
-      <form id="quotaForm" class="inline-form">
-        <label><span>调整总额度</span><input name="quota_tokens" type="number" min="1" step="1" value="${token.quota_tokens ?? ""}" placeholder="留空表示不限额" /></label>
+      <section class="quota-detail-grid" aria-label="令牌额度详情">
+        ${quotaScopes(token).map(quotaDetailCard).join("")}
+      </section>
+      <form id="quotaForm" class="inline-form quota-form">
+        <label><span>生命周期总额度</span><input name="quota_tokens" type="number" min="1" step="1" value="${token.quota_tokens ?? ""}" placeholder="留空表示不限额" /></label>
+        <label><span>每日额度</span><input name="daily_quota_tokens" type="number" min="1" step="1" value="${token.daily_quota_tokens ?? ""}" placeholder="留空表示不限额" /></label>
+        <label><span>每周额度</span><input name="weekly_quota_tokens" type="number" min="1" step="1" value="${token.weekly_quota_tokens ?? ""}" placeholder="留空表示不限额" /></label>
         <button class="secondary-action" type="submit"${token.status !== "active" ? " disabled" : ""}>保存额度</button>
       </form>
       <section class="dialog-section">
@@ -749,13 +815,18 @@ async function showTokenDetails(tokenId) {
     dialog.querySelector("#quotaForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
-      const raw = new FormData(form).get("quota_tokens");
+      const data = new FormData(form);
       const button = form.querySelector("button");
       button.disabled = true;
       try {
         await request(`/v1/access-tokens/${encodeURIComponent(tokenId)}`, {
           method: "PATCH",
-          body: { quota_tokens: String(raw || "").trim() ? Number(raw) : null },
+          body: Object.fromEntries(
+            ["quota_tokens", "daily_quota_tokens", "weekly_quota_tokens"].map((fieldName) => {
+              const raw = String(data.get(fieldName) || "").trim();
+              return [fieldName, raw ? Number(raw) : null];
+            }),
+          ),
         });
         dialog.close();
         dialog.remove();
@@ -2550,6 +2621,19 @@ function formatDate(value, fallback = "—") {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatUtcBoundary(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "UTC",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date) + " UTC";
 }
 
 function shortDate(value) {

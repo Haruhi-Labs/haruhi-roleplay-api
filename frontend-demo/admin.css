@@ -1225,6 +1225,50 @@ button:disabled {
   background: var(--signal);
 }
 
+.quota-stack {
+  display: grid;
+  min-width: 180px;
+  gap: 5px;
+}
+
+.quota-stack > span {
+  display: grid;
+  grid-template-columns: 20px minmax(70px, auto) auto;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.quota-stack b {
+  display: inline-grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--paper-muted);
+  color: var(--faint);
+  font-size: 9px;
+}
+
+.quota-stack strong {
+  font-size: 10px;
+}
+
+.quota-stack small {
+  margin: 0;
+  font-family: var(--utility-font);
+  font-size: 9px;
+  text-align: right;
+}
+
+.quota-stack > span.is-exhausted b {
+  background: var(--danger-soft);
+  color: var(--signal-dark);
+}
+
+.quota-stack > span.is-exhausted strong {
+  color: var(--signal-dark);
+}
+
 .table-empty {
   display: grid;
   min-height: 260px;
@@ -1438,6 +1482,57 @@ button:disabled {
   white-space: nowrap;
 }
 
+.quota-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 25px;
+}
+
+.quota-detail-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  padding: 13px;
+}
+
+.quota-detail-card > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.quota-detail-card span {
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.quota-detail-card strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.quota-detail-card .quota-progress {
+  width: 100%;
+}
+
+.quota-detail-card p {
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--utility-font);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quota-detail-card.is-exhausted {
+  border-color: #edc4c1;
+  background: var(--danger-soft);
+}
+
 .inline-form {
   display: flex;
   align-items: flex-end;
@@ -1451,6 +1546,14 @@ button:disabled {
 
 .inline-form label {
   flex: 1;
+}
+
+.quota-form {
+  flex-wrap: wrap;
+}
+
+.quota-form label {
+  min-width: 135px;
 }
 
 .dialog-section {
@@ -2574,6 +2677,10 @@ button:disabled {
   .inline-form {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .quota-detail-grid {
+    grid-template-columns: 1fr;
   }
 
   .usage-grid {
