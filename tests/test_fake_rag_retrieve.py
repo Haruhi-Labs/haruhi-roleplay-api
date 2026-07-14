@@ -11,10 +11,17 @@ from haruhi_roleplay_api.adapters import FakeRagService, LocalPersonaRepository 
 from haruhi_roleplay_api.api.chat import post_chat  # noqa: E402
 from haruhi_roleplay_api.application import PersonaPromptBuilder  # noqa: E402
 from haruhi_roleplay_api.domain import (  # noqa: E402
+    AppId,
+    CharacterId,
     GenerationConfig,
     ModelMessage,
     ModelResponse,
     ModelUsage,
+    PersonaModeId,
+    RagChunk,
+    RagChunkId,
+    RagDocumentId,
+    RagDocumentMetadata,
 )
 from haruhi_roleplay_api.domain.request_limits import (  # noqa: E402
     MAX_CHAT_MESSAGE_LENGTH,
@@ -51,12 +58,13 @@ class ExplodingRagService:
 
 
 class RecordingRagService:
-    def __init__(self) -> None:
+    def __init__(self, chunks: tuple[RagChunk, ...] | None = None) -> None:
         self.calls: list[object] = []
+        self.service = FakeRagService(chunks)
 
     def retrieve(self, retrieve_input: object):
         self.calls.append(retrieve_input)
-        return FakeRagService().retrieve(retrieve_input)
+        return self.service.retrieve(retrieve_input)
 
 
 def chat_body(
@@ -163,6 +171,61 @@ class FakeRagRetrieveTests(unittest.TestCase):
         self.assertEqual(rag["sources"][0]["document_id"], "doc-haruhi-timeline")
         self.assertEqual(rag["sources"][0]["chunk_id"], "chunk-haruhi-mid-late-1")
 
+    def test_chat_merges_actor_examples_and_director_bridges(self) -> None:
+        router = RecordingModelRouter()
+        rag_service = RecordingRagService(
+            (
+                _rag_chunk(
+                    "actor",
+                    character_id="haruhi",
+                    persona_mode="mid_late_haruhi",
+                    record_kind="dialogue_example",
+                    retrieval_channel="dialogue_style",
+                    knowledge_owner="haruhi",
+                    usage="style_only",
+                    content="【目标角色回答】凉宫春日：那就去找更有趣的事！",
+                ),
+                _rag_chunk(
+                    "director",
+                    character_id="kyon",
+                    persona_mode=None,
+                    record_kind="scene_memory",
+                    retrieval_channel="canonical_memory",
+                    knowledge_owner="kyon",
+                    usage="knowledge",
+                    content="阿虚拒绝普通活动后，春日立刻把抱怨改造成全团调查。",
+                ),
+            )
+        )
+
+        response = call_chat(
+            chat_body(rag=True, message="普通活动太无聊了"),
+            model_router=router,
+            rag_service=rag_service,
+        )
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(len(rag_service.calls), 2)
+        actor_call, director_call = rag_service.calls
+        self.assertEqual(str(actor_call.characterId), "haruhi")
+        self.assertEqual(
+            actor_call.filters.recordKinds,
+            ("dialogue_example", "inner_monologue", "behavior_observation"),
+        )
+        self.assertEqual(str(director_call.characterId), "kyon")
+        self.assertEqual(director_call.filters.recordKinds, ("scene_memory",))
+        self.assertEqual(
+            director_call.filters.retrievalChannels,
+            ("canonical_memory",),
+        )
+        self.assertEqual(
+            [source["character_id"] for source in response["data"]["rag"]["sources"]],
+            ["haruhi", "kyon"],
+        )
+        prompt_text = "\n".join(message.content for message in router.calls[0])
+        self.assertIn("那就去找更有趣的事", prompt_text)
+        self.assertIn("春日立刻把抱怨改造成全团调查", prompt_text)
+
     def test_long_current_message_is_bounded_for_retrieval(self) -> None:
         router = RecordingModelRouter()
         rag = RecordingRagService()
@@ -212,6 +275,42 @@ class FakeRagRetrieveTests(unittest.TestCase):
         self.assertFalse(response["ok"])
         self.assertEqual(response["error"]["code"], "VALIDATION_ERROR")
         self.assertEqual(response["error"]["message"], "ragService is required for RAG")
+
+
+def _rag_chunk(
+    name: str,
+    *,
+    character_id: str,
+    persona_mode: str | None,
+    record_kind: str,
+    retrieval_channel: str,
+    knowledge_owner: str,
+    usage: str,
+    content: str,
+) -> RagChunk:
+    return RagChunk(
+        chunkId=RagChunkId(f"chunk-{name}"),
+        documentId=RagDocumentId(f"doc-{name}"),
+        content=content,
+        score=0.9,
+        metadata=RagDocumentMetadata(
+            appId=AppId("web"),
+            characterId=CharacterId(character_id),
+            personaMode=(
+                PersonaModeId(persona_mode) if persona_mode is not None else None
+            ),
+            timeline="mid_late",
+            spoilerLevel=2,
+            language="zh-CN",
+            sourceType="scene",
+            extra={
+                "record_kind": record_kind,
+                "retrieval_channel": retrieval_channel,
+                "knowledge_owner": knowledge_owner,
+                "usage": usage,
+            },
+        ),
+    )
 
 
 if __name__ == "__main__":

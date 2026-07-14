@@ -19,6 +19,7 @@ from haruhi_roleplay_api.domain import (
     ChatStreamEvent,
     BackendContextFact,
     BackendContextRequest,
+    CharacterId,
     ContextPlan,
     DebugTrace,
     DTOValidationError,
@@ -33,7 +34,9 @@ from haruhi_roleplay_api.domain import (
     ModelResponse,
     ModelStreamEvent,
     PersonaPreset,
+    PersonaModeId,
     PromptBuildInput,
+    RagChunk,
     RagRetrieveFilters,
     RagRetrieveInput,
     RagRetrieveOutput,
@@ -428,21 +431,52 @@ class RoleplayOrchestrator:
             return None
         if self._rag_service is None:
             raise DTOValidationError("ragService is required for RAG")
-        return self._rag_service.retrieve(
+        query = _build_roleplay_rag_query(
+            chat_input,
+            persona,
+            recent_messages,
+        )
+        base_filters = _rag_filters_for_chat(chat_input, persona)
+        actor_output = self._rag_service.retrieve(
             RagRetrieveInput(
                 appId=chat_input.appId,
                 userId=chat_input.userId,
                 characterId=chat_input.characterId,
                 personaMode=chat_input.personaMode,
-                query=_build_roleplay_rag_query(
-                    chat_input,
-                    persona,
-                    recent_messages,
-                ),
+                query=query,
                 topK=self._rag_top_k,
-                filters=_rag_filters_for_chat(chat_input, persona),
+                filters=replace(
+                    base_filters,
+                    recordKinds=(
+                        "dialogue_example",
+                        "inner_monologue",
+                        "behavior_observation",
+                    ),
+                ),
                 debug=chat_input.capabilities.debugTrace,
             )
+        )
+        director_output = self._rag_service.retrieve(
+            RagRetrieveInput(
+                appId=chat_input.appId,
+                userId=chat_input.userId,
+                characterId=CharacterId("kyon"),
+                personaMode=_director_persona_mode(persona),
+                query=query,
+                topK=self._rag_top_k,
+                filters=replace(
+                    base_filters,
+                    recordKinds=("scene_memory",),
+                    retrievalChannels=("canonical_memory",),
+                    knowledgeOwners=("kyon",),
+                ),
+                debug=chat_input.capabilities.debugTrace,
+            )
+        )
+        return _merge_roleplay_rag_outputs(
+            actor_output,
+            director_output,
+            top_k=self._rag_top_k,
         )
 
     def _backend_context_for_chat(
@@ -640,6 +674,83 @@ def _rag_filters_for_chat(
         timelines=persona.knowledgeBoundary.allowedTimelines,
         spoilerLevelMax=persona.knowledgeBoundary.spoilerLevel,
         language=chat_input.language,
+    )
+
+
+def _director_persona_mode(persona: PersonaPreset) -> PersonaModeId:
+    if persona.timeline == "mid_late":
+        return PersonaModeId("default_kyon")
+    return PersonaModeId(f"{persona.timeline}_kyon")
+
+
+def _merge_roleplay_rag_outputs(
+    actor_output: RagRetrieveOutput,
+    director_output: RagRetrieveOutput,
+    *,
+    top_k: int,
+) -> RagRetrieveOutput:
+    actor_chunks = tuple(
+        _with_prompt_channel(chunk, "actor_reference")
+        for chunk in actor_output.chunks
+    )
+    director_chunks = tuple(
+        _with_prompt_channel(chunk, "director_bridge")
+        for chunk in director_output.chunks
+    )
+    director_budget = min(2, top_k // 2)
+    actor_budget = top_k - director_budget
+    selected: list[RagChunk] = []
+    used_documents: set[str] = set()
+    used_chunks: set[str] = set()
+    used_contents: set[str] = set()
+
+    def add(chunk: RagChunk) -> None:
+        document_id = str(chunk.documentId)
+        chunk_id = str(chunk.chunkId)
+        normalized_content = " ".join(chunk.content.split()).casefold()
+        if (
+            document_id in used_documents
+            or chunk_id in used_chunks
+            or normalized_content in used_contents
+            or len(selected) >= top_k
+        ):
+            return
+        selected.append(chunk)
+        used_documents.add(document_id)
+        used_chunks.add(chunk_id)
+        used_contents.add(normalized_content)
+
+    for chunk in actor_chunks[:actor_budget]:
+        add(chunk)
+    for chunk in director_chunks[:director_budget]:
+        add(chunk)
+    for chunks in (actor_chunks[actor_budget:], director_chunks[director_budget:]):
+        for chunk in chunks:
+            add(chunk)
+
+    provider = actor_output.provider
+    if director_output.provider != provider:
+        provider = f"{provider}+{director_output.provider}"
+    return RagRetrieveOutput(
+        chunks=tuple(selected),
+        provider=provider,
+        rawHitCount=actor_output.rawHitCount + director_output.rawHitCount,
+        filteredHitCount=(
+            actor_output.filteredHitCount + director_output.filteredHitCount
+        ),
+        rerankApplied=(
+            actor_output.rerankApplied or director_output.rerankApplied
+        ),
+    )
+
+
+def _with_prompt_channel(chunk: RagChunk, channel: str) -> RagChunk:
+    return replace(
+        chunk,
+        metadata=replace(
+            chunk.metadata,
+            extra={**dict(chunk.metadata.extra), "prompt_channel": channel},
+        ),
     )
 
 

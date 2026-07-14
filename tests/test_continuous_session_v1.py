@@ -211,8 +211,11 @@ class ContinuousSessionV1Tests(unittest.TestCase):
         )
 
         self.assertTrue(response["ok"])
-        self.assertEqual(len(rag.calls), 1)
+        self.assertEqual(len(rag.calls), 2)
         query = rag.calls[0].query
+        self.assertEqual(rag.calls[1].query, query)
+        self.assertEqual(str(rag.calls[0].characterId), "haruhi")
+        self.assertEqual(str(rag.calls[1].characterId), "kyon")
         self.assertIn("目标角色：haruhi", query)
         self.assertIn("角色模式：mid_late_haruhi", query)
         self.assertIn("当前时间线：mid_late", query)

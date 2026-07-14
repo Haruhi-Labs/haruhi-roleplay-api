@@ -448,6 +448,12 @@ def _chunk(
             spoilerLevel=spoiler_level,
             language="zh-CN",
             sourceType=source_type,
-            extra={"title": title},
+            extra={
+                "title": title,
+                "record_kind": "dialogue_example",
+                "retrieval_channel": "dialogue_style",
+                "knowledge_owner": character_id,
+                "usage": "style_only",
+            },
         ),
     )
