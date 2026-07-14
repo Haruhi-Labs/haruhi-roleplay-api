@@ -65,12 +65,13 @@ class RagCorpusBootstrapTests(unittest.TestCase):
             service = build_rag_service_from_env(
                 {
                     "RAG_PROVIDER": "local",
-                    "RAG_CHUNK_SIZE": "700",
+                    "RAG_CHUNK_SIZE": "8",
                     "RAG_BOOTSTRAP_CORPUS_PATH": str(path),
                     "RAG_BOOTSTRAP_APP_ID": "web-demo",
                 }
             )
 
+        documents = service.list_documents(app_id="web-demo")
         output = service.retrieve(
             RagRetrieveInput(
                 appId=AppId("web-demo"),
@@ -89,6 +90,8 @@ class RagCorpusBootstrapTests(unittest.TestCase):
         )
 
         self.assertEqual(len(output.chunks), 1)
+        self.assertEqual(documents[0].chunkCount, 1)
+        self.assertTrue(output.chunks[0].metadata.extra["atomic_record"])
         self.assertEqual(output.chunks[0].documentId, "haruhi-test-haruhi")
         self.assertEqual(
             output.chunks[0].metadata.extra["record_kind"],

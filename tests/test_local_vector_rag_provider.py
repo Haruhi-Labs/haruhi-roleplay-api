@@ -42,6 +42,7 @@ def ingest_input(
         "社团 活动 计划：春日会主动安排调查和招募。"
         "\n长期互动中，她会更注意维持 SOS 团成员之间的关系。"
     ),
+    atomic_record: bool = False,
 ) -> RagIngestInput:
     return RagIngestInput(
         appId=AppId(app_id),
@@ -56,6 +57,7 @@ def ingest_input(
             spoilerLevel=2,
             language="zh-CN",
             sourceType="timeline",
+            extra={"atomic_record": True} if atomic_record else {},
         ),
     )
 
@@ -149,6 +151,19 @@ class LocalVectorRagProviderTests(unittest.TestCase):
         self.assertEqual(output.chunks[0].documentId, "doc-vector-haruhi")
         self.assertGreater(output.chunks[0].score, 0)
         self.assertEqual(output.chunks[0].metadata.extra["title"], "本地向量资料")
+
+    def test_local_vector_keeps_atomic_corpus_record_in_one_chunk(self) -> None:
+        service = LocalVectorRagService(chunk_size=12)
+        content = "【对话上下文】\n凉宫春日：现在行动。\n【目标角色回答】\n阿虚：又来了。"
+
+        result = service.ingest(
+            ingest_input(content=content, atomic_record=True)
+        )
+        chunks = service._vector_store.list_chunks()
+
+        self.assertEqual(result.chunkCount, 1)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].content, content)
 
     def test_local_vector_rag_keeps_character_isolated(self) -> None:
         service = LocalVectorRagService()

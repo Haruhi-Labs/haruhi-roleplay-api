@@ -43,7 +43,11 @@ class FakeHTTPResponse:
         return json.dumps(self._payload, ensure_ascii=False).encode("utf-8")
 
 
-def ingest_input(*, app_id: str = "web") -> RagIngestInput:
+def ingest_input(
+    *,
+    app_id: str = "web",
+    atomic_record: bool = False,
+) -> RagIngestInput:
     return RagIngestInput(
         appId=AppId(app_id),
         documentId=RagDocumentId("doc-qdrant-haruhi"),
@@ -57,6 +61,7 @@ def ingest_input(*, app_id: str = "web") -> RagIngestInput:
             spoilerLevel=2,
             language="zh-CN",
             sourceType="timeline",
+            extra={"atomic_record": True} if atomic_record else {},
         ),
     )
 
@@ -127,6 +132,25 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(point["payload"]["document_id"], "doc-qdrant-haruhi")
         self.assertEqual(point["payload"]["character_id"], "haruhi")
         self.assertGreater(len(point["vector"]), 0)
+
+    def test_qdrant_keeps_atomic_corpus_record_in_one_point(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+            chunk_size=8,
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            return_value=FakeHTTPResponse({"result": {"status": "ok"}}),
+        ) as urlopen:
+            result = service.ingest(ingest_input(atomic_record=True))
+
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+
+        self.assertEqual(result.chunkCount, 1)
+        self.assertEqual(len(payload["points"]), 1)
+        self.assertTrue(payload["points"][0]["payload"]["metadata"]["atomic_record"])
 
     def test_qdrant_retrieve_returns_filtered_sources(self) -> None:
         service = QdrantRagService(

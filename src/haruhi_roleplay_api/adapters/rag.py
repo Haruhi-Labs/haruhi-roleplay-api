@@ -93,7 +93,11 @@ class LocalRagService:
                 metadata=metadata,
             )
             for index, content in enumerate(
-                _chunk_text(ingest_input.content, self._chunk_size),
+                _ingest_content_chunks(
+                    ingest_input.content,
+                    metadata=metadata,
+                    chunk_size=self._chunk_size,
+                ),
                 start=1,
             )
         )
@@ -213,6 +217,17 @@ def _chunk_text(content: str, chunk_size: int) -> tuple[str, ...]:
             current_length += len(piece) + (1 if len(current) > 1 else 0)
     flush()
     return tuple(chunks)
+
+
+def _ingest_content_chunks(
+    content: str,
+    *,
+    metadata: RagDocumentMetadata,
+    chunk_size: int,
+) -> tuple[str, ...]:
+    if metadata.extra.get("atomic_record") is True:
+        return (content,)
+    return _chunk_text(content, chunk_size)
 
 
 def _split_long_paragraph(paragraph: str, chunk_size: int) -> tuple[str, ...]:

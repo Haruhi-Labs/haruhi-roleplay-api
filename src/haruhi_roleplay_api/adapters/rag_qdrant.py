@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from uuid import NAMESPACE_URL, uuid5
 
 from haruhi_roleplay_api.adapters.rag import (
-    _chunk_text,
+    _ingest_content_chunks,
     _matches_filters,
     _managed_documents,
     _metadata_with_title,
@@ -88,7 +88,11 @@ class QdrantRagService:
                 metadata=metadata,
             )
             for index, content in enumerate(
-                _chunk_text(ingest_input.content, self._chunk_size),
+                _ingest_content_chunks(
+                    ingest_input.content,
+                    metadata=metadata,
+                    chunk_size=self._chunk_size,
+                ),
                 start=1,
             )
         )

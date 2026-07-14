@@ -14,6 +14,8 @@
 
 每条 `records.jsonl` 记录都可直接转换成项目的 `RagIngestInput`：
 
+导入器会给离线记录附加 `atomic_record=true`，Local、Chroma/Faiss 和 Qdrant provider 都会保持“一条 JSONL 记录对应一个检索 chunk”，不会再按通用文档的 `RAG_CHUNK_SIZE` 二次切开结构化台词或目标回答。通过管理 API 上传的普通长文档仍按原有规则分块。
+
 | 记录类型 | 检索角色 | 用途 | 视角约束 |
 |---|---|---|---|
 | `scene_memory` | 阿虚 | 约 300～400 字的连续场景 | 阿虚第一人称经历 |

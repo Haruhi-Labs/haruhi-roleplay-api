@@ -52,7 +52,7 @@ def ingest_corpus_file(
                     language=record.language,
                     sourceType=record.source_type,
                     trustLevel=record.trust_level,
-                    extra=dict(record.metadata),
+                    extra={**record.metadata, "atomic_record": True},
                 ),
             )
         )
