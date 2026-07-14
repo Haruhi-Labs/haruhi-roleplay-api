@@ -461,6 +461,11 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(output.rawHitCount, 2)
         self.assertEqual(output.filteredHitCount, 2)
         self.assertEqual(output.chunks[0].documentId, "doc-qdrant-tanabata")
+        for chunk in output.chunks:
+            relevance = chunk.metadata.extra["_retrieval_relevance"]
+            self.assertGreaterEqual(relevance, 0.0)
+            self.assertLessEqual(relevance, 1.0)
+            self.assertNotIn("_retrieval_relevance", chunk.to_source_mapping())
 
     def test_qdrant_retrieve_returns_filtered_sources(self) -> None:
         service = QdrantRagService(

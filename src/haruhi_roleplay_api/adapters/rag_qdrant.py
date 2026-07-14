@@ -805,14 +805,37 @@ def _reciprocal_rank_fusion(
     )
     chunks_by_id: dict[str, RagChunk] = {}
     scores: dict[str, float] = {}
-    for ranked_chunks in (dense_chunks, tuple(lexical_ranked)):
+    relevance: dict[str, float] = {}
+    for source, ranked_chunks in (
+        ("dense", dense_chunks),
+        ("lexical", tuple(lexical_ranked)),
+    ):
         for rank, chunk in enumerate(ranked_chunks, start=1):
             key = str(chunk.chunkId)
             chunks_by_id.setdefault(key, chunk)
             scores[key] = scores.get(key, 0.0) + 1.0 / (_RRF_K + rank)
+            evidence = (
+                chunk.score
+                if source == "dense"
+                else lexical_overlap_score(lexical_query, chunk.content)
+            )
+            relevance[key] = max(
+                relevance.get(key, 0.0),
+                min(1.0, max(0.0, evidence)),
+            )
     maximum = 2.0 / (_RRF_K + 1)
     return tuple(
-        replace(chunks_by_id[key], score=min(1.0, score / maximum))
+        replace(
+            chunks_by_id[key],
+            score=min(1.0, score / maximum),
+            metadata=replace(
+                chunks_by_id[key].metadata,
+                extra={
+                    **dict(chunks_by_id[key].metadata.extra),
+                    "_retrieval_relevance": relevance[key],
+                },
+            ),
+        )
         for key, score in sorted(
             scores.items(),
             key=lambda item: item[1],
