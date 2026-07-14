@@ -90,6 +90,8 @@ ROLEPLAY_CORS_ORIGINS=https://app.example.com,https://admin.example.com
 
 应用自身继续负责 API Key、服务 Access Token、app scope、请求大小和模型额度。不要把 Compose 端口改成公网映射后绕过反向代理。
 
+当前标准库 HTTP server 始终以 TCP 对端地址作为客户端 IP，并覆盖调用方传入的同名内部 Header；它不会信任 `X-Forwarded-For` 等转发头。经反向代理部署时，应用内的后台登录失败限流会把代理视为同一来源，因此反向代理必须再按其可信代理链解析出的真实客户端 IP，对 `/v1/admin/login` 实施独立限流和来源限制。项目目前没有受信任代理名单配置，不要把任意公网转发头直接当作可信客户端地址传入应用。
+
 ## 数据位置
 
 Compose 只挂载一个本地数据目录：

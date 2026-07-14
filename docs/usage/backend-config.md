@@ -227,7 +227,7 @@ ROLEPLAY_ADMIN_SESSION_IDLE_SECONDS=1800
 ROLEPLAY_ADMIN_COOKIE_SECURE=true
 ```
 
-同一来源连续登录失败 5 次后会进入短时限流。管理 API 仍保留 `ROLEPLAY_API_KEY` Header 方式供受信任的自动化脚本使用。
+同一 TCP 来源连续登录失败 5 次后会进入短时限流。标准库 HTTP server 不信任 `X-Forwarded-For` 等客户端转发头；经反向代理部署时，应用会把代理视为同一来源，必须由代理再按可信链解析的真实客户端 IP 对登录接口限流。管理 API 仍保留 `ROLEPLAY_API_KEY` Header 方式供受信任的自动化脚本使用。
 
 浏览器同源调用无需配置 CORS。前端和 API 不同源时，使用逗号分隔的精确 Origin 白名单，不填写路径且不能使用 `*`：
 

@@ -18,6 +18,8 @@ from haruhi_roleplay_api.domain import (
 
 
 class MemoryStore(Protocol):
+    provider_name: str
+
     def list_memories(self, query: MemoryQuery) -> tuple[MemoryItem, ...]:
         """Return memories visible to one app/user/character/preset context."""
 

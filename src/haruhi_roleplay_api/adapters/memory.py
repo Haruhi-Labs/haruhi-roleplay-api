@@ -19,6 +19,8 @@ from haruhi_roleplay_api.domain import (
 
 
 class InMemoryMemoryStore:
+    provider_name = "memory"
+
     def __init__(self, items: Iterable[MemoryItem] | None = None) -> None:
         self._items: dict[str, MemoryItem] = {
             str(item.memoryId): item for item in items or ()

@@ -762,8 +762,8 @@ def _check_http_gate_dependencies(
             "Non-loopback ROLEPLAY_HOST requires a non-placeholder "
             "ROLEPLAY_API_KEY with at least 32 characters"
         )
-    secure_cookie = env.get("ROLEPLAY_ADMIN_COOKIE_SECURE")
-    if secure_cookie is not None and secure_cookie.strip().casefold() not in {
+    secure_cookie = env.get("ROLEPLAY_ADMIN_COOKIE_SECURE", "false")
+    if secure_cookie.strip().casefold() not in {
         "1",
         "true",
         "yes",

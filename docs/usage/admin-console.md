@@ -60,7 +60,7 @@ ROLEPLAY_ADMIN_COOKIE_SECURE=true
 1. 只通过 HTTPS 反向代理暴露 `/admin/` 和管理 API。
 2. 使用密码管理器保存管理员密码，使用 Secret Manager 保存服务令牌和 Provider 密钥。
 3. 精确配置 `ROLEPLAY_CORS_ORIGINS`，不要使用通配 Origin。
-4. 限制后台来源网络，并为反向代理设置请求体、连接数和速率限制。
+4. 限制后台来源网络，并由反向代理按可信链解析的真实客户端 IP，为 `/v1/admin/login` 设置请求体、连接数和速率限制；应用内限流只看到 TCP 对端地址。
 5. 定期备份 `.data/access-tokens.sqlite3`、Session/Memory SQLite、Persona 目录和 RAG 持久化目录。
 6. 定期查看“安全审计”和“用量分析”，对异常登录、错误率或 Token 激增执行轮换和吊销。
 

@@ -143,9 +143,10 @@ def _integer(value: Any, field_name: str, *, default: int) -> int:
 
 
 def _provider_name(memory_store: MemoryStore) -> str:
-    name = type(memory_store).__name__
-    if name == "SQLiteMemoryStore":
-        return "sqlite"
-    if name == "InMemoryMemoryStore":
-        return "memory"
-    return name
+    return str(
+        getattr(
+            memory_store,
+            "provider_name",
+            type(memory_store).__name__,
+        )
+    )

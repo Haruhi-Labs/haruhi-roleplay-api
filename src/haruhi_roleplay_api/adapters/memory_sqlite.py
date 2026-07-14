@@ -28,6 +28,8 @@ from haruhi_roleplay_api.domain import (
 
 
 class SQLiteMemoryStore:
+    provider_name = "sqlite"
+
     def __init__(
         self,
         *,

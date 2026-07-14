@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from haruhi_roleplay_api.adapters.memory import InMemoryMemoryStore
+from haruhi_roleplay_api.api.admin_memory import get_admin_memories
 from haruhi_roleplay_api.infrastructure import RoleplayHttpRuntime
 
 
@@ -80,6 +82,18 @@ class AdminMemoryHttpTests(unittest.TestCase):
         self.assertEqual(invalid_limit.status, 400)
         self.assertEqual(invalid_offset.status, 400)
         self.assertEqual(_body(invalid_type)["error"]["code"], "VALIDATION_ERROR")
+
+    def test_admin_memory_uses_provider_metadata(self) -> None:
+        class CustomMemoryStore(InMemoryMemoryStore):
+            provider_name = "custom-memory"
+
+        response = get_admin_memories(
+            {},
+            memory_store=CustomMemoryStore(),
+            request_id="req-provider-metadata",
+        )
+
+        self.assertEqual(response["data"]["provider"], "custom-memory")
 
     def test_service_token_cannot_manage_memories(self) -> None:
         issued = self.request(
