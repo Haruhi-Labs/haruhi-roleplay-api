@@ -49,6 +49,13 @@ from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     build_rag_service,
     build_rag_service_from_env,
 )
+from haruhi_roleplay_api.infrastructure.rag_evaluation import (
+    RagEvaluationCase,
+    RagEvaluationCaseResult,
+    RagEvaluationReport,
+    evaluate_rag_cases,
+    load_rag_evaluation_cases,
+)
 from haruhi_roleplay_api.infrastructure.rag_corpus import (
     CorpusIngestSummary,
     ingest_corpus_file,
@@ -72,6 +79,9 @@ __all__ = [
     "ModelProviderConfig",
     "ModelProviderSettings",
     "RagProviderSettings",
+    "RagEvaluationCase",
+    "RagEvaluationCaseResult",
+    "RagEvaluationReport",
     "CorpusIngestSummary",
     "QdrantCorpusReleaseSummary",
     "RoleplayHttpRuntime",
@@ -89,9 +99,11 @@ __all__ = [
     "build_model_router",
     "build_rag_service",
     "build_rag_service_from_env",
+    "evaluate_rag_cases",
     "activate_qdrant_collection",
     "corpus_version_from_file",
     "ingest_corpus_file",
+    "load_rag_evaluation_cases",
     "publish_qdrant_corpus",
     "versioned_collection_name",
     "build_session_store",

@@ -199,6 +199,22 @@ python scripts/publish_haruhi_qdrant.py delete \
 
 ## 验收建议
 
+先生成 300 条按“记录类型 × 角色 × 时间线”分层的人工金标模板：
+
+```bash
+python scripts/build_haruhi_retrieval_gold.py
+```
+
+模板位于未跟踪的 `.data/rag-eval/haruhi/gold-template.jsonl`，格式遵循 `schemas/haruhi-rag-eval-v1.schema.json`。标注人需要阅读 `annotation.source_preview`，写出不照抄原句、真实用户可能提出的 `query`，确认相关文档后把 `status` 从 `pending` 改为 `ready`。模型自动生成的问题只能用于 smoke test，不能代替人工金标。
+
+把完成标注的文件保存为 `.data/rag-eval/haruhi/gold.jsonl`，在生产同款 embedding 和 Qdrant alias 上执行：
+
+```bash
+python scripts/evaluate_haruhi_rag.py --app-id web-demo
+```
+
+默认发布门槛为用例通过率不低于 90%、MRR 不低于 0.50，且 `app_id`、角色、时间线、剧透等级和 persona 隔离失败必须为 0。报告同时给出平均 Recall@K、逐用例命中文档与失败原因，写入 `.data/rag-eval/haruhi/report.json`。这一步必须使用生产 embedding；hash embedding 已被 Qdrant 门禁拒绝。
+
 至少覆盖以下查询组，并分别以五名角色和各篇章 persona 验证结果：
 
 - 具体事件：七夕、孤岛、漫无止境的八月、电脑游戏、雪山、入团考试；

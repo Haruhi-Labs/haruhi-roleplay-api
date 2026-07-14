@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haruhi-roleplay.local/schemas/haruhi-rag-eval-v1.schema.json",
+  "title": "凉宫 RAG 检索评测项 v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "case_id",
+    "status",
+    "query",
+    "character_id",
+    "persona_mode",
+    "top_k",
+    "filters",
+    "relevant_document_ids",
+    "minimum_relevant_hits"
+  ],
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["pending", "ready", "rejected"]},
+    "query": {"type": "string"},
+    "character_id": {
+      "enum": ["haruhi", "kyon", "mikuru", "yuki", "itsuki"]
+    },
+    "persona_mode": {"type": "string", "minLength": 1},
+    "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_types": {"$ref": "#/$defs/stringArray"},
+        "timelines": {"$ref": "#/$defs/stringArray"},
+        "record_kinds": {"$ref": "#/$defs/stringArray"},
+        "perspectives": {"$ref": "#/$defs/stringArray"},
+        "corpus_versions": {"$ref": "#/$defs/stringArray"},
+        "retrieval_channels": {"$ref": "#/$defs/stringArray"},
+        "knowledge_owners": {"$ref": "#/$defs/stringArray"},
+        "usages": {"$ref": "#/$defs/stringArray"},
+        "spoiler_level_max": {"type": "integer", "minimum": 0},
+        "language": {"enum": ["zh-CN", "ja-JP", "en-US"]}
+      }
+    },
+    "relevant_document_ids": {"$ref": "#/$defs/stringArray"},
+    "minimum_relevant_hits": {"type": "integer", "minimum": 0},
+    "expected_record_kinds": {"$ref": "#/$defs/stringArray"},
+    "required_terms": {"$ref": "#/$defs/stringArray"},
+    "forbidden_document_ids": {"$ref": "#/$defs/stringArray"}
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    }
+  }
+}
