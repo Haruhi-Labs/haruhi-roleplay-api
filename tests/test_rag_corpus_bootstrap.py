@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -18,7 +19,10 @@ from haruhi_roleplay_api.domain import (  # noqa: E402
     RagRetrieveInput,
     UserId,
 )
-from haruhi_roleplay_api.infrastructure import build_rag_service_from_env  # noqa: E402
+from haruhi_roleplay_api.infrastructure import (  # noqa: E402
+    build_rag_service_from_env,
+    ingest_corpus_file,
+)
 
 
 def _record(*, document_id: str, character_id: str, content: str) -> dict:
@@ -43,6 +47,44 @@ def _record(*, document_id: str, character_id: str, content: str) -> dict:
 
 
 class RagCorpusBootstrapTests(unittest.TestCase):
+    def test_corpus_loader_uses_provider_batch_ingest_when_available(self) -> None:
+        class BatchService:
+            def __init__(self) -> None:
+                self.batch_sizes: list[int] = []
+
+            def ingest(self, ingest_input: object) -> object:
+                raise AssertionError("不应退回逐条装载")
+
+            def ingest_batch(self, inputs: tuple) -> tuple:
+                self.batch_sizes.append(len(inputs))
+                return tuple(SimpleNamespace(chunkCount=1) for _ in inputs)
+
+        rows = tuple(
+            _record(
+                document_id=f"haruhi-test-{index}",
+                character_id="haruhi",
+                content=f"第 {index} 条社团活动。",
+            )
+            for index in range(3)
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "records.jsonl"
+            path.write_text(
+                "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+                encoding="utf-8",
+            )
+            service = BatchService()
+            summary = ingest_corpus_file(
+                service,  # type: ignore[arg-type]
+                path=path,
+                app_id="web-demo",
+                batch_size=2,
+            )
+
+        self.assertEqual(service.batch_sizes, [2, 1])
+        self.assertEqual(summary.documentCount, 3)
+        self.assertEqual(summary.chunkCount, 3)
+
     def test_factory_bootstraps_jsonl_and_keeps_app_scope(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "records.jsonl"

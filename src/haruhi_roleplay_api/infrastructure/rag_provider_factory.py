@@ -40,6 +40,7 @@ class RagProviderSettings:
     qdrantTimeoutMs: int = 10000
     qdrantEnsureCollection: bool = False
     qdrantHybridSearch: bool = False
+    qdrantIngestBatchSize: int = 64
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, str]) -> "RagProviderSettings":
@@ -71,6 +72,11 @@ class RagProviderSettings:
             ),
             qdrantHybridSearch=_bool_from_mapping(
                 data.get("QDRANT_HYBRID_SEARCH", "false")
+            ),
+            qdrantIngestBatchSize=_int_from_mapping(
+                data,
+                "QDRANT_INGEST_BATCH_SIZE",
+                default=64,
             ),
         )
 
@@ -128,6 +134,7 @@ def build_rag_service(
             embedding_provider=embedding_provider or _hash_embedding(settings),
             ensure_collection=settings.qdrantEnsureCollection,
             hybrid_search=settings.qdrantHybridSearch,
+            ingest_batch_size=settings.qdrantIngestBatchSize,
         )
     raise AppError(
         code=ErrorCode.RAG_PROVIDER_ERROR,

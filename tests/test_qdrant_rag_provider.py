@@ -321,6 +321,29 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(len(payload["points"]), 1)
         self.assertTrue(payload["points"][0]["payload"]["metadata"]["atomic_record"])
 
+    def test_qdrant_batches_embedding_and_point_upsert(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+            ingest_batch_size=64,
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            return_value=FakeHTTPResponse({"result": {"status": "ok"}}),
+        ) as urlopen:
+            results = service.ingest_batch(
+                (ingest_input(app_id="app-a"), ingest_input(app_id="app-b"))
+            )
+
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(len(payload["points"]), 2)
+        self.assertEqual(
+            {point["payload"]["app_id"] for point in payload["points"]},
+            {"app-a", "app-b"},
+        )
+
     def test_qdrant_flattens_roleplay_routing_payload(self) -> None:
         service = QdrantRagService(
             base_url="https://qdrant.example",

@@ -123,6 +123,35 @@ class EmbeddingProviderTests(unittest.TestCase):
         self.assertEqual(len(first), 16)
         self.assertGreater(sum(abs(value) for value in first), 0)
 
+    def test_openai_compatible_embedding_batches_and_restores_index_order(self) -> None:
+        response = FakeHTTPResponse(
+            {
+                "data": [
+                    {"index": 1, "embedding": [0.0, 1.0]},
+                    {"index": 0, "embedding": [1.0, 0.0]},
+                ]
+            }
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.embeddings.openai_compatible.urllib.request.urlopen",
+            return_value=response,
+        ) as urlopen:
+            provider = build_embedding_provider(
+                EmbeddingProviderSettings.from_mapping(
+                    {
+                        "EMBEDDING_PROVIDER": "local_openai_compatible",
+                        "EMBEDDING_BASE_URL": "http://embedding.local/v1",
+                        "EMBEDDING_MODEL": "multilingual-embed",
+                        "EMBEDDING_DIMENSIONS": "2",
+                    }
+                )
+            )
+            embeddings = provider.embed_many(("第一条", "第二条"))
+
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(payload["input"], ["第一条", "第二条"])
+        self.assertEqual(embeddings, ((1.0, 0.0), (0.0, 1.0)))
+
     def test_openai_embedding_provider_uses_official_endpoint(self) -> None:
         with patch(
             "haruhi_roleplay_api.adapters.embeddings.openai_compatible.urllib.request.urlopen",

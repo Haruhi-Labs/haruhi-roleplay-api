@@ -8,7 +8,7 @@ import socket
 import urllib.error
 import urllib.request
 from dataclasses import replace
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid5
 
 from haruhi_roleplay_api.adapters.rag import (
@@ -86,6 +86,7 @@ class QdrantRagService:
         embedding_provider: TextEmbeddingProvider | None = None,
         ensure_collection: bool = False,
         hybrid_search: bool = False,
+        ingest_batch_size: int = 64,
     ) -> None:
         if not base_url.strip():
             raise AppError(
@@ -104,6 +105,8 @@ class QdrantRagService:
             )
         if chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
+        if ingest_batch_size <= 0:
+            raise ValueError("ingest_batch_size must be positive")
         self._base_url = base_url.rstrip("/")
         self._collection = collection.strip()
         self._api_key = api_key
@@ -112,9 +115,70 @@ class QdrantRagService:
         self._embedding_provider = embedding_provider or HashEmbeddingProvider()
         self._ensure_collection = ensure_collection
         self._hybrid_search = hybrid_search
+        self._ingest_batch_size = ingest_batch_size
         self._collection_ready = False
 
     def ingest(self, ingest_input: RagIngestInput) -> RagIngestResult:
+        return self.ingest_batch((ingest_input,))[0]
+
+    def ingest_batch(
+        self,
+        ingest_inputs: Sequence[RagIngestInput],
+    ) -> tuple[RagIngestResult, ...]:
+        if not ingest_inputs:
+            return ()
+        prepared = tuple(self._prepare_ingest(item) for item in ingest_inputs)
+        all_chunks = tuple(
+            chunk for _, _, chunks in prepared for chunk in chunks
+        )
+        try:
+            if self._ensure_collection and not self._collection_ready:
+                self.ensure_collection_schema()
+            for chunks in _batched(all_chunks, self._ingest_batch_size):
+                vectors = self._embedding_provider.embed_many(
+                    tuple(_contextual_embedding_text(chunk) for chunk in chunks)
+                )
+                if len(vectors) != len(chunks):
+                    raise AppError(
+                        code=ErrorCode.RAG_INGEST_FAILED,
+                        message="批量 embedding 返回数量与输入不一致。",
+                    )
+                self._request_json(
+                    "PUT",
+                    f"/collections/{self._collection}/points?wait=true",
+                    {
+                        "points": [
+                            {
+                                "id": _point_id(self._collection, chunk.chunkId),
+                                "vector": list(vector),
+                                "payload": _payload_from_chunk(chunk),
+                            }
+                            for chunk, vector in zip(chunks, vectors, strict=True)
+                        ]
+                    },
+                    error_code=ErrorCode.RAG_INGEST_FAILED,
+                )
+        except AppError:
+            raise
+        except Exception as exc:
+            raise AppError(
+                code=ErrorCode.RAG_INGEST_FAILED,
+                message="Qdrant RAG ingest failed.",
+            ) from exc
+        return tuple(
+            RagIngestResult(
+                documentId=document_id,
+                status="imported",
+                chunkCount=len(chunks),
+                metadata=metadata,
+            )
+            for document_id, metadata, chunks in prepared
+        )
+
+    def _prepare_ingest(
+        self,
+        ingest_input: RagIngestInput,
+    ) -> tuple[RagDocumentId, RagDocumentMetadata, tuple[RagChunk, ...]]:
         document_scope = f"{ingest_input.appId}:{ingest_input.content}"
         document_id = ingest_input.documentId or RagDocumentId(
             f"ragdoc-{uuid5(NAMESPACE_URL, document_scope)}"
@@ -137,41 +201,7 @@ class QdrantRagService:
                 start=1,
             )
         )
-        try:
-            if self._ensure_collection and not self._collection_ready:
-                self.ensure_collection_schema()
-            self._request_json(
-                "PUT",
-                f"/collections/{self._collection}/points?wait=true",
-                {
-                    "points": [
-                        {
-                            "id": _point_id(self._collection, chunk.chunkId),
-                            "vector": list(
-                                self._embedding_provider.embed(
-                                    _contextual_embedding_text(chunk)
-                                )
-                            ),
-                            "payload": _payload_from_chunk(chunk),
-                        }
-                        for chunk in chunks
-                    ]
-                },
-                error_code=ErrorCode.RAG_INGEST_FAILED,
-            )
-        except AppError:
-            raise
-        except Exception as exc:
-            raise AppError(
-                code=ErrorCode.RAG_INGEST_FAILED,
-                message="Qdrant RAG ingest failed.",
-            ) from exc
-        return RagIngestResult(
-            documentId=document_id,
-            status="imported",
-            chunkCount=len(chunks),
-            metadata=metadata,
-        )
+        return document_id, metadata, chunks
 
     def retrieve(self, retrieve_input: RagRetrieveInput) -> RagRetrieveOutput:
         query_vector = self._embedding_provider.embed(retrieve_input.query)
@@ -711,6 +741,16 @@ def _chunk_from_qdrant_hit(hit: Mapping[str, Any]) -> RagChunk:
 
 def _point_id(collection: str, chunk_id: RagChunkId) -> str:
     return str(uuid5(NAMESPACE_URL, f"{collection}:{chunk_id}"))
+
+
+def _batched(
+    chunks: tuple[RagChunk, ...],
+    batch_size: int,
+) -> tuple[tuple[RagChunk, ...], ...]:
+    return tuple(
+        chunks[index : index + batch_size]
+        for index in range(0, len(chunks), batch_size)
+    )
 
 
 def _indexed_payload_fields(collection_info: Mapping[str, Any]) -> set[str]:

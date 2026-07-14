@@ -237,6 +237,7 @@ ENV_CONFIG_FIELDS: tuple[EnvConfigField, ...] = (
     _field("QDRANT_TIMEOUT_MS", "RAG", "int", "Qdrant timeout in milliseconds.", default="10000", min_value=1),
     _field("QDRANT_ENSURE_COLLECTION", "RAG", "bool", "Create Qdrant collection when missing.", default="false"),
     _field("QDRANT_HYBRID_SEARCH", "RAG", "bool", "Merge dense and multilingual full-text Qdrant candidates.", default="false"),
+    _field("QDRANT_INGEST_BATCH_SIZE", "RAG", "int", "Embedding and upsert batch size for corpus publication.", default="64", min_value=1),
     _field("QDRANT_API_KEY", "Secrets", "secret", "Qdrant API key.", secret=True, hot_reload=True),
     _simple_field("EMBEDDING_API_TYPE", "Simple Embedding", "enum", "Embedding API type/provider.", default="hash", enum=("hash", "openai", "openai_compatible", "local_openai_compatible", "ollama")),
     _simple_field("EMBEDDING_BASE_URL", "Simple Embedding", "url", "Embedding API base URL."),
