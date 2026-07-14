@@ -319,11 +319,11 @@ memory item 字段：
 
 ### POST /v1/access-tokens
 
-使用 `ROLEPLAY_API_KEY` 创建服务令牌。请求必须包含非空 `app_id` 和 `name`，可选 `quota_tokens`、`expires_at`。一个令牌只绑定一个 `app_id`，创建后不可修改。
+使用 `ROLEPLAY_API_KEY` 创建服务令牌。请求必须包含非空 `app_id` 和 `name`，可选 `quota_tokens`、`daily_quota_tokens`、`weekly_quota_tokens`、`expires_at`。一个令牌只绑定一个 `app_id`，创建后不可修改。三种额度可以任意组合；`null` 表示对应尺度不限额。
 
 创建、列表、详情、额度调整和吊销响应中的安全摘要都包含 `app_id`。令牌明文 `token` 只在创建响应出现一次，SQLite 只保存哈希和安全前缀。
 
-旧 SQLite 账本会原地增加 nullable `app_id` 列；旧令牌返回 `app_id=null`。
+旧 SQLite 账本会原地增加 nullable `app_id`、`daily_quota_tokens`、`weekly_quota_tokens` 列；旧令牌返回 `app_id=null`，日、周额度默认不限额。
 
 服务令牌调用以下 app-scoped route 时，HTTP runtime 必须在业务 handler 前比较 token scope 与请求 `app_id`：
 
@@ -333,6 +333,10 @@ memory item 字段：
 不匹配或 legacy unscoped token 统一返回 `AUTH_PERMISSION_DENIED`，不暴露目标资源是否存在。管理密钥仍可跨 app 调用；额外 Header 不能声明或覆盖 app scope。
 
 聊天用量优先采用模型 provider 返回的 `prompt_tokens` 和 `completion_tokens`。OpenAI-compatible provider 未返回某个 usage 字段时，服务使用消息或回复长度进行轻量估算；估算不是 tokenizer 精确结果。provider 返回负数或不可解析字段时，该字段按 `0` 记账。SSE provider 错误从 `data.error.code` 写入请求日志，日志不保存 prompt 或回复正文。
+
+生命周期额度持续累计；每日额度按 UTC 自然日，每日 00:00 重置；每周额度按 ISO 周，每周一 00:00 UTC 重置。所有已配置尺度同时生效，任一尺度耗尽都会使下一次 chat 或 chat stream 返回 429 `ACCESS_TOKEN_QUOTA_EXCEEDED`。响应通过 `exhausted_quota_scopes` 暴露当前耗尽的 `total`、`daily`、`weekly`，并返回各周期用量、剩余量和下一次重置时间。
+
+`PATCH /v1/access-tokens/{token_id}` 接受上述三种额度中的一项或多项。省略字段保留当前设置，显式 `null` 清除对应限制。用量在模型请求结束后结算，因此最后一个已接纳请求可能越过阈值；本契约不提供并发请求的额度预留。
 
 ## HTTP 生产门禁
 

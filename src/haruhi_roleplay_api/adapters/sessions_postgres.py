@@ -18,6 +18,9 @@ from haruhi_roleplay_api.domain import (
     MessageId,
     PersonaModeId,
     Session,
+    SessionAdminItem,
+    SessionAdminPage,
+    SessionAdminQuery,
     SessionId,
     SessionMessage,
     SessionStatus,
@@ -248,6 +251,130 @@ class PostgresSessionStore:
         except Exception as exc:
             _raise_provider_error(exc)
         return message
+
+    def admin_list_sessions(self, query: SessionAdminQuery) -> SessionAdminPage:
+        clauses: list[str] = []
+        params: list[object] = []
+        for column, value in (
+            ("app_id", query.appId),
+            ("user_id", query.userId),
+            ("character_id", query.characterId),
+        ):
+            if value is not None:
+                clauses.append(f"s.{column} = %s")
+                params.append(value)
+        if query.status is not None:
+            clauses.append("s.status = %s")
+            params.append(query.status.value)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        try:
+            with self._connect() as connection:
+                total_row = connection.execute(
+                    f"""
+                    SELECT COUNT(*) AS total
+                    FROM {self._sessions_table} AS s
+                    {where_sql}
+                    """,
+                    tuple(params),
+                ).fetchone()
+                rows = connection.execute(
+                    f"""
+                    SELECT
+                        s.session_id,
+                        s.app_id,
+                        s.user_id,
+                        s.character_id,
+                        s.persona_mode,
+                        s.status,
+                        s.created_at,
+                        s.updated_at,
+                        s.expires_at,
+                        COUNT(m.message_id) AS message_count
+                    FROM {self._sessions_table} AS s
+                    LEFT JOIN {self._messages_table} AS m
+                        ON m.session_id = s.session_id
+                    {where_sql}
+                    GROUP BY s.session_id
+                    ORDER BY s.updated_at DESC, s.session_id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (*params, query.limit, query.offset),
+                ).fetchall()
+        except Exception as exc:
+            _raise_provider_error(exc)
+        total = int(_row_value(total_row, "total")) if total_row is not None else 0
+        return SessionAdminPage(
+            total=total,
+            items=tuple(
+                SessionAdminItem(
+                    session=_session_from_row(row),
+                    messageCount=int(_row_value(row, "message_count")),
+                    expiresAt=(
+                        str(_row_value(row, "expires_at"))
+                        if _row_value(row, "expires_at") is not None
+                        else None
+                    ),
+                )
+                for row in rows
+            ),
+        )
+
+    def admin_close_session(self, session_id: SessionId | str) -> Session:
+        clean_session_id = str(session_id)
+        now = _now()
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    f"""
+                    SELECT
+                        session_id,
+                        app_id,
+                        user_id,
+                        character_id,
+                        persona_mode,
+                        status,
+                        created_at,
+                        updated_at
+                    FROM {self._sessions_table}
+                    WHERE session_id = %s
+                    FOR UPDATE
+                    """,
+                    (clean_session_id,),
+                ).fetchone()
+                if (
+                    row is not None
+                    and str(_row_value(row, "status"))
+                    != SessionStatus.CLOSED.value
+                ):
+                    cursor = connection.execute(
+                        f"""
+                        UPDATE {self._sessions_table}
+                        SET status = %s, updated_at = %s
+                        WHERE session_id = %s
+                        """,
+                        (SessionStatus.CLOSED.value, now, clean_session_id),
+                    )
+                    if cursor.rowcount != 1:
+                        row = None
+        except Exception as exc:
+            _raise_provider_error(exc)
+        if row is None:
+            raise AppError(
+                code=ErrorCode.SESSION_NOT_FOUND,
+                message="Session was not found.",
+            )
+        if str(_row_value(row, "status")) == SessionStatus.CLOSED.value:
+            return _session_from_row(row)
+        return Session(
+            sessionId=SessionId(clean_session_id),
+            appId=AppId(str(_row_value(row, "app_id"))),
+            userId=UserId(str(_row_value(row, "user_id"))),
+            characterId=CharacterId(str(_row_value(row, "character_id"))),
+            personaMode=PersonaModeId(str(_row_value(row, "persona_mode"))),
+            status=SessionStatus.CLOSED,
+            createdAt=str(_row_value(row, "created_at")),
+            updatedAt=now,
+        )
 
     def _initialize_schema(self) -> None:
         try:

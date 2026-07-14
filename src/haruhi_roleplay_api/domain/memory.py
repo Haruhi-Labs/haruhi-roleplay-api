@@ -106,6 +106,46 @@ class MemoryQuery:
 
 
 @dataclass(frozen=True, kw_only=True)
+class MemoryAdminQuery:
+    appId: str | None = None
+    userId: str | None = None
+    characterId: str | None = None
+    personaMode: str | None = None
+    memoryType: MemoryType | None = None
+    limit: int = 100
+    offset: int = 0
+
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("appId", self.appId),
+            ("userId", self.userId),
+            ("characterId", self.characterId),
+            ("personaMode", self.personaMode),
+        ):
+            if value is not None:
+                _require_non_empty(value, field_name)
+        if self.memoryType is not None and not isinstance(
+            self.memoryType,
+            MemoryType,
+        ):
+            raise DTOValidationError("memoryType must be MemoryType")
+        if not 1 <= self.limit <= 200:
+            raise DTOValidationError("limit must be between 1 and 200")
+        if self.offset < 0:
+            raise DTOValidationError("offset must be >= 0")
+
+
+@dataclass(frozen=True, kw_only=True)
+class MemoryAdminPage:
+    total: int
+    items: tuple[MemoryItem, ...]
+
+    def __post_init__(self) -> None:
+        if self.total < 0:
+            raise DTOValidationError("total must be >= 0")
+
+
+@dataclass(frozen=True, kw_only=True)
 class MemoryDeleteCommand:
     memoryId: MemoryId
     appId: AppId

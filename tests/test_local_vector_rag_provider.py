@@ -3,12 +3,16 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from haruhi_roleplay_api.adapters import LocalVectorRagService  # noqa: E402
-from haruhi_roleplay_api.adapters.rag_vector import ChromaVectorStore  # noqa: E402
+from haruhi_roleplay_api.adapters.rag_vector import (  # noqa: E402
+    ChromaVectorStore,
+    FaissVectorStore,
+)
 from haruhi_roleplay_api.api.rag import post_rag_search  # noqa: E402
 from haruhi_roleplay_api.domain import (  # noqa: E402
     AppId,
@@ -95,6 +99,18 @@ class ExplodingRagService:
         raise AssertionError("RAG provider should not be called")
 
 
+class FakeFaissIndex:
+    def __init__(self) -> None:
+        self.added: list[tuple[tuple[float, ...], ...]] = []
+        self.reset_count = 0
+
+    def add(self, vectors: tuple[tuple[float, ...], ...]) -> None:
+        self.added.append(vectors)
+
+    def reset(self) -> None:
+        self.reset_count += 1
+
+
 class LocalVectorRagProviderTests(unittest.TestCase):
     def test_rag_search_limits_fail_before_provider(self) -> None:
         base = {
@@ -157,6 +173,21 @@ class LocalVectorRagProviderTests(unittest.TestCase):
         self.assertTrue(all(chunk.metadata.appId == "app-b" for chunk in app_b.chunks))
         self.assertNotEqual(app_a.chunks[0].chunkId, app_b.chunks[0].chunkId)
 
+    def test_local_vector_admin_lists_and_deletes_real_chunks(self) -> None:
+        service = LocalVectorRagService(chunk_size=24)
+        result = service.ingest(ingest_input(app_id="managed-app"))
+
+        documents = service.list_documents(app_id="managed-app")
+        removed = service.delete_document(
+            app_id="managed-app",
+            document_id=str(result.documentId),
+        )
+
+        self.assertEqual(len(documents), 1)
+        self.assertEqual(documents[0].title, "本地向量资料")
+        self.assertEqual(removed, result.chunkCount)
+        self.assertEqual(service.list_documents(app_id="managed-app"), ())
+
     def test_chroma_payload_and_query_include_app_scope(self) -> None:
         collection = FakeChromaCollection()
         store = object.__new__(ChromaVectorStore)
@@ -177,6 +208,31 @@ class LocalVectorRagProviderTests(unittest.TestCase):
             )
         )
         self.assertEqual(collection.query_kwargs["where"], {"app_id": "app-a"})
+
+    def test_faiss_upsert_replaces_existing_chunk_ids(self) -> None:
+        index = FakeFaissIndex()
+        store = object.__new__(FaissVectorStore)
+        store._index = index
+        store._chunks = []
+        store._vectors = []
+        service = LocalVectorRagService(
+            chunk_size=200,
+            vector_store=store,
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_vector._float32_matrix",
+            side_effect=lambda vectors: vectors,
+        ):
+            first = service.ingest(ingest_input())
+            second = service.ingest(ingest_input())
+
+        self.assertEqual(first.documentId, second.documentId)
+        self.assertEqual(len(store.list_chunks()), first.chunkCount)
+        self.assertEqual(index.reset_count, 2)
+        self.assertEqual(
+            [len(vectors) for vectors in index.added],
+            [first.chunkCount, first.chunkCount],
+        )
 
     def test_rag_provider_factory_builds_local_vector_service(self) -> None:
         service = build_rag_service(

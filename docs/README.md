@@ -23,6 +23,9 @@
 5. `usage/docker-compose.md`
    在 Linux 单机上使用 Docker Compose，并理解反向代理和数据持久化边界。
 
+6. `usage/admin-console.md`
+   使用安全后台管理令牌、角色、模型、用量、会话、RAG、记忆、审计和系统配置。
+
 ## 开发和扩展
 
 需要修改项目或增加 Provider、角色和能力时，按下面顺序阅读：

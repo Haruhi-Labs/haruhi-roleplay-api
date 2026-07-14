@@ -174,9 +174,24 @@ class EnvConfigEditorTests(unittest.TestCase):
                     }
                 }
             )
+            secure = editor.check(
+                {
+                    "values": {
+                        "ROLEPLAY_HOST": "0.0.0.0",
+                        "ROLEPLAY_API_KEY": "a" * 32,
+                        "ROLEPLAY_ADMIN_COOKIE_SECURE": "true",
+                    }
+                }
+            )
 
         self.assertFalse(weak.valid)
-        self.assertTrue(strong.valid)
+        self.assertFalse(strong.valid)
+        self.assertIn(
+            "Non-loopback ROLEPLAY_HOST requires "
+            "ROLEPLAY_ADMIN_COOKIE_SECURE=true",
+            strong.errors,
+        )
+        self.assertTrue(secure.valid)
 
     def test_commit_preserves_comments_unknown_keys_and_redacts_secret(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

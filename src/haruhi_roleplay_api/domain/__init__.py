@@ -2,8 +2,13 @@
 
 from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
+    AdminAuditLog,
     AccessTokenRequestLog,
+    AccessTokenRouteUsage,
+    AccessTokenServiceUsage,
     AccessTokenStatus,
+    AccessTokenUsageBucket,
+    AccessTokenUsageOverview,
     IssuedAccessToken,
 )
 
@@ -28,6 +33,8 @@ from haruhi_roleplay_api.domain.backend_context import (
 )
 from haruhi_roleplay_api.domain.debug import DebugTrace
 from haruhi_roleplay_api.domain.memory import (
+    MemoryAdminPage,
+    MemoryAdminQuery,
     MemoryDeleteCommand,
     MemoryId,
     MemoryItem,
@@ -59,6 +66,7 @@ from haruhi_roleplay_api.domain.rag import (
     RagDocumentMetadata,
     RagIngestInput,
     RagIngestResult,
+    RagManagedDocument,
     RagRetrieveFilters,
     RagRetrieveInput,
     RagRetrieveOutput,
@@ -66,6 +74,9 @@ from haruhi_roleplay_api.domain.rag import (
 from haruhi_roleplay_api.domain.session import (
     MessageId,
     Session,
+    SessionAdminItem,
+    SessionAdminPage,
+    SessionAdminQuery,
     SessionMessage,
     SessionStatus,
 )
@@ -80,8 +91,13 @@ from haruhi_roleplay_api.domain.model import (
 
 __all__ = [
     "AccessToken",
+    "AdminAuditLog",
     "AccessTokenRequestLog",
+    "AccessTokenRouteUsage",
+    "AccessTokenServiceUsage",
     "AccessTokenStatus",
+    "AccessTokenUsageBucket",
+    "AccessTokenUsageOverview",
     "AppId",
     "BackendContextFact",
     "BackendContextRequest",
@@ -98,6 +114,8 @@ __all__ = [
     "IdentityConfig",
     "IssuedAccessToken",
     "KnowledgeBoundary",
+    "MemoryAdminPage",
+    "MemoryAdminQuery",
     "MemoryDeleteCommand",
     "MemoryId",
     "MemoryItem",
@@ -124,11 +142,15 @@ __all__ = [
     "RagDocumentMetadata",
     "RagIngestInput",
     "RagIngestResult",
+    "RagManagedDocument",
     "RagRetrieveFilters",
     "RagRetrieveInput",
     "RagRetrieveOutput",
     "RequestId",
     "Session",
+    "SessionAdminItem",
+    "SessionAdminPage",
+    "SessionAdminQuery",
     "SessionId",
     "SessionMessage",
     "SessionStatus",

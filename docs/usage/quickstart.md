@@ -120,6 +120,8 @@ $tokenBody = @{
   app_id = "web-demo"
   name = "local-business-backend"
   quota_tokens = 100000
+  daily_quota_tokens = 10000
+  weekly_quota_tokens = 50000
 } | ConvertTo-Json
 $issued = Invoke-RestMethod `
   -Method POST `
@@ -135,10 +137,12 @@ Bash：
 curl -X POST http://127.0.0.1:8000/v1/access-tokens \
   -H 'Authorization: Bearer change-me-local-admin-key' \
   -H 'Content-Type: application/json' \
-  -d '{"app_id":"web-demo","name":"local-business-backend","quota_tokens":100000}'
+  -d '{"app_id":"web-demo","name":"local-business-backend","quota_tokens":100000,"daily_quota_tokens":10000,"weekly_quota_tokens":50000}'
 ```
 
 响应中的 `data.token` 只返回一次。生产环境应把它放进业务后端的 Secret Manager 或环境变量，不要放进浏览器代码、Git 或日志。
+
+示例同时设置了生命周期、每日和每周额度。三项都可独立省略；每日额度在 00:00 UTC 重置，每周额度在周一 00:00 UTC 重置，任一已设置额度耗尽都会阻止后续模型请求。
 
 ## 5. 查询角色并发送消息
 
@@ -315,6 +319,7 @@ SQLite 数据保存在宿主机 `./.data/`。默认 `RAG_API_TYPE=local` 的文�
 | 启动时报强密钥错误 | 非 loopback 监听必须使用至少 32 字符的非占位 `ROLEPLAY_API_KEY` |
 | `401 AUTH_INVALID_API_KEY` | Header 中令牌是否正确，令牌是否已吊销或过期 |
 | `403 AUTH_PERMISSION_DENIED` | 服务令牌的 `app_id` 是否与请求 body 中的 `app_id` 一致 |
+| `429 ACCESS_TOKEN_QUOTA_EXCEEDED` | 生命周期、每日或每周额度是否已有任一项耗尽 |
 | `PERSONA_NOT_FOUND` | 重新调用 `GET /v1/personas`，不要硬编码不存在的角色 |
 | `MODEL_PROVIDER_ERROR` | API type、模型名、base URL、令牌和外部服务连通性 |
 | `RAG_PROVIDER_ERROR` | embedding 维度、collection 维度、Qdrant URL、权限和 `app_id` 数据隔离 |

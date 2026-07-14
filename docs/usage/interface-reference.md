@@ -175,7 +175,18 @@ start -> source* -> delta* -> error
 | status     | active   |
 | created_at | 创建时间 |
 
-当前 HTTP runtime 不提供 session 查询或关闭接口。调用方只需保存创建结果中的 `session_id`；session 过期和清理由已配置的 `SessionStore` 负责。
+业务调用方只需保存创建结果中的 `session_id`；session 过期和清理由已配置的 `SessionStore` 负责。受信任后台可使用下面的独立管理接口盘点或提前关闭会话。
+
+## 后台 Session 管理
+
+后台会话接口只接受管理员密钥或安全后台会话，不接受业务服务令牌：
+
+| Endpoint | 用途 |
+| --- | --- |
+| `GET /v1/admin/sessions` | 分页列出运行会话，可按 `app_id`、`user_id`、`character_id` 和 `status` 过滤 |
+| `DELETE /v1/admin/sessions/{session_id}` | 把指定会话标记为 `closed`，阻止后续连续会话读取和写入 |
+
+列表默认返回 100 条、最大 200 条，响应只包含作用域、状态、消息数量和时间信息，不返回用户或角色消息正文。关闭操作可重复执行；不存在的会话返回 `SESSION_NOT_FOUND`。
 
 ## Persona: GET /v1/personas
 
@@ -217,6 +228,23 @@ character 字段：
 | kyon         | default_kyon    | 阿虚         |
 
 以上是当前 catalog 中真实公开的 preset。其它角色和春日模式属于后续卡片，不应作为当前可调用值。
+
+## 后台角色管理
+
+后台角色接口接受管理员密钥或安全后台会话，不接受业务服务令牌：
+
+| Endpoint | 用途 |
+| --- | --- |
+| `GET /v1/admin/personas` | 读取包含 draft/private 的完整角色与 Persona 配置 |
+| `GET /v1/admin/personas/{character_id}` | 读取单个角色及其全部模式 |
+| `POST /v1/admin/personas` | 使用 `character` 和 `presets` 原子创建角色 |
+| `PATCH /v1/admin/personas/{character_id}` | 更新角色元数据，不允许直接改模式清单 |
+| `DELETE /v1/admin/personas/{character_id}` | 删除角色及受管 JSON 文件 |
+| `POST /v1/admin/personas/{character_id}/presets` | 新建模式并同步角色清单 |
+| `PATCH /v1/admin/personas/{character_id}/presets/{persona_mode}` | 更新完整模式配置 |
+| `DELETE /v1/admin/personas/{character_id}/presets/{persona_mode}` | 删除非默认模式并同步角色清单 |
+
+角色和模式 ID 只能包含字母、数字、下划线和连字符，不能用路径片段。写入前会通过领域 schema 完整校验，并通过同目录临时文件原子替换；默认模式不能直接删除。角色目录包含未知文件、子目录或符号链接时，整角色删除会被拒绝，避免后台误删非受管数据。
 
 ## RAG: POST /v1/rag/documents
 
@@ -296,6 +324,19 @@ character 字段：
 
 检索始终强制匹配请求的 `app_id`，该条件不能通过 `filters` 放宽。返回 chunk 的 source 摘要包含 `app_id`，便于后台联调确认 scope；普通聊天前端不应允许用户编辑它。
 
+## 后台 RAG 管理
+
+后台 RAG 接口只接受管理员密钥或安全后台会话：
+
+| Endpoint | 用途 |
+| --- | --- |
+| `GET /v1/admin/rag/documents?app_id=...` | 从实际检索后端按应用列出文档、元数据、chunk 数和内容预览 |
+| `POST /v1/admin/rag/documents` | 使用与业务导入相同的 schema 校验并写入当前 Provider |
+| `POST /v1/admin/rag/search` | 使用与业务检索相同的应用隔离规则执行后台检索测试 |
+| `DELETE /v1/admin/rag/documents/{document_id}?app_id=...` | 按 `app_id + document_id` 删除实际检索后端中的全部 chunks |
+
+管理接口不是旁路元数据账本。本地文本、本地向量、FAISS、Chroma 和 Qdrant Provider 都直接列举及删除真实检索数据；删除时必须显式提供 `app_id`，避免同名文档跨应用误删。Qdrant 使用 payload filter 删除，FAISS 会用剩余向量重建索引。
+
 ## Memory: GET /v1/memory/{user_id}
 
 用途：查询用户记忆。
@@ -353,16 +394,28 @@ item 字段：
 
 上下文不匹配或记忆不存在时返回 `MEMORY_NOT_FOUND`。当前删除是手动管理能力；chat 只会在 `capabilities.memory=true` 时读取有限记忆，并只写入通过 policy 的显式候选。
 
+## 后台 Memory 管理
+
+后台记忆接口只接受管理员密钥或安全后台会话，不接受业务服务令牌：
+
+| Endpoint | 用途 |
+| --- | --- |
+| `GET /v1/admin/memories` | 分页列出长期记忆，可按 `app_id`、`user_id`、`character_id`、`persona_mode`、`type` 过滤 |
+| `POST /v1/admin/memories` | 人工写入一条经过明确确认的长期记忆 |
+| `DELETE /v1/admin/memories/{memory_id}` | 按记忆 ID 删除一条长期记忆 |
+
+列表参数 `limit` 默认为 100、最大 200，`offset` 默认为 0；响应包含 `provider`、`total`、`count`、`limit`、`offset` 和 `items`。人工写入必须提供 `app_id`、`user_id`、`character_id`、`persona_mode`、`type`、`content`、`reason` 和 0–1 的 `confidence`，确保管理员能说明记忆来源和可信度。后台删除拥有跨应用权限，因此界面在执行前必须显示作用域并进行二次确认。
+
 ## Access Token 管理
 
-该组接口只接受 `ROLEPLAY_API_KEY`，不接受服务令牌。完整安全和运维说明见 `docs/usage/access-token-management.md`。
+该组接口接受 `ROLEPLAY_API_KEY`，或后台登录产生的安全会话 Cookie；不接受业务服务令牌。后台会话执行修改操作时还必须提供登录响应中的 CSRF 令牌。完整安全和运维说明见 `docs/usage/access-token-management.md`。
 
 | Endpoint | 请求 | 用途 |
 | --- | --- | --- |
-| `POST /v1/access-tokens` | `app_id`、`name`、可选 `quota_tokens`、`expires_at` | 创建绑定单一 app 的令牌并一次性返回明文 |
+| `POST /v1/access-tokens` | `app_id`、`name`、可选总/日/周额度和 `expires_at` | 创建绑定单一 app 的令牌并一次性返回明文 |
 | `GET /v1/access-tokens` | 无 | 列举令牌摘要和累计用量 |
 | `GET /v1/access-tokens/{token_id}` | 无 | 查询令牌详情 |
-| `PATCH /v1/access-tokens/{token_id}` | `quota_tokens`，可为 `null` | 调整额度或设为不限额 |
+| `PATCH /v1/access-tokens/{token_id}` | 总/日/周额度至少一项，可为 `null` | 独立调整或清除任意额度 |
 | `DELETE /v1/access-tokens/{token_id}` | 无 | 吊销令牌 |
 | `GET /v1/access-tokens/{token_id}/logs` | 查询参数 `limit`，默认 50、最大 200 | 查询逐令牌请求日志 |
 
@@ -372,9 +425,25 @@ item 字段：
 
 服务令牌调用 session、chat、RAG、memory route 时，请求 body/query 中的 `app_id` 必须与 token scope 一致，否则返回 `403 AUTH_PERMISSION_DENIED`。legacy unscoped token 不能调用这些 route。`/health`、`/v1/personas` 无 app scope；`ROLEPLAY_API_KEY` 不受服务 token scope 限制。
 
-令牌详情中的用量字段包括 `quota_tokens`、`prompt_tokens`、`completion_tokens`、`total_tokens` 和 `remaining_tokens`。额度耗尽后的聊天请求返回 HTTP 429 和 `ACCESS_TOKEN_QUOTA_EXCEEDED`。
+额度字段为 `quota_tokens`、`daily_quota_tokens`、`weekly_quota_tokens`；可以单独或组合设置，`null` 表示该尺度不限额。用量与剩余字段为 `total_tokens` / `remaining_tokens`、`daily_tokens` / `daily_remaining_tokens`、`weekly_tokens` / `weekly_remaining_tokens`。`daily_reset_at` 是下一次每日 00:00 UTC，`weekly_reset_at` 是下一次周一 00:00 UTC。`exhausted_quota_scopes` 列出已耗尽的 `total`、`daily`、`weekly`；任一已配置尺度耗尽后的聊天请求返回 HTTP 429 和 `ACCESS_TOKEN_QUOTA_EXCEEDED`。
+
+PATCH 中省略额度字段表示保留当前值，显式 `null` 表示清除该尺度。周期用量来自当前 UTC 窗口内的逐请求日志，重置窗口不删除历史日志或生命周期累计用量。
 
 模型 provider 返回 usage 时使用真实值；OpenAI-compatible 响应缺少 usage 字段时，服务按消息和回复长度进行 fallback 估算。负数或不可解析的单个 usage 字段按 `0` 处理。流式 provider 失败时，请求日志记录 SSE `data.error.code`，不会记录消息或回复正文。
+
+## 后台用量与全局审计
+
+该组接口只接受管理员密钥或安全后台会话，不接受业务服务令牌：
+
+| Endpoint | 查询参数 | 用途 |
+| --- | --- | --- |
+| `GET /v1/admin/usage` | `days`，默认 30，范围 1–90 | 返回请求数、错误率、Token 构成、平均耗时、每日趋势、逐服务和逐路由聚合 |
+| `GET /v1/admin/request-logs` | `limit`，默认 50，最大 200 | 返回所有服务令牌最近的请求审计日志 |
+| `GET /v1/admin/audit-logs` | `limit`，默认 100，最大 200 | 返回管理员登录及后台变更的安全审计事件 |
+
+用量数据来自服务令牌审计账本，只统计所选 UTC 日期窗口内的业务服务请求。每日趋势会补齐无请求日期；逐服务结果包含零请求服务，便于管理员发现尚未使用或已停用的调用方。日志仍不保存 Header、令牌明文、请求正文、用户消息或模型回复。
+
+管理员审计覆盖登录成功/失败、退出、服务令牌签发/修改/吊销、角色与 Persona 变更、模型及运行配置变更、RAG 导入/检索/删除、记忆写入/删除和运行会话关闭。事件只保存主体类型、动作、资源类型与安全 ID、请求 ID、状态码、错误码和时间，不保存密码、CSRF、请求 Header、配置值、文档正文、记忆正文或对话内容。审计写入失败只记录服务端错误日志，不覆盖原管理接口响应。
 
 ## Runtime Config: GET /v1/runtime-config
 

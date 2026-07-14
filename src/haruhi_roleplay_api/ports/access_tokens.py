@@ -7,8 +7,18 @@ from typing import Protocol
 from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
     AccessTokenRequestLog,
+    AccessTokenUsageOverview,
+    AdminAuditLog,
     IssuedAccessToken,
 )
+
+
+class _UnchangedQuota:
+    __slots__ = ()
+
+
+UNCHANGED_QUOTA = _UnchangedQuota()
+QuotaUpdate = int | None | _UnchangedQuota
 
 
 class AccessTokenStore(Protocol):
@@ -18,6 +28,8 @@ class AccessTokenStore(Protocol):
         app_id: str,
         name: str,
         quota_tokens: int | None,
+        daily_quota_tokens: int | None = None,
+        weekly_quota_tokens: int | None = None,
         expires_at: str | None = None,
     ) -> IssuedAccessToken:
         """创建绑定单一 app 的令牌，明文密钥只能通过本次返回。"""
@@ -41,6 +53,16 @@ class AccessTokenStore(Protocol):
         quota_tokens: int | None,
     ) -> AccessToken:
         """修改总 Token 额度；None 表示不限额。"""
+
+    def update_quotas(
+        self,
+        token_id: str,
+        *,
+        quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        daily_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        weekly_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+    ) -> AccessToken:
+        """原子修改给定尺度的 Token 额度，省略尺度保持不变。"""
 
     def ensure_quota_available(self, token_id: str) -> AccessToken:
         """确认令牌仍有模型 Token 额度，否则抛出稳定错误。"""
@@ -67,3 +89,29 @@ class AccessTokenStore(Protocol):
         limit: int = 50,
     ) -> tuple[AccessTokenRequestLog, ...]:
         """按时间倒序读取令牌请求日志。"""
+
+    def list_all_request_logs(
+        self,
+        *,
+        limit: int = 50,
+    ) -> tuple[AccessTokenRequestLog, ...]:
+        """按时间倒序读取所有服务令牌的请求日志。"""
+
+    def usage_overview(self, *, days: int = 30) -> AccessTokenUsageOverview:
+        """聚合指定时间窗口内的整体、逐服务和逐路由用量。"""
+
+    def record_admin_event(
+        self,
+        *,
+        actor: str,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        request_id: str,
+        status_code: int,
+        error_code: str | None = None,
+    ) -> AdminAuditLog:
+        """记录管理员动作摘要，不保存请求正文或敏感值。"""
+
+    def list_admin_events(self, *, limit: int = 100) -> tuple[AdminAuditLog, ...]:
+        """按时间倒序读取管理员审计事件。"""

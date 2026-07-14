@@ -27,7 +27,18 @@ def post_access_token(
         issued = CreateAccessToken(store).execute(
             app_id=_required_text(body.get("app_id"), "app_id"),
             name=_required_text(body.get("name"), "name"),
-            quota_tokens=_optional_positive_int(body.get("quota_tokens")),
+            quota_tokens=_optional_positive_int(
+                body.get("quota_tokens"),
+                "quota_tokens",
+            ),
+            daily_quota_tokens=_optional_positive_int(
+                body.get("daily_quota_tokens"),
+                "daily_quota_tokens",
+            ),
+            weekly_quota_tokens=_optional_positive_int(
+                body.get("weekly_quota_tokens"),
+                "weekly_quota_tokens",
+            ),
             expires_at=_optional_text(body.get("expires_at"), "expires_at"),
         )
     except Exception as exc:
@@ -91,16 +102,23 @@ def patch_access_token(
     request_id: RequestId | str,
 ) -> ApiResponse:
     try:
-        if "quota_tokens" not in body:
-            raise DTOValidationError("quota_tokens is required")
-        raw_quota = body.get("quota_tokens")
-        quota_tokens = (
-            None if raw_quota is None else _optional_positive_int(raw_quota)
+        quota_fields = (
+            "quota_tokens",
+            "daily_quota_tokens",
+            "weekly_quota_tokens",
         )
-        item = UpdateAccessTokenQuota(store).execute(
-            token_id,
-            quota_tokens=quota_tokens,
-        )
+        if not any(field in body for field in quota_fields):
+            raise DTOValidationError("at least one quota field is required")
+        quota_updates = {
+            field_name: (
+                None
+                if body.get(field_name) is None
+                else _optional_positive_int(body.get(field_name), field_name)
+            )
+            for field_name in quota_fields
+            if field_name in body
+        }
+        item = UpdateAccessTokenQuota(store).execute(token_id, **quota_updates)
     except Exception as exc:
         return error_response(exc, request_id)
     return success_response(item.to_mapping(), request_id)
@@ -114,7 +132,7 @@ def get_access_token_logs(
     request_id: RequestId | str,
 ) -> ApiResponse:
     try:
-        limit = _optional_positive_int(query.get("limit")) or 50
+        limit = _optional_positive_int(query.get("limit"), "limit") or 50
         items = ListAccessTokenRequestLogs(store).execute(token_id, limit=limit)
     except Exception as exc:
         return error_response(exc, request_id)
@@ -140,15 +158,17 @@ def _optional_text(value: Any, field_name: str) -> str | None:
     return _required_text(value, field_name)
 
 
-def _optional_positive_int(value: Any) -> int | None:
+def _optional_positive_int(value: Any, field_name: str) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool):
-        raise DTOValidationError("quota_tokens must be a positive integer")
+        raise DTOValidationError(f"{field_name} must be a positive integer")
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
-        raise DTOValidationError("quota_tokens must be a positive integer") from exc
+        raise DTOValidationError(
+            f"{field_name} must be a positive integer"
+        ) from exc
     if parsed <= 0:
-        raise DTOValidationError("quota_tokens must be a positive integer")
+        raise DTOValidationError(f"{field_name} must be a positive integer")
     return parsed

@@ -21,10 +21,16 @@ class AccessToken:
     prefix: str
     status: AccessTokenStatus
     quotaTokens: int | None
+    dailyQuotaTokens: int | None
+    weeklyQuotaTokens: int | None
     promptTokens: int
     completionTokens: int
     totalTokens: int
+    dailyTokens: int
+    weeklyTokens: int
     createdAt: str
+    dailyResetAt: str
+    weeklyResetAt: str
     expiresAt: str | None = None
     revokedAt: str | None = None
     lastUsedAt: str | None = None
@@ -36,12 +42,19 @@ class AccessToken:
         _require_non_empty(self.name, "accessToken.name")
         _require_non_empty(self.prefix, "accessToken.prefix")
         _require_non_empty(self.createdAt, "accessToken.createdAt")
-        if self.quotaTokens is not None and self.quotaTokens <= 0:
-            raise DTOValidationError("accessToken.quotaTokens must be positive")
+        for field_name, value in (
+            ("quotaTokens", self.quotaTokens),
+            ("dailyQuotaTokens", self.dailyQuotaTokens),
+            ("weeklyQuotaTokens", self.weeklyQuotaTokens),
+        ):
+            if value is not None and value <= 0:
+                raise DTOValidationError(f"accessToken.{field_name} must be positive")
         for field_name, value in (
             ("promptTokens", self.promptTokens),
             ("completionTokens", self.completionTokens),
             ("totalTokens", self.totalTokens),
+            ("dailyTokens", self.dailyTokens),
+            ("weeklyTokens", self.weeklyTokens),
         ):
             if value < 0:
                 raise DTOValidationError(f"accessToken.{field_name} must be >= 0")
@@ -49,12 +62,37 @@ class AccessToken:
             raise DTOValidationError(
                 "accessToken.totalTokens must equal promptTokens + completionTokens"
             )
+        _require_non_empty(self.dailyResetAt, "accessToken.dailyResetAt")
+        _require_non_empty(self.weeklyResetAt, "accessToken.weeklyResetAt")
 
     @property
     def remainingTokens(self) -> int | None:
         if self.quotaTokens is None:
             return None
         return max(self.quotaTokens - self.totalTokens, 0)
+
+    @property
+    def dailyRemainingTokens(self) -> int | None:
+        if self.dailyQuotaTokens is None:
+            return None
+        return max(self.dailyQuotaTokens - self.dailyTokens, 0)
+
+    @property
+    def weeklyRemainingTokens(self) -> int | None:
+        if self.weeklyQuotaTokens is None:
+            return None
+        return max(self.weeklyQuotaTokens - self.weeklyTokens, 0)
+
+    @property
+    def exhaustedQuotaScopes(self) -> tuple[str, ...]:
+        scopes: list[str] = []
+        if self.remainingTokens == 0:
+            scopes.append("total")
+        if self.dailyRemainingTokens == 0:
+            scopes.append("daily")
+        if self.weeklyRemainingTokens == 0:
+            scopes.append("weekly")
+        return tuple(scopes)
 
     def to_mapping(self) -> dict[str, object]:
         return {
@@ -64,10 +102,19 @@ class AccessToken:
             "prefix": self.prefix,
             "status": self.status.value,
             "quota_tokens": self.quotaTokens,
+            "daily_quota_tokens": self.dailyQuotaTokens,
+            "weekly_quota_tokens": self.weeklyQuotaTokens,
             "prompt_tokens": self.promptTokens,
             "completion_tokens": self.completionTokens,
             "total_tokens": self.totalTokens,
+            "daily_tokens": self.dailyTokens,
+            "weekly_tokens": self.weeklyTokens,
             "remaining_tokens": self.remainingTokens,
+            "daily_remaining_tokens": self.dailyRemainingTokens,
+            "weekly_remaining_tokens": self.weeklyRemainingTokens,
+            "daily_reset_at": self.dailyResetAt,
+            "weekly_reset_at": self.weeklyResetAt,
+            "exhausted_quota_scopes": list(self.exhaustedQuotaScopes),
             "created_at": self.createdAt,
             "expires_at": self.expiresAt,
             "revoked_at": self.revokedAt,
@@ -134,6 +181,168 @@ class AccessTokenRequestLog:
             "prompt_tokens": self.promptTokens,
             "completion_tokens": self.completionTokens,
             "total_tokens": self.totalTokens,
+            "error_code": self.errorCode,
+            "created_at": self.createdAt,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccessTokenUsageBucket:
+    date: str
+    requestCount: int
+    errorCount: int
+    promptTokens: int
+    completionTokens: int
+    totalTokens: int
+    averageDurationMs: int
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "date": self.date,
+            "request_count": self.requestCount,
+            "error_count": self.errorCount,
+            "prompt_tokens": self.promptTokens,
+            "completion_tokens": self.completionTokens,
+            "total_tokens": self.totalTokens,
+            "average_duration_ms": self.averageDurationMs,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccessTokenServiceUsage:
+    tokenId: str
+    appId: str | None
+    name: str
+    status: AccessTokenStatus
+    requestCount: int
+    errorCount: int
+    promptTokens: int
+    completionTokens: int
+    totalTokens: int
+    averageDurationMs: int
+    lastUsedAt: str | None
+
+    @property
+    def errorRate(self) -> float:
+        if self.requestCount == 0:
+            return 0.0
+        return self.errorCount / self.requestCount
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "token_id": self.tokenId,
+            "app_id": self.appId,
+            "name": self.name,
+            "status": self.status.value,
+            "request_count": self.requestCount,
+            "error_count": self.errorCount,
+            "error_rate": self.errorRate,
+            "prompt_tokens": self.promptTokens,
+            "completion_tokens": self.completionTokens,
+            "total_tokens": self.totalTokens,
+            "average_duration_ms": self.averageDurationMs,
+            "last_used_at": self.lastUsedAt,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccessTokenRouteUsage:
+    method: str
+    path: str
+    requestCount: int
+    errorCount: int
+    totalTokens: int
+    averageDurationMs: int
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "method": self.method,
+            "path": self.path,
+            "request_count": self.requestCount,
+            "error_count": self.errorCount,
+            "total_tokens": self.totalTokens,
+            "average_duration_ms": self.averageDurationMs,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccessTokenUsageOverview:
+    periodDays: int
+    requestCount: int
+    errorCount: int
+    promptTokens: int
+    completionTokens: int
+    totalTokens: int
+    averageDurationMs: int
+    activeServiceCount: int
+    daily: tuple[AccessTokenUsageBucket, ...]
+    services: tuple[AccessTokenServiceUsage, ...]
+    routes: tuple[AccessTokenRouteUsage, ...]
+
+    @property
+    def errorRate(self) -> float:
+        if self.requestCount == 0:
+            return 0.0
+        return self.errorCount / self.requestCount
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "period_days": self.periodDays,
+            "request_count": self.requestCount,
+            "error_count": self.errorCount,
+            "error_rate": self.errorRate,
+            "prompt_tokens": self.promptTokens,
+            "completion_tokens": self.completionTokens,
+            "total_tokens": self.totalTokens,
+            "average_duration_ms": self.averageDurationMs,
+            "active_service_count": self.activeServiceCount,
+            "daily": [item.to_mapping() for item in self.daily],
+            "services": [item.to_mapping() for item in self.services],
+            "routes": [item.to_mapping() for item in self.routes],
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class AdminAuditLog:
+    eventId: str
+    actor: str
+    action: str
+    resourceType: str
+    resourceId: str | None
+    requestId: str
+    statusCode: int
+    createdAt: str
+    errorCode: str | None = None
+
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("eventId", self.eventId),
+            ("actor", self.actor),
+            ("action", self.action),
+            ("resourceType", self.resourceType),
+            ("requestId", self.requestId),
+            ("createdAt", self.createdAt),
+        ):
+            _require_non_empty(value, f"adminAuditLog.{field_name}")
+        if self.resourceId is not None:
+            _require_non_empty(self.resourceId, "adminAuditLog.resourceId")
+        if not 100 <= self.statusCode <= 599:
+            raise DTOValidationError("adminAuditLog.statusCode must be valid")
+
+    @property
+    def outcome(self) -> str:
+        return "success" if self.statusCode < 400 and self.errorCode is None else "failed"
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "event_id": self.eventId,
+            "actor": self.actor,
+            "action": self.action,
+            "resource_type": self.resourceType,
+            "resource_id": self.resourceId,
+            "request_id": self.requestId,
+            "status_code": self.statusCode,
+            "outcome": self.outcome,
             "error_code": self.errorCode,
             "created_at": self.createdAt,
         }

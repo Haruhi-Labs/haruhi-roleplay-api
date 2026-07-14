@@ -14,6 +14,9 @@ from haruhi_roleplay_api.domain import (
     MessageId,
     PersonaModeId,
     Session,
+    SessionAdminItem,
+    SessionAdminPage,
+    SessionAdminQuery,
     SessionId,
     SessionMessage,
     SessionStatus,
@@ -91,7 +94,50 @@ class InMemorySessionStore:
         self._sessions[str(session_id)] = replace(session, updatedAt=now)
         return message
 
+    def admin_list_sessions(self, query: SessionAdminQuery) -> SessionAdminPage:
+        sessions = [
+            session
+            for session in self._sessions.values()
+            if _matches_admin_query(session, query)
+        ]
+        sessions.sort(
+            key=lambda session: (session.updatedAt, str(session.sessionId)),
+            reverse=True,
+        )
+        page = sessions[query.offset : query.offset + query.limit]
+        return SessionAdminPage(
+            total=len(sessions),
+            items=tuple(
+                SessionAdminItem(
+                    session=session,
+                    messageCount=len(self._messages.get(str(session.sessionId), [])),
+                )
+                for session in page
+            ),
+        )
+
+    def admin_close_session(self, session_id: SessionId | str) -> Session:
+        session = self.get_session(session_id)
+        if session.status is SessionStatus.CLOSED:
+            return session
+        closed = replace(
+            session,
+            status=SessionStatus.CLOSED,
+            updatedAt=_now(),
+        )
+        self._sessions[str(session_id)] = closed
+        return closed
+
+
+def _matches_admin_query(session: Session, query: SessionAdminQuery) -> bool:
+    if query.appId is not None and str(session.appId) != query.appId:
+        return False
+    if query.userId is not None and str(session.userId) != query.userId:
+        return False
+    if query.characterId is not None and str(session.characterId) != query.characterId:
+        return False
+    return query.status is None or session.status is query.status
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
-

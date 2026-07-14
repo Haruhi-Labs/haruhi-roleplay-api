@@ -6,7 +6,7 @@ import hashlib
 import secrets
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterator
 from uuid import uuid4
@@ -16,9 +16,15 @@ from haruhi_roleplay_api.domain import DTOValidationError
 from haruhi_roleplay_api.domain.access_token import (
     AccessToken,
     AccessTokenRequestLog,
+    AccessTokenRouteUsage,
+    AccessTokenServiceUsage,
     AccessTokenStatus,
+    AccessTokenUsageBucket,
+    AccessTokenUsageOverview,
+    AdminAuditLog,
     IssuedAccessToken,
 )
+from haruhi_roleplay_api.ports.access_tokens import QuotaUpdate, UNCHANGED_QUOTA
 
 
 class SQLiteAccessTokenStore:
@@ -38,11 +44,21 @@ class SQLiteAccessTokenStore:
         app_id: str,
         name: str,
         quota_tokens: int | None,
+        daily_quota_tokens: int | None = None,
+        weekly_quota_tokens: int | None = None,
         expires_at: str | None = None,
     ) -> IssuedAccessToken:
         clean_app_id = _required_text(app_id, "app_id")
         clean_name = _required_text(name, "name")
         clean_quota = _optional_positive_int(quota_tokens, "quota_tokens")
+        clean_daily_quota = _optional_positive_int(
+            daily_quota_tokens,
+            "daily_quota_tokens",
+        )
+        clean_weekly_quota = _optional_positive_int(
+            weekly_quota_tokens,
+            "weekly_quota_tokens",
+        )
         clean_expires_at = _optional_future_timestamp(expires_at)
         token_id = f"tok-{uuid4().hex}"
         secret = f"hrt_{secrets.token_urlsafe(32)}"
@@ -58,13 +74,15 @@ class SQLiteAccessTokenStore:
                     secret_hash,
                     status,
                     quota_tokens,
+                    daily_quota_tokens,
+                    weekly_quota_tokens,
                     prompt_tokens,
                     completion_tokens,
                     total_tokens,
                     created_at,
                     expires_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
                 """,
                 (
                     token_id,
@@ -74,6 +92,8 @@ class SQLiteAccessTokenStore:
                     _secret_hash(secret),
                     AccessTokenStatus.ACTIVE.value,
                     clean_quota,
+                    clean_daily_quota,
+                    clean_weekly_quota,
                     now,
                     clean_expires_at,
                 ),
@@ -83,10 +103,11 @@ class SQLiteAccessTokenStore:
     def authenticate(self, secret: str) -> AccessToken | None:
         if not isinstance(secret, str) or not secret.startswith("hrt_"):
             return None
+        daily_start, weekly_start, _, _ = _quota_windows()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM access_tokens WHERE secret_hash = ?",
-                (_secret_hash(secret),),
+                _TOKEN_SELECT + " WHERE token.secret_hash = ?",
+                (daily_start, weekly_start, _secret_hash(secret)),
             ).fetchone()
         if row is None:
             return None
@@ -98,18 +119,22 @@ class SQLiteAccessTokenStore:
         return token
 
     def list_tokens(self) -> tuple[AccessToken, ...]:
+        daily_start, weekly_start, _, _ = _quota_windows()
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM access_tokens ORDER BY created_at DESC, token_id DESC"
+                _TOKEN_SELECT
+                + " ORDER BY token.created_at DESC, token.token_id DESC",
+                (daily_start, weekly_start),
             ).fetchall()
         return tuple(_token_from_row(row) for row in rows)
 
     def get_token(self, token_id: str) -> AccessToken:
         clean_token_id = _required_text(token_id, "token_id")
+        daily_start, weekly_start, _, _ = _quota_windows()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM access_tokens WHERE token_id = ?",
-                (clean_token_id,),
+                _TOKEN_SELECT + " WHERE token.token_id = ?",
+                (daily_start, weekly_start, clean_token_id),
             ).fetchone()
         if row is None:
             raise AppError(
@@ -133,24 +158,73 @@ class SQLiteAccessTokenStore:
             )
         return self.get_token(token_id)
 
+    def update_quotas(
+        self,
+        token_id: str,
+        *,
+        quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        daily_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+        weekly_quota_tokens: QuotaUpdate = UNCHANGED_QUOTA,
+    ) -> AccessToken:
+        quota_changed, clean_quota = _quota_update_value(
+            quota_tokens,
+            "quota_tokens",
+        )
+        daily_changed, clean_daily_quota = _quota_update_value(
+            daily_quota_tokens,
+            "daily_quota_tokens",
+        )
+        weekly_changed, clean_weekly_quota = _quota_update_value(
+            weekly_quota_tokens,
+            "weekly_quota_tokens",
+        )
+        if not any((quota_changed, daily_changed, weekly_changed)):
+            return self.get_token(token_id)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE access_tokens
+                SET
+                    quota_tokens = CASE WHEN ? THEN ? ELSE quota_tokens END,
+                    daily_quota_tokens = CASE
+                        WHEN ? THEN ? ELSE daily_quota_tokens
+                    END,
+                    weekly_quota_tokens = CASE
+                        WHEN ? THEN ? ELSE weekly_quota_tokens
+                    END
+                WHERE token_id = ?
+                """,
+                (
+                    quota_changed,
+                    clean_quota,
+                    daily_changed,
+                    clean_daily_quota,
+                    weekly_changed,
+                    clean_weekly_quota,
+                    token_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise AppError(
+                    code=ErrorCode.ACCESS_TOKEN_NOT_FOUND,
+                    message="Access token was not found.",
+                )
+        return self.get_token(token_id)
+
     def update_quota(
         self,
         token_id: str,
         *,
         quota_tokens: int | None,
     ) -> AccessToken:
-        self.get_token(token_id)
-        clean_quota = _optional_positive_int(quota_tokens, "quota_tokens")
-        with self._connect() as connection:
-            connection.execute(
-                "UPDATE access_tokens SET quota_tokens = ? WHERE token_id = ?",
-                (clean_quota, token_id),
-            )
-        return self.get_token(token_id)
+        return self.update_quotas(
+            token_id,
+            quota_tokens=quota_tokens,
+        )
 
     def ensure_quota_available(self, token_id: str) -> AccessToken:
         token = self.get_token(token_id)
-        if token.quotaTokens is not None and token.totalTokens >= token.quotaTokens:
+        if token.exhaustedQuotaScopes:
             raise AppError(code=ErrorCode.ACCESS_TOKEN_QUOTA_EXCEEDED)
         return token
 
@@ -257,6 +331,205 @@ class SQLiteAccessTokenStore:
             ).fetchall()
         return tuple(_request_log_from_row(row) for row in rows)
 
+    def list_all_request_logs(
+        self,
+        *,
+        limit: int = 50,
+    ) -> tuple[AccessTokenRequestLog, ...]:
+        clean_limit = _bounded_limit(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM access_token_request_logs
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                (clean_limit,),
+            ).fetchall()
+        return tuple(_request_log_from_row(row) for row in rows)
+
+    def usage_overview(self, *, days: int = 30) -> AccessTokenUsageOverview:
+        clean_days = _bounded_days(days)
+        today = _utc_now().date()
+        first_day = today - timedelta(days=clean_days - 1)
+        cutoff = datetime.combine(first_day, datetime.min.time(), tzinfo=UTC).isoformat()
+        with self._connect() as connection:
+            summary = connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS request_count,
+                    COALESCE(SUM(CASE WHEN status_code >= 400 OR error_code IS NOT NULL THEN 1 ELSE 0 END), 0) AS error_count,
+                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                    COALESCE(ROUND(AVG(duration_ms)), 0) AS average_duration_ms,
+                    COUNT(DISTINCT token_id) AS active_service_count
+                FROM access_token_request_logs
+                WHERE created_at >= ?
+                """,
+                (cutoff,),
+            ).fetchone()
+            daily_rows = connection.execute(
+                """
+                SELECT
+                    substr(created_at, 1, 10) AS usage_date,
+                    COUNT(*) AS request_count,
+                    SUM(CASE WHEN status_code >= 400 OR error_code IS NOT NULL THEN 1 ELSE 0 END) AS error_count,
+                    SUM(prompt_tokens) AS prompt_tokens,
+                    SUM(completion_tokens) AS completion_tokens,
+                    SUM(total_tokens) AS total_tokens,
+                    ROUND(AVG(duration_ms)) AS average_duration_ms
+                FROM access_token_request_logs
+                WHERE created_at >= ?
+                GROUP BY usage_date
+                ORDER BY usage_date
+                """,
+                (cutoff,),
+            ).fetchall()
+            service_rows = connection.execute(
+                """
+                SELECT
+                    token.token_id,
+                    token.app_id,
+                    token.name,
+                    token.status,
+                    COUNT(log.log_id) AS request_count,
+                    COALESCE(SUM(CASE WHEN log.status_code >= 400 OR log.error_code IS NOT NULL THEN 1 ELSE 0 END), 0) AS error_count,
+                    COALESCE(SUM(log.prompt_tokens), 0) AS prompt_tokens,
+                    COALESCE(SUM(log.completion_tokens), 0) AS completion_tokens,
+                    COALESCE(SUM(log.total_tokens), 0) AS total_tokens,
+                    COALESCE(ROUND(AVG(log.duration_ms)), 0) AS average_duration_ms,
+                    MAX(log.created_at) AS period_last_used_at
+                FROM access_tokens AS token
+                LEFT JOIN access_token_request_logs AS log
+                    ON log.token_id = token.token_id AND log.created_at >= ?
+                GROUP BY token.token_id
+                ORDER BY total_tokens DESC, request_count DESC, token.name
+                """,
+                (cutoff,),
+            ).fetchall()
+            route_rows = connection.execute(
+                """
+                SELECT
+                    method,
+                    path,
+                    COUNT(*) AS request_count,
+                    SUM(CASE WHEN status_code >= 400 OR error_code IS NOT NULL THEN 1 ELSE 0 END) AS error_count,
+                    SUM(total_tokens) AS total_tokens,
+                    ROUND(AVG(duration_ms)) AS average_duration_ms
+                FROM access_token_request_logs
+                WHERE created_at >= ?
+                GROUP BY method, path
+                ORDER BY request_count DESC, total_tokens DESC, method, path
+                LIMIT 20
+                """,
+                (cutoff,),
+            ).fetchall()
+
+        daily_by_date = {
+            str(row["usage_date"]): _usage_bucket_from_row(row)
+            for row in daily_rows
+        }
+        daily = tuple(
+            daily_by_date.get(
+                (first_day + timedelta(days=offset)).isoformat(),
+                AccessTokenUsageBucket(
+                    date=(first_day + timedelta(days=offset)).isoformat(),
+                    requestCount=0,
+                    errorCount=0,
+                    promptTokens=0,
+                    completionTokens=0,
+                    totalTokens=0,
+                    averageDurationMs=0,
+                ),
+            )
+            for offset in range(clean_days)
+        )
+        return AccessTokenUsageOverview(
+            periodDays=clean_days,
+            requestCount=int(summary["request_count"]),
+            errorCount=int(summary["error_count"]),
+            promptTokens=int(summary["prompt_tokens"]),
+            completionTokens=int(summary["completion_tokens"]),
+            totalTokens=int(summary["total_tokens"]),
+            averageDurationMs=int(summary["average_duration_ms"]),
+            activeServiceCount=int(summary["active_service_count"]),
+            daily=daily,
+            services=tuple(_service_usage_from_row(row) for row in service_rows),
+            routes=tuple(_route_usage_from_row(row) for row in route_rows),
+        )
+
+    def record_admin_event(
+        self,
+        *,
+        actor: str,
+        action: str,
+        resource_type: str,
+        resource_id: str | None,
+        request_id: str,
+        status_code: int,
+        error_code: str | None = None,
+    ) -> AdminAuditLog:
+        event = AdminAuditLog(
+            eventId=f"adm-{uuid4().hex}",
+            actor=_required_text(actor, "actor"),
+            action=_required_text(action, "action"),
+            resourceType=_required_text(resource_type, "resource_type"),
+            resourceId=(
+                _required_text(resource_id, "resource_id")
+                if resource_id is not None
+                else None
+            ),
+            requestId=_required_text(request_id, "request_id"),
+            statusCode=int(status_code),
+            errorCode=error_code,
+            createdAt=_now(),
+        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO admin_audit_logs (
+                    event_id,
+                    actor,
+                    action,
+                    resource_type,
+                    resource_id,
+                    request_id,
+                    status_code,
+                    error_code,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.eventId,
+                    event.actor,
+                    event.action,
+                    event.resourceType,
+                    event.resourceId,
+                    event.requestId,
+                    event.statusCode,
+                    event.errorCode,
+                    event.createdAt,
+                ),
+            )
+        return event
+
+    def list_admin_events(self, *, limit: int = 100) -> tuple[AdminAuditLog, ...]:
+        clean_limit = _bounded_limit(limit)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM admin_audit_logs
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                (clean_limit,),
+            ).fetchall()
+        return tuple(_admin_audit_log_from_row(row) for row in rows)
+
     def _initialize_schema(self) -> None:
         if self._path != ":memory:":
             Path(self._path).parent.mkdir(parents=True, exist_ok=True)
@@ -274,6 +547,15 @@ class SQLiteAccessTokenStore:
                     CHECK (app_id IS NULL OR length(trim(app_id)) > 0)
                     """
                 )
+            for column in ("daily_quota_tokens", "weekly_quota_tokens"):
+                if column not in columns:
+                    connection.execute(
+                        f"""
+                        ALTER TABLE access_tokens
+                        ADD COLUMN {column} INTEGER
+                        CHECK ({column} IS NULL OR {column} > 0)
+                        """
+                    )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -294,6 +576,25 @@ class SQLiteAccessTokenStore:
             connection.close()
 
 
+_TOKEN_SELECT = """
+SELECT
+    token.*,
+    COALESCE((
+        SELECT SUM(daily_log.total_tokens)
+        FROM access_token_request_logs AS daily_log
+        WHERE daily_log.token_id = token.token_id
+            AND daily_log.created_at >= ?
+    ), 0) AS daily_tokens,
+    COALESCE((
+        SELECT SUM(weekly_log.total_tokens)
+        FROM access_token_request_logs AS weekly_log
+        WHERE weekly_log.token_id = token.token_id
+            AND weekly_log.created_at >= ?
+    ), 0) AS weekly_tokens
+FROM access_tokens AS token
+"""
+
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS access_tokens (
     token_id TEXT PRIMARY KEY,
@@ -303,6 +604,10 @@ CREATE TABLE IF NOT EXISTS access_tokens (
     secret_hash TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
     quota_tokens INTEGER CHECK (quota_tokens IS NULL OR quota_tokens > 0),
+    daily_quota_tokens INTEGER
+        CHECK (daily_quota_tokens IS NULL OR daily_quota_tokens > 0),
+    weekly_quota_tokens INTEGER
+        CHECK (weekly_quota_tokens IS NULL OR weekly_quota_tokens > 0),
     prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0),
     completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK (completion_tokens >= 0),
     total_tokens INTEGER NOT NULL DEFAULT 0 CHECK (total_tokens >= 0),
@@ -333,10 +638,26 @@ CREATE TABLE IF NOT EXISTS access_token_request_logs (
 
 CREATE INDEX IF NOT EXISTS idx_access_token_logs_token_created
 ON access_token_request_logs (token_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+    event_id TEXT PRIMARY KEY,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT,
+    request_id TEXT NOT NULL,
+    status_code INTEGER NOT NULL,
+    error_code TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created
+ON admin_audit_logs (created_at DESC);
 """
 
 
 def _token_from_row(row: sqlite3.Row) -> AccessToken:
+    _, _, daily_reset, weekly_reset = _quota_windows()
     return AccessToken(
         tokenId=str(row["token_id"]),
         appId=(str(row["app_id"]) if row["app_id"] is not None else None),
@@ -344,10 +665,24 @@ def _token_from_row(row: sqlite3.Row) -> AccessToken:
         prefix=str(row["token_prefix"]),
         status=AccessTokenStatus(str(row["status"])),
         quotaTokens=(int(row["quota_tokens"]) if row["quota_tokens"] is not None else None),
+        dailyQuotaTokens=(
+            int(row["daily_quota_tokens"])
+            if row["daily_quota_tokens"] is not None
+            else None
+        ),
+        weeklyQuotaTokens=(
+            int(row["weekly_quota_tokens"])
+            if row["weekly_quota_tokens"] is not None
+            else None
+        ),
         promptTokens=int(row["prompt_tokens"]),
         completionTokens=int(row["completion_tokens"]),
         totalTokens=int(row["total_tokens"]),
+        dailyTokens=int(row["daily_tokens"]),
+        weeklyTokens=int(row["weekly_tokens"]),
         createdAt=str(row["created_at"]),
+        dailyResetAt=daily_reset,
+        weeklyResetAt=weekly_reset,
         expiresAt=(str(row["expires_at"]) if row["expires_at"] is not None else None),
         revokedAt=(str(row["revoked_at"]) if row["revoked_at"] is not None else None),
         lastUsedAt=(str(row["last_used_at"]) if row["last_used_at"] is not None else None),
@@ -368,6 +703,67 @@ def _request_log_from_row(row: sqlite3.Row) -> AccessTokenRequestLog:
         totalTokens=int(row["total_tokens"]),
         errorCode=(str(row["error_code"]) if row["error_code"] is not None else None),
         createdAt=str(row["created_at"]),
+    )
+
+
+def _admin_audit_log_from_row(row: sqlite3.Row) -> AdminAuditLog:
+    return AdminAuditLog(
+        eventId=str(row["event_id"]),
+        actor=str(row["actor"]),
+        action=str(row["action"]),
+        resourceType=str(row["resource_type"]),
+        resourceId=(
+            str(row["resource_id"]) if row["resource_id"] is not None else None
+        ),
+        requestId=str(row["request_id"]),
+        statusCode=int(row["status_code"]),
+        errorCode=(
+            str(row["error_code"]) if row["error_code"] is not None else None
+        ),
+        createdAt=str(row["created_at"]),
+    )
+
+
+def _usage_bucket_from_row(row: sqlite3.Row) -> AccessTokenUsageBucket:
+    return AccessTokenUsageBucket(
+        date=str(row["usage_date"]),
+        requestCount=int(row["request_count"]),
+        errorCount=int(row["error_count"]),
+        promptTokens=int(row["prompt_tokens"]),
+        completionTokens=int(row["completion_tokens"]),
+        totalTokens=int(row["total_tokens"]),
+        averageDurationMs=int(row["average_duration_ms"]),
+    )
+
+
+def _service_usage_from_row(row: sqlite3.Row) -> AccessTokenServiceUsage:
+    return AccessTokenServiceUsage(
+        tokenId=str(row["token_id"]),
+        appId=(str(row["app_id"]) if row["app_id"] is not None else None),
+        name=str(row["name"]),
+        status=AccessTokenStatus(str(row["status"])),
+        requestCount=int(row["request_count"]),
+        errorCount=int(row["error_count"]),
+        promptTokens=int(row["prompt_tokens"]),
+        completionTokens=int(row["completion_tokens"]),
+        totalTokens=int(row["total_tokens"]),
+        averageDurationMs=int(row["average_duration_ms"]),
+        lastUsedAt=(
+            str(row["period_last_used_at"])
+            if row["period_last_used_at"] is not None
+            else None
+        ),
+    )
+
+
+def _route_usage_from_row(row: sqlite3.Row) -> AccessTokenRouteUsage:
+    return AccessTokenRouteUsage(
+        method=str(row["method"]),
+        path=str(row["path"]),
+        requestCount=int(row["request_count"]),
+        errorCount=int(row["error_count"]),
+        totalTokens=int(row["total_tokens"]),
+        averageDurationMs=int(row["average_duration_ms"]),
     )
 
 
@@ -398,6 +794,15 @@ def _optional_positive_int(value: int | None, field_name: str) -> int | None:
     return parsed
 
 
+def _quota_update_value(
+    value: QuotaUpdate,
+    field_name: str,
+) -> tuple[bool, int | None]:
+    if value is UNCHANGED_QUOTA:
+        return False, None
+    return True, _optional_positive_int(value, field_name)
+
+
 def _bounded_limit(value: int) -> int:
     if isinstance(value, bool):
         raise DTOValidationError("limit must be a positive integer")
@@ -408,6 +813,18 @@ def _bounded_limit(value: int) -> int:
     if parsed <= 0:
         raise DTOValidationError("limit must be a positive integer")
     return min(parsed, 200)
+
+
+def _bounded_days(value: int) -> int:
+    if isinstance(value, bool):
+        raise DTOValidationError("days must be an integer between 1 and 90")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise DTOValidationError("days must be an integer between 1 and 90") from exc
+    if not 1 <= parsed <= 90:
+        raise DTOValidationError("days must be an integer between 1 and 90")
+    return parsed
 
 
 def _optional_future_timestamp(value: str | None) -> str | None:
@@ -435,6 +852,18 @@ def _secret_hash(secret: str) -> str:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _quota_windows(now: datetime | None = None) -> tuple[str, str, str, str]:
+    current = (now or _utc_now()).astimezone(UTC)
+    daily_start = current.replace(hour=0, minute=0, second=0, microsecond=0)
+    weekly_start = daily_start - timedelta(days=daily_start.weekday())
+    return (
+        daily_start.isoformat(),
+        weekly_start.isoformat(),
+        (daily_start + timedelta(days=1)).isoformat(),
+        (weekly_start + timedelta(days=7)).isoformat(),
+    )
 
 
 def _now() -> str:

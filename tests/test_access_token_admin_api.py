@@ -172,10 +172,82 @@ class AccessTokenAdminApiTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
 
     def test_invalid_quota_returns_validation_error(self) -> None:
-        response = self.request(
+        for field_name, invalid_value in (
+            ("quota_tokens", 0),
+            ("daily_quota_tokens", -1),
+            ("weekly_quota_tokens", True),
+        ):
+            with self.subTest(field_name=field_name):
+                response = self.request(
+                    "POST",
+                    "/v1/access-tokens",
+                    body={
+                        "app_id": "service-app",
+                        "name": "服务",
+                        field_name: invalid_value,
+                    },
+                )
+
+                self.assertEqual(response.status, 400)
+                self.assertEqual(
+                    response_json(response.body)["error"]["code"],
+                    "VALIDATION_ERROR",
+                )
+
+    def test_admin_can_create_and_patch_combined_period_quotas(self) -> None:
+        created_response = self.request(
             "POST",
             "/v1/access-tokens",
-            body={"app_id": "service-app", "name": "服务", "quota_tokens": 0},
+            body={
+                "app_id": "quota-app",
+                "name": "组合额度服务",
+                "quota_tokens": 10000,
+                "daily_quota_tokens": 500,
+                "weekly_quota_tokens": 2500,
+            },
+        )
+        created = response_json(created_response.body)["data"]
+
+        self.assertEqual(created_response.status, 200)
+        self.assertEqual(created["remaining_tokens"], 10000)
+        self.assertEqual(created["daily_remaining_tokens"], 500)
+        self.assertEqual(created["weekly_remaining_tokens"], 2500)
+        self.assertEqual(created["daily_tokens"], 0)
+        self.assertEqual(created["weekly_tokens"], 0)
+        self.assertEqual(created["exhausted_quota_scopes"], [])
+        self.assertIn("daily_reset_at", created)
+        self.assertIn("weekly_reset_at", created)
+
+        updated = response_json(
+            self.request(
+                "PATCH",
+                f"/v1/access-tokens/{created['token_id']}",
+                body={"daily_quota_tokens": 800},
+            ).body
+        )["data"]
+        self.assertEqual(updated["quota_tokens"], 10000)
+        self.assertEqual(updated["daily_quota_tokens"], 800)
+        self.assertEqual(updated["weekly_quota_tokens"], 2500)
+
+        cleared = response_json(
+            self.request(
+                "PATCH",
+                f"/v1/access-tokens/{created['token_id']}",
+                body={"weekly_quota_tokens": None},
+            ).body
+        )["data"]
+        self.assertEqual(cleared["quota_tokens"], 10000)
+        self.assertEqual(cleared["daily_quota_tokens"], 800)
+        self.assertIsNone(cleared["weekly_quota_tokens"])
+        self.assertIsNone(cleared["weekly_remaining_tokens"])
+
+    def test_patch_requires_at_least_one_quota_field(self) -> None:
+        created = self.issue_service_token(app_id="quota-app")
+
+        response = self.request(
+            "PATCH",
+            f"/v1/access-tokens/{created['token_id']}",
+            body={},
         )
 
         self.assertEqual(response.status, 400)
@@ -227,6 +299,40 @@ class AccessTokenAdminApiTests(unittest.TestCase):
         self.assertEqual(logs["count"], 1)
         self.assertEqual(logs["items"][0]["path"], "/v1/personas")
         self.assertEqual(logs["items"][0]["status_code"], 200)
+
+    def test_admin_can_view_global_usage_and_recent_request_logs(self) -> None:
+        created = self.issue_service_token(app_id="usage-app")
+        service_headers = {"Authorization": f"Bearer {created['token']}"}
+        self.request("GET", "/v1/personas", headers=service_headers)
+
+        usage_response = self.request("GET", "/v1/admin/usage?days=7")
+        logs_response = self.request("GET", "/v1/admin/request-logs?limit=10")
+        usage = response_json(usage_response.body)["data"]
+        logs = response_json(logs_response.body)["data"]
+
+        self.assertEqual(usage_response.status, 200)
+        self.assertEqual(usage["period_days"], 7)
+        self.assertEqual(usage["request_count"], 1)
+        self.assertEqual(usage["services"][0]["app_id"], "usage-app")
+        self.assertEqual(len(usage["daily"]), 7)
+        self.assertEqual(logs_response.status, 200)
+        self.assertEqual(logs["count"], 1)
+        self.assertEqual(logs["items"][0]["path"], "/v1/personas")
+
+    def test_service_token_cannot_read_global_admin_usage(self) -> None:
+        created = self.issue_service_token(app_id="usage-app")
+
+        response = self.request(
+            "GET",
+            "/v1/admin/usage",
+            headers={"Authorization": f"Bearer {created['token']}"},
+        )
+
+        self.assertEqual(response.status, 403)
+        self.assertEqual(
+            response_json(response.body)["error"]["code"],
+            "AUTH_PERMISSION_DENIED",
+        )
 
     def test_service_token_cannot_call_management_api(self) -> None:
         created = response_json(
@@ -329,6 +435,47 @@ class AccessTokenAdminApiTests(unittest.TestCase):
         self.assertEqual(len(logs), 2)
         self.assertEqual(logs[0]["error_code"], "ACCESS_TOKEN_QUOTA_EXCEEDED")
         self.assertEqual(logs[1]["total_tokens"], token["total_tokens"])
+
+    def test_daily_quota_exhaustion_returns_429_independently(self) -> None:
+        created = response_json(
+            self.request(
+                "POST",
+                "/v1/access-tokens",
+                body={
+                    "app_id": "service-app",
+                    "name": "每日限额服务",
+                    "quota_tokens": None,
+                    "daily_quota_tokens": 1,
+                },
+            ).body
+        )["data"]
+        service_headers = {"Authorization": f"Bearer {created['token']}"}
+
+        first = self.request(
+            "POST",
+            "/v1/chat",
+            body=chat_body(),
+            headers=service_headers,
+        )
+        second = self.request(
+            "POST",
+            "/v1/chat",
+            body=chat_body(),
+            headers=service_headers,
+        )
+        token = response_json(
+            self.request(
+                "GET",
+                f"/v1/access-tokens/{created['token_id']}",
+            ).body
+        )["data"]
+
+        self.assertEqual(first.status, 200)
+        self.assertEqual(second.status, 429)
+        self.assertIsNone(token["quota_tokens"])
+        self.assertIsNone(token["remaining_tokens"])
+        self.assertEqual(token["daily_remaining_tokens"], 0)
+        self.assertEqual(token["exhausted_quota_scopes"], ["daily"])
 
     def test_admin_can_change_quota_and_restore_chat_access(self) -> None:
         created = response_json(

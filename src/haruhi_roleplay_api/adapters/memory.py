@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
+    MemoryAdminPage,
+    MemoryAdminQuery,
     MemoryDeleteCommand,
     MemoryId,
     MemoryItem,
@@ -17,6 +19,8 @@ from haruhi_roleplay_api.domain import (
 
 
 class InMemoryMemoryStore:
+    provider_name = "memory"
+
     def __init__(self, items: Iterable[MemoryItem] | None = None) -> None:
         self._items: dict[str, MemoryItem] = {
             str(item.memoryId): item for item in items or ()
@@ -56,6 +60,27 @@ class InMemoryMemoryStore:
         self._items[str(item.memoryId)] = item
         return item
 
+    def admin_list_memories(self, query: MemoryAdminQuery) -> MemoryAdminPage:
+        matches = [
+            item
+            for item in self._items.values()
+            if _matches_admin_query(item, query)
+        ]
+        matches.sort(
+            key=lambda item: (item.updatedAt, str(item.memoryId)),
+            reverse=True,
+        )
+        return MemoryAdminPage(
+            total=len(matches),
+            items=tuple(matches[query.offset : query.offset + query.limit]),
+        )
+
+    def admin_delete_memory(self, memory_id: MemoryId | str) -> MemoryItem:
+        item = self._items.pop(str(memory_id), None)
+        if item is None:
+            raise AppError(code=ErrorCode.MEMORY_NOT_FOUND)
+        return item
+
 
 def _matches_query(item: MemoryItem, query: MemoryQuery) -> bool:
     if str(item.appId) != str(query.appId):
@@ -82,6 +107,21 @@ def _matches_delete_command(
     if str(item.characterId) != str(command.characterId):
         return False
     return _persona_mode_value(item) == _persona_mode_value(command)
+
+
+def _matches_admin_query(item: MemoryItem, query: MemoryAdminQuery) -> bool:
+    if query.appId is not None and str(item.appId) != query.appId:
+        return False
+    if query.userId is not None and str(item.userId) != query.userId:
+        return False
+    if query.characterId is not None and str(item.characterId) != query.characterId:
+        return False
+    if (
+        query.personaMode is not None
+        and str(item.personaMode or "") != query.personaMode
+    ):
+        return False
+    return query.memoryType is None or item.type is query.memoryType
 
 
 def _persona_mode_value(
