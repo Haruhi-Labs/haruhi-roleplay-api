@@ -747,9 +747,8 @@ def _merge_roleplay_rag_outputs(
         add(chunk)
     for chunk in director_chunks[:director_budget]:
         add(chunk)
-    for chunks in (actor_chunks[actor_budget:], director_chunks[director_budget:]):
-        for chunk in chunks:
-            add(chunk)
+    for chunk in actor_chunks[actor_budget:]:
+        add(chunk)
 
     provider = actor_output.provider
     if director_output.provider != provider:

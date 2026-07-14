@@ -267,6 +267,34 @@ class FakeRagRetrieveTests(unittest.TestCase):
         self.assertNotIn("可借鉴的原作互动素材", prompt_text)
         self.assertNotIn("完全不相干", prompt_text)
 
+    def test_director_bridges_never_exceed_two_prompt_slots(self) -> None:
+        router = RecordingModelRouter()
+        chunks = tuple(
+            _rag_chunk(
+                f"director-{index}",
+                character_id="kyon",
+                persona_mode=None,
+                record_kind="scene_memory",
+                retrieval_channel="canonical_memory",
+                knowledge_owner="kyon",
+                usage="knowledge",
+                content=f"相似桥段 {index}",
+            )
+            for index in range(3)
+        )
+
+        response = call_chat(
+            chat_body(rag=True, message="给我一个类似的互动思路"),
+            model_router=router,
+            rag_service=RecordingRagService(chunks),
+        )
+
+        sources = response["data"]["rag"]["sources"]
+        self.assertEqual(len(sources), 2)
+        self.assertTrue(
+            all(source["record_kind"] == "scene_memory" for source in sources)
+        )
+
     def test_long_current_message_is_bounded_for_retrieval(self) -> None:
         router = RecordingModelRouter()
         rag = RecordingRagService()
