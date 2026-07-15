@@ -13,3 +13,4 @@ __pycache__
 !.env.example
 !.env.compose.example
 docs/agent-dev
+.DS_Store

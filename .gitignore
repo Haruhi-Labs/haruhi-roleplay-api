@@ -1,4 +1,5 @@
 docs/agent-dev/
+.DS_Store
 .venv/
 .uv-cache/
 .uv-python/
