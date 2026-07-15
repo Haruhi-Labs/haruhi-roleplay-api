@@ -25,7 +25,7 @@ from haruhi_roleplay_api.infrastructure import (  # noqa: E402
 )
 
 
-DEFAULT_CORPUS = ROOT / ".data" / "rag-corpus" / "haruhi" / "records.jsonl"
+DEFAULT_CORPUS = ROOT / "data" / "rag-corpus" / "haruhi" / "records.jsonl.gz"
 
 
 def main() -> int:

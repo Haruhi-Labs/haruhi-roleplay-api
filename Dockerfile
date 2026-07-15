@@ -16,6 +16,8 @@ RUN uv sync --frozen --no-dev
 COPY src ./src
 COPY personas ./personas
 COPY frontend-demo ./frontend-demo
+COPY scripts ./scripts
+COPY data ./data
 
 EXPOSE 8000
 

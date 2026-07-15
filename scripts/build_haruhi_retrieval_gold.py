@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from haruhi_roleplay_api.corpus import CorpusRecord, load_corpus_records  # noqa: E402
 
 
-DEFAULT_CORPUS = ROOT / ".data" / "rag-corpus" / "haruhi" / "records.jsonl"
+DEFAULT_CORPUS = ROOT / "data" / "rag-corpus" / "haruhi" / "records.jsonl.gz"
 DEFAULT_OUTPUT = ROOT / ".data" / "rag-eval" / "haruhi" / "gold-template.jsonl"
 CHARACTER_IDS = ("haruhi", "kyon", "mikuru", "yuki", "itsuki")
 

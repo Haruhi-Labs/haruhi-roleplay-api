@@ -15,19 +15,28 @@ sys.path.insert(0, str(ROOT / "src"))
 from haruhi_roleplay_api.corpus import audit_haruhi_corpus  # noqa: E402
 
 
-DEFAULT_ROOT = ROOT / ".data" / "rag-corpus" / "haruhi"
+DEFAULT_RELEASE_ROOT = ROOT / "data" / "rag-corpus" / "haruhi"
+DEFAULT_REPORT_ROOT = ROOT / ".data" / "rag-corpus" / "haruhi"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="检查语料 schema、路由、视角边界和结构化台词完整性。"
     )
-    parser.add_argument("--corpus", type=Path, default=DEFAULT_ROOT / "records.jsonl")
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_ROOT / "manifest.json")
+    parser.add_argument(
+        "--corpus",
+        type=Path,
+        default=DEFAULT_RELEASE_ROOT / "records.jsonl.gz",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=DEFAULT_RELEASE_ROOT / "manifest.json",
+    )
     parser.add_argument(
         "--output",
         type=Path,
-        default=DEFAULT_ROOT / "production-audit.json",
+        default=DEFAULT_REPORT_ROOT / "production-audit.json",
     )
     args = parser.parse_args()
 

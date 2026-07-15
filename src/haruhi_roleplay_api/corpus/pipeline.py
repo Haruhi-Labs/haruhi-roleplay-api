@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import re
@@ -320,7 +321,11 @@ def build_haruhi_corpus(
         "language": "zh-CN",
         "source_policy": {
             "raw_text_embedded_in_repository": False,
-            "generated_output": "本地 .data 目录；不要提交或再分发源文本衍生语料",
+            "generated_output": (
+                "内部项目可追踪的版本化发布产物；"
+                "不包含原始小说或模型审阅中间文件"
+            ),
+            "distribution_scope": "internal_project",
         },
         "sources": source_entries,
         "stats": quality["stats"],
@@ -466,7 +471,12 @@ def _record_semantics(record: CorpusRecord) -> dict[str, str]:
 
 def load_corpus_records(path: Path) -> tuple[CorpusRecord, ...]:
     records: list[CorpusRecord] = []
-    with path.expanduser().open(encoding="utf-8") as handle:
+    expanded_path = path.expanduser()
+    if expanded_path.suffix.casefold() == ".gz":
+        handle_context = gzip.open(expanded_path, mode="rt", encoding="utf-8")
+    else:
+        handle_context = expanded_path.open(encoding="utf-8")
+    with handle_context as handle:
         for line_number, raw_line in enumerate(handle, start=1):
             line = raw_line.strip()
             if not line:

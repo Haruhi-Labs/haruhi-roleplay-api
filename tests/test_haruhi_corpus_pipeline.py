@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import sys
 import tempfile
@@ -20,6 +21,30 @@ from haruhi_roleplay_api.corpus.pipeline import (  # noqa: E402
 
 
 class HaruhiCorpusPipelineTests(unittest.TestCase):
+    def test_loads_tracked_gzip_jsonl_without_manual_extraction(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "records.jsonl.gz"
+            record = CorpusRecord(
+                document_id="doc-gzip",
+                title="压缩语料",
+                character_id="haruhi",
+                timeline="melancholy",
+                spoiler_level=1,
+                language="zh-CN",
+                source_type="scene",
+                trust_level="reviewed",
+                content="压缩后的正式语料可以直接装载。",
+                metadata={},
+            )
+            with gzip.open(path, mode="wt", encoding="utf-8") as handle:
+                handle.write(json.dumps(record.to_mapping(), ensure_ascii=False))
+                handle.write("\n")
+
+            loaded = load_corpus_records(path)
+
+        self.assertEqual(len(loaded), 1)
+        self.assertEqual(loaded[0].document_id, "doc-gzip")
+
     def test_cleaner_removes_scan_group_boilerplate_and_control_tokens(self) -> None:
         lines = _clean_source_lines(
             "\ufeff凉宫春日的忧郁\r\n"
