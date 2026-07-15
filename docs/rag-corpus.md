@@ -8,11 +8,17 @@
 
 [REVERIEMEM](https://arxiv.org/abs/2606.25632) 把长篇小说角色记忆区分为情节、可见事实和情境化人格材料，并强调角色不能读取其视角之外的事实。本项目因此只把完整第一人称场景分配给叙述者阿虚；其他角色主要读取经明确归因的本人台词和外部行为观察。行为观察会在 prompt 中明确标成“演绎参考，而非角色亲历事实”。
 
-向量文本会连同作品名、篇章名、记录类型和视角一起嵌入，这对应 [Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval) 的上下文化分块思路。Qdrant 查询会先按角色、时间线、剧透等级和资料类型做 payload 过滤；这些字段也是 [Qdrant 官方过滤文档](https://qdrant.tech/documentation/search/filtering/) 建议用于无法由向量表达的业务约束。若后续数据量继续增大，可按 [Qdrant 混合检索](https://qdrant.tech/documentation/search/text-search/hybrid-search/) 增加 sparse/BM25 和 rerank。
+向量文本会连同作品名、篇章名、记录类型和视角一起嵌入，这对应 [Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval) 的上下文化分块思路。Qdrant 查询会先按角色、时间线、剧透等级和资料类型做 payload 过滤；这些字段也是 [Qdrant 官方过滤文档](https://qdrant.tech/documentation/search/filtering/) 建议用于无法由向量表达的业务约束。当前实现还支持 [Qdrant 混合检索](https://qdrant.tech/documentation/search/text-search/hybrid-search/) 和本地轻量 rerank。
 
 ## 产物结构
 
-每条 `records.jsonl` 记录都可直接转换成项目的 `RagIngestInput`：
+仓库直接追踪已经审计的正式发布包：
+
+- `data/rag-corpus/haruhi/records.jsonl.gz`：17,041 条可直接装载的 gzip JSONL；
+- `data/rag-corpus/haruhi/manifest.json`：语料版本、来源散列、数量和压缩产物散列；
+- `data/rag-corpus/haruhi/production-audit.json`：最终生产审计结果。
+
+Loader 会直接读取 `.jsonl.gz`，发布前不需要手工解压。原始小说、逐条审阅批次、候选文件、质量抽样和金标模板仍只留在被忽略的 `.data` 工作目录，不进入仓库。
 
 导入器会给离线记录附加 `atomic_record=true`，Local、Chroma/Faiss 和 Qdrant provider 都会保持“一条 JSONL 记录对应一个检索 chunk”，不会再按通用文档的 `RAG_CHUNK_SIZE` 二次切开结构化台词或目标回答。通过管理 API 上传的普通长文档仍按原有规则分块。
 
@@ -93,17 +99,19 @@ uv run --with opencc-python-reimplemented python scripts/build_haruhi_corpus.py 
 
 `quality_report.json` 会报告 Luna 覆盖率、Luna/Sol 一致率、随机样本中的目标说话人精确率和召回率代理值，以及 Wilson 95% 区间。Sol 盲审复核是成本可控的模型质量代理，不等同于人工金标准确率；绝对准确率仍需要人类标注测试集。这里的“逐条”指全部引语 span，叙述性心理和行为段落仍由原有保守规则提取。
 
-每次正式构建后运行生产审计：
+每次在 `.data` 重建后，先显式审计新的工作区产物：
 
 ```bash
-python scripts/audit_haruhi_corpus.py
+python scripts/audit_haruhi_corpus.py \
+  --corpus .data/rag-corpus/haruhi/records.jsonl \
+  --manifest .data/rag-corpus/haruhi/manifest.json
 ```
 
-审计会全量检查版本一致性、ID/正文去重、路由字段与知识归属、非台本说明头、760 字上限，以及结构化台词的目标回答完整性、最多两轮历史、无未来台词、无未知说话人和相邻发言不超过 5 个正文段落。报告写入未跟踪的 `.data/rag-corpus/haruhi/production-audit.json`；存在任何错误时脚本以非零状态退出，可直接作为发布前门禁。
+审计会全量检查版本一致性、ID/正文去重、路由字段与知识归属、非台本说明头、760 字上限，以及结构化台词的目标回答完整性、最多两轮历史、无未来台词、无未知说话人和相邻发言不超过 5 个正文段落。省略参数时，脚本会复核仓库内置的压缩正式语料；Qdrant 发布也会在创建集合前强制执行同一审计。
 
 ## 当前生成快照
 
-本次对 13 卷、87 个篇章中的全部 15,596 个引语 span 完成了 Luna 首审；4,750 个风险/抽样 span 被选入 Sol，因同一正文行的关联 span 一并复核，Sol 实际覆盖 5,143 个。最终生成 10,588 条目标角色台词记录，其中 10,258 条为 `certain`、330 条为 `probable`：春日 3,139、阿虚 2,822、朝比奈 1,275、长门 809、古泉 2,543。
+本次对 13 卷、87 个篇章中的全部 15,596 个引语 span 完成了 Luna 首审；4,750 个风险/抽样 span 被选入 Sol，因同一正文行的关联 span 一并复核，Sol 实际覆盖 5,143 个。审阅得到 10,588 条目标角色台词候选，其中 `certain` 10,258 条、`probable` 330 条；最终化去除 2 条完全重复记录后，正式索引包含 10,586 条 `dialogue_example`。全部正式记录共 17,041 条。
 
 在 585 条常规确定性随机样本上，以不读取 Luna 答案的 Sol 盲审作为代理参照，目标说话人精确率代理为 94.84%（Wilson 95%：92.30%–96.57%），召回率代理为 94.61%（Wilson 95%：92.05%–96.38%）。该数字衡量的是双模型复核一致性代理，不应表述成人工金标准确率。整个 Sol 复核集的精确字段一致率为 59.81%，反映疑难项确实发生了较多改判；最终语料对这些 span 使用 Sol 结果。
 
@@ -144,67 +152,71 @@ uv run --with opencc-python-reimplemented python scripts/build_haruhi_corpus.py 
   --output .data/rag-corpus/haruhi
 ```
 
-输出包括：
+本机构建工作区输出包括：
 
 - `.data/rag-corpus/haruhi/records.jsonl`：可装载记录；
 - `.data/rag-corpus/haruhi/manifest.json`：源文件 SHA-256、各角色/类型/时间线数量、台词归因率与质量告警。
 
 流水线会统一 UTF-8/UTF-16、繁转简、换行和空白，删除录入站点信息、插图占位、`chapter/chp/pic` 控制词、后记及参考文献。质量门会检查 13 卷覆盖、ID 唯一性、角色覆盖、记录长度和站点污染；失败时不会留下一个表面成功的产物。
 
-原始文本附带个人学习用途和禁止转载声明，因此生成文件放在已被 `.gitignore` 排除的 `.data` 下。不要把原文或衍生 JSONL 提交到公开仓库；代码、显式篇章映射和质量统计可以版本管理。
+内部仓库只发布上述三个最终产物。原始文本、模型审阅输入输出、抽样集和构建缓存继续放在 `.data`，不得提交。更新正式语料时必须重新构建、全量审计并以确定性 gzip 生成新的版本化发布包。
 
 ## 接入运行时
 
-纯内存 `local` provider 必须随进程启动装载，否则脚本结束后数据就会消失：
+纯内存或本地向量 provider 仅用于开发；需要时可直接装载仓库内置压缩语料：
 
 ```dotenv
 RAG_API_TYPE=local
 RAG_CHUNK_SIZE=700
 RAG_MIN_RELEVANCE_SCORE=0.2
-RAG_BOOTSTRAP_CORPUS_PATH=.data/rag-corpus/haruhi/records.jsonl
+RAG_BOOTSTRAP_CORPUS_PATH=data/rag-corpus/haruhi/records.jsonl.gz
 RAG_BOOTSTRAP_APP_ID=web-demo
 ```
 
 `RAG_BOOTSTRAP_APP_ID` 必须与业务请求及服务令牌绑定的 `app_id` 一致，避免跨应用泄漏。当前 `frontend-demo` 默认使用 `web-demo`。
 
-对 Chroma 或 Qdrant，可在配置好 provider 与 embedding 后执行一次持久化导入：
+生产默认使用 Qdrant 和真实中文/多语 embedding。配置 provider 后直接运行发布命令；脚本默认读取仓库内置的 `records.jsonl.gz`：
 
 ```bash
-python scripts/ingest_haruhi_corpus.py --app-id web-demo
+python scripts/publish_haruhi_qdrant.py publish --app-id web-demo
 ```
 
-持久化 provider 完成导入后应取消 `RAG_BOOTSTRAP_CORPUS_PATH`，避免每次启动重复计算 embedding。生产 Qdrant 和一次性持久化导入现在会硬性拒绝内置 hash embedding；必须配置真实中文/多语 embedding、模型和正确维度。只有明确的非生产测试才能给旧导入脚本传 `--allow-test-embedding`，或设置 `RAG_ALLOW_TEST_EMBEDDING=true`。该例外不要进入生产配置。
+生产 Qdrant 不应设置 `RAG_BOOTSTRAP_CORPUS_PATH`，避免每次启动重复计算 embedding。发布脚本会硬性拒绝内置 hash embedding；必须配置真实中文/多语 embedding、模型和正确维度。
 
-生产 Qdrant 不要把运行时直接绑定到某个物理集合。配置稳定 alias（例如 `RAG_INDEX=haruhi_rag_live`），再通过发布脚本创建带 `corpus_version` 的新集合。脚本会先创建所有过滤字段及中文全文 payload index，导入后核对指定 `app_id` 的精确 point 数，只有计数一致才原子切换 alias：
+生产 Qdrant 不要把运行时直接绑定到某个物理集合。配置稳定 alias（例如 `RAG_INDEX=haruhi_rag_live`），发布脚本会创建同时包含 `corpus_version` 和 embedding 配置指纹的新物理集合。任何已存在的目标集合都会在写入前被拒绝，确保发布过程不会逐点覆盖线上集合；语料审计、point 数和原子性检查全部通过后才切换 alias。
 
 发布默认以 64 条为一批调用 embedding API 并批量 upsert Qdrant，可通过 `QDRANT_INGEST_BATCH_SIZE` 调整。批处理只减少网络往返，不合并语料记录：JSONL 仍严格保持一条记录对应一个 point，也不会调用生成模型。
 
 建议同时开启 `QDRANT_HYBRID_SEARCH=true`。此模式并行取得 dense 向量候选和 `multilingual` 全文候选，用 RRF 合并后再执行本地字符重排、去重和类型配额。它不调用 LLM，不增加生成 Token；主要用于补回七夕、雪山症候群等专名被向量召回漏掉的记录。需要兼容未创建 `content` 全文索引的旧集合时保持关闭，完成版本化发布后再开启。
 
-聊天编排会在模型提示词前应用 `RAG_MIN_RELEVANCE_SCORE`，默认 `0.2`；低于阈值时允许返回空召回，不会为了凑满 Top-K 注入无关桥段。Qdrant 混合检索会用内部保留的 dense 相似度或词面覆盖作为门禁依据，而不是把 RRF 排名分数误当相关度。该默认值只是安全起点，生产值必须用包含“应召回”和“应不召回”的自然多轮对话金标集校准。
+聊天编排会在模型提示词前应用 `RAG_MIN_RELEVANCE_SCORE`，默认 `0.2`；低于阈值时允许返回空召回，不会为了凑满 Top-K 注入无关桥段。Qdrant 混合检索会用内部保留的 dense 相似度或词面覆盖作为门禁依据，而不是把 RRF 排名分数误当相关度。该默认值是安全起点，生产环境按所选向量模型和真实请求抽样调整。
+
+若同一个模型名背后的实际权重发生变化，显式提供新的发布标识以生成不同物理集合：
 
 ```bash
-python scripts/publish_haruhi_qdrant.py publish --app-id web-demo
+python scripts/publish_haruhi_qdrant.py publish \
+  --app-id web-demo \
+  --release-id bge-m3-2026-07
 ```
 
 发布输出会记录“上一个集合”。需要回滚时直接把 alias 切回该集合，不需要重新计算 embedding：
 
 ```bash
 python scripts/publish_haruhi_qdrant.py activate \
-  --collection haruhi_rag_live__haruhi-rag-上一版本
+  --collection haruhi_rag_live__haruhi-rag-上一版本__emb-上一指纹
 ```
 
 旧集合默认保留。确认观察期结束后才能显式删除；脚本拒绝删除仍被任何 alias 引用的集合，并要求重复输入集合名：
 
 ```bash
 python scripts/publish_haruhi_qdrant.py delete \
-  --collection haruhi_rag_live__haruhi-rag-旧版本 \
-  --confirm haruhi_rag_live__haruhi-rag-旧版本
+  --collection haruhi_rag_live__haruhi-rag-旧版本__emb-旧指纹 \
+  --confirm haruhi_rag_live__haruhi-rag-旧版本__emb-旧指纹
 ```
 
-## 验收建议
+## 可选离线检索诊断
 
-先生成 300 条按“检索通道 × 记录类型 × 角色 × 时间线”分层的人工金标模板，其中 10% 是应当完全不注入素材的反例：
+仓库保留人工样本模板和指标脚本，供以后比较 embedding 模型或做专项回归；它不是当前 Qdrant 发布的前置门槛，也不替代线上真实对话抽样。需要时可生成 300 条分层模板：
 
 ```bash
 python scripts/build_haruhi_retrieval_gold.py
@@ -218,7 +230,7 @@ python scripts/build_haruhi_retrieval_gold.py
 python scripts/evaluate_haruhi_rag.py --app-id web-demo
 ```
 
-默认发布门槛为用例通过率不低于 90%、MRR 不低于 0.50，所有反例必须保持空召回，且 `app_id`、检索通道角色、时间线、剧透等级和 persona 隔离失败必须为 0。导演桥段用例会以目标角色构造对话 query，但在阿虚的 `scene_memory` 通道上验收；不会把跨角色导演素材误报为隔离失败。报告同时给出平均 Recall@K、逐用例命中文档与失败原因，写入 `.data/rag-eval/haruhi/report.json`。这一步必须使用生产 embedding 和同一 `RAG_MIN_RELEVANCE_SCORE`；hash embedding 已被 Qdrant 门禁拒绝。
+该脚本报告 Recall@K、MRR、逐用例命中文档与隔离错误，适合诊断单个检索通道。当前生产验收以正式语料审计、真实 Qdrant 发布校验和上线后的对话抽样为准。
 
 至少覆盖以下查询组，并分别以五名角色和各篇章 persona 验证结果：
 
@@ -228,10 +240,10 @@ python scripts/evaluate_haruhi_rag.py --app-id web-demo
 - 越界反例：《忧郁》春日不能检索《消失》或《惊愕》，改写世界角色不能读取原世界秘密；
 - 视角反例：非阿虚角色不能把 `behavior_observation` 中的阿虚心理当成自己知道的事实。
 
-当前检索会把记录类型、视角和置信度一并写进系统上下文，并明确要求模型在资料与 persona 边界冲突时舍弃资料。
+记录类型、视角、置信度和审阅信息保留在 provider payload 与 API source 中用于路由和追溯，但不会写进模型可见的系统提示词。
 
 聊天检索查询不是只发送最后一句用户输入，而是确定性加入目标角色、persona 模式、当前时间线和最近 6 条会话消息。整个查询受 4,000 字上限约束：优先移除最旧历史，单条超长消息保留首尾并标记中间省略，因此不会额外调用模型或消耗查询改写 Token。
 
-所有 provider 的候选结果会经过统一的轻量重排：`0.80 × 原始相关度 + 0.15 × 中文字符/二元组覆盖 + 0.05 × 审阅质量`。选择阶段先按 `dialogue_example≤2`、`scene_memory≤2`、`behavior_observation≤1`、`inner_monologue≤1` 的软配额取结果，并限制同一 `scene_id` 最多一条；候选不足时依次放宽类型配额和场景限制。相同文档或规范化正文始终去重。该过程全部在本地完成，不调用生成模型。
+所有 provider 的候选结果会经过统一的轻量重排：`0.80 × 原始相关度 + 0.15 × 中文字符/二元组覆盖 + 0.05 × 审阅质量`。选择阶段先按记录类型做软配额并限制同一 `scene_id` 最多一条；候选不足时再放宽。聊天最终最多注入 3 条目标角色应对素材和 2 条阿虚视角导演桥段；导演通道不足时 actor 素材可以回填。相同文档或规范化正文始终去重。该过程不调用生成模型。
 
-进入生成提示词时，检索结果会再次按用途分成“原作事实与角色记忆”“目标角色台词与应对范例”“内心语气与外部行为观察”三段，并明确规定角色设定与时间线边界的权威高于检索事实，检索事实又高于风格范例。`style_only` 资料不能新增角色知识，阿虚持有的行为观察也不能变成被观察角色的内心事实。
+进入生成提示词时，资料按用途分成“相似桥段”“补充背景”“角色应对范例”“动作与语气参考”。角色设定与时间线边界始终优先；导演桥段、`style_only` 资料和阿虚持有的行为观察都不能变成目标角色凭空知道的事实。提示词只保留自然语言正文，不显示文档 ID、评分、模型名或审阅方法。

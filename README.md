@@ -9,6 +9,6 @@
 - [后端配置文档](docs/usage/backend-config.md)
 - [访问令牌管理](docs/usage/access-token-management.md)
 - [后台管理控制室](docs/usage/admin-console.md)
-- [凉宫小说 RAG 语料构建与接入](docs/rag-corpus.md)
+- [内置凉宫小说 RAG 正式语料与 Qdrant 发布](docs/rag-corpus.md)
 - [前端接入边界说明](docs/usage/frontend-integration.md)
 - [接口参考](docs/usage/interface-reference.md)

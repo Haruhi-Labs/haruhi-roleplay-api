@@ -56,11 +56,11 @@
 | generation   | 否   | 生成参数       |
 | metadata     | 否   | 调用方透传对象 |
 
-省略 `capabilities` 时默认关闭 RAG、memory、连续会话和 debug，并保持 `safety_filter=true`。省略 `generation` 或 `generation.model` 时使用服务端 router 的 default alias；普通前端不需要知道 provider、base URL、token 或 model alias。
+省略 `capabilities` 或其中的 `rag`、`memory` 时，这两项遵循当前 persona 的 `enabledByDefault`；显式传入 `false` 可强制关闭。连续会话和 debug 默认关闭，`safety_filter` 默认开启。省略 `generation` 或 `generation.model` 时使用服务端 router 的 default alias；普通前端不需要知道 provider、base URL、token 或 model alias。
 
 当 `capabilities.continuous_session=true` 时，`session_id` 必须来自 `POST /v1/sessions` 创建的 active session，并且与当前 `app_id`、`user_id`、`character_id`、`persona_mode` 匹配。
 
-当 `capabilities.rag=true` 时，服务端必须已注入 `RagService`。当前实现支持 fake、本地文本、本地向量（memory/Chroma/Faiss）和 Qdrant 检索，并使用 persona policy 过滤 chunks；rerank 尚未实现。
+当调用方显式传入 `capabilities.rag=true` 时，服务端必须已注入 `RagService`。当前实现支持 fake、本地文本、本地向量（memory/Chroma/Faiss）和 Qdrant 检索，并使用 persona policy 过滤、混合候选重排、去重和类型配额。
 
 当 `capabilities.memory=true` 时，服务端必须已注入 `MemoryStore`。服务会读取同一 `app_id`、`user_id`、`character_id`、`persona_mode` 下的有限记忆，并按 persona `memoryPolicy.allowedTypes` 过滤。
 
