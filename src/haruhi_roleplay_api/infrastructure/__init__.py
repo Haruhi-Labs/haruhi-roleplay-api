@@ -41,6 +41,7 @@ from haruhi_roleplay_api.infrastructure.qdrant_corpus_release import (
     QdrantCorpusReleaseSummary,
     activate_qdrant_collection,
     corpus_version_from_file,
+    embedding_release_fingerprint,
     publish_qdrant_corpus,
     versioned_collection_name,
 )
@@ -102,6 +103,7 @@ __all__ = [
     "evaluate_rag_cases",
     "activate_qdrant_collection",
     "corpus_version_from_file",
+    "embedding_release_fingerprint",
     "ingest_corpus_file",
     "load_rag_evaluation_cases",
     "publish_qdrant_corpus",

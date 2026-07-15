@@ -20,6 +20,7 @@ from haruhi_roleplay_api.infrastructure import (  # noqa: E402
     activate_qdrant_collection,
     build_rag_service_from_env,
     corpus_version_from_file,
+    embedding_release_fingerprint,
     publish_qdrant_corpus,
     versioned_collection_name,
 )
@@ -45,9 +46,14 @@ def main() -> int:
         if not app_id:
             parser.error("publish 必须传入 --app-id，或配置 RAG_BOOTSTRAP_APP_ID")
         corpus_version = corpus_version_from_file(args.corpus)
+        embedding_fingerprint = embedding_release_fingerprint(
+            env,
+            release_id=args.release_id,
+        )
         collection = versioned_collection_name(
             prefix=args.collection_prefix or alias,
             corpus_version=corpus_version,
+            embedding_fingerprint=embedding_fingerprint,
         )
         service = _service_for_collection(env, collection)
         summary = publish_qdrant_corpus(
@@ -60,6 +66,7 @@ def main() -> int:
             {
                 "状态": "已发布",
                 "corpus_version": summary.corpusVersion,
+                "embedding_fingerprint": embedding_fingerprint,
                 "物理集合": summary.collection,
                 "稳定_alias": summary.alias,
                 "上一个集合": summary.previousCollection,
@@ -102,6 +109,11 @@ def _parser() -> argparse.ArgumentParser:
     publish.add_argument("--app-id", default=None)
     publish.add_argument("--alias", default=None)
     publish.add_argument("--collection-prefix", default=None)
+    publish.add_argument(
+        "--release-id",
+        default=None,
+        help="同名 embedding 模型权重变化时提供新的发布标识，强制生成新集合",
+    )
 
     activate = subparsers.add_parser("activate", help="切换到已存在的集合，用于回滚")
     activate.add_argument("--collection", required=True)
