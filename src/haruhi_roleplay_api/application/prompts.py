@@ -129,6 +129,7 @@ def _rag_chunk_section(prompt_input: PromptBuildInput) -> tuple[PromptMessage, .
     ]
     groups: dict[str, list[str]] = {
         "director": [],
+        "background": [],
         "dialogue": [],
         "style": [],
     }
@@ -148,13 +149,18 @@ def _rag_chunk_section(prompt_input: PromptBuildInput) -> tuple[PromptMessage, .
         }:
             group = "style"
         else:
-            group = "style"
+            group = "background"
         groups[group].append(content)
     sections = (
         (
             "director",
             "相似桥段：",
             "- 这是幕后构思参考，不代表当前角色亲历、记得或知道其中全部信息。",
+        ),
+        (
+            "background",
+            "补充背景：",
+            "- 可以作为当前对话的事实参考，但仍须服从角色设定、时间线和知识边界。",
         ),
         (
             "dialogue",

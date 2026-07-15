@@ -206,6 +206,21 @@ class PromptBuilderV1Tests(unittest.TestCase):
                 owner="haruhi",
                 usage="style_only",
             ),
+            RagChunk(
+                chunkId=RagChunkId("chunk-background"),
+                documentId=RagDocumentId("doc-background"),
+                content="长期相处后，SOS 团成员形成了稳定的合作关系。",
+                score=0.9,
+                metadata=RagDocumentMetadata(
+                    appId=AppId("web"),
+                    characterId=CharacterId("haruhi"),
+                    timeline="mid_late",
+                    spoilerLevel=5,
+                    language="zh-CN",
+                    sourceType="relationship",
+                    extra={"title": "内部标题"},
+                ),
+            ),
             _rag_chunk(
                 "observation",
                 content="阿虚观察到春日露出得意的表情。",
@@ -225,6 +240,10 @@ class PromptBuilderV1Tests(unittest.TestCase):
 
         self.assertLess(
             rag_section.index("相似桥段"),
+            rag_section.index("补充背景"),
+        )
+        self.assertLess(
+            rag_section.index("补充背景"),
             rag_section.index("角色应对范例"),
         )
         self.assertLess(
@@ -232,6 +251,8 @@ class PromptBuilderV1Tests(unittest.TestCase):
             rag_section.index("动作与语气参考"),
         )
         self.assertIn("春日记得孤岛事件", rag_section)
+        self.assertIn("可以作为当前对话的事实参考", rag_section)
+        self.assertIn("SOS 团成员形成了稳定的合作关系", rag_section)
         self.assertIn("幕后构思参考", rag_section)
         self.assertIn("不自动属于当前角色的知识", rag_section)
         self.assertNotIn("资料类型：", rag_section)
