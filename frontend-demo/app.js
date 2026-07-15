@@ -146,6 +146,8 @@ function renderActivePersona() {
   const selected = modes.find((mode) => mode.persona_mode === state.selectedMode) || modes[0];
   if (selected) {
     state.selectedMode = selected.persona_mode;
+    els.ragToggle.checked = selected.rag_enabled_by_default === true;
+    els.memoryToggle.checked = selected.memory_enabled_by_default === true;
   }
   els.activeCharacterName.textContent = character.display_name;
   els.activeModeName.textContent = selected
@@ -283,9 +285,10 @@ async function sendMessage() {
 }
 
 function buildChatRequest(message) {
-  const capabilities = {};
-  if (els.ragToggle.checked) capabilities.rag = true;
-  if (els.memoryToggle.checked) capabilities.memory = true;
+  const capabilities = {
+    rag: els.ragToggle.checked,
+    memory: els.memoryToggle.checked,
+  };
   if (els.sessionToggle.checked) capabilities.continuous_session = true;
   if (els.debugToggle.checked) capabilities.debug_trace = true;
 
@@ -298,9 +301,7 @@ function buildChatRequest(message) {
     message,
     language: "zh-CN",
   };
-  if (Object.keys(capabilities).length > 0) {
-    body.capabilities = capabilities;
-  }
+  body.capabilities = capabilities;
   const model = els.modelInput.value.trim();
   if (model) {
     body.generation = { model };

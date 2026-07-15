@@ -64,4 +64,10 @@ def _mode_summary(preset: PersonaPreset) -> dict[str, Any]:
         "display_name": preset.displayName,
         "timeline": preset.timeline,
         "description": preset.description,
+        "rag_enabled_by_default": bool(
+            preset.ragPolicy.get("enabledByDefault", False)
+        ),
+        "memory_enabled_by_default": bool(
+            preset.memoryPolicy.get("enabledByDefault", False)
+        ),
     }

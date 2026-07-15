@@ -124,6 +124,28 @@ class AgentContextPlanTests(unittest.TestCase):
         self.assertTrue(debug["contextPlan"]["retrieveRag"])
         self.assertEqual(debug["ragProvider"], "fake-rag")
 
+    def test_persona_policy_enables_rag_when_client_omits_override(self) -> None:
+        body = chat_body()
+        body["capabilities"].pop("rag")
+
+        response = call_chat(body, rag_service=FakeRagService())
+
+        self.assertTrue(response["ok"])
+        debug = response["data"]["debug"]
+        self.assertTrue(debug["contextPlan"]["retrieveRag"])
+        self.assertTrue(debug["ragEnabled"])
+
+    def test_persona_default_rag_safely_degrades_without_provider(self) -> None:
+        body = chat_body()
+        body["capabilities"].pop("rag")
+
+        response = call_chat(body)
+
+        self.assertTrue(response["ok"])
+        debug = response["data"]["debug"]
+        self.assertFalse(debug["contextPlan"]["retrieveRag"])
+        self.assertFalse(debug["ragEnabled"])
+
     def test_memory_plan_enables_memory_read(self) -> None:
         response = call_chat(
             chat_body(memory=True),
@@ -136,6 +158,28 @@ class AgentContextPlanTests(unittest.TestCase):
         self.assertTrue(debug["contextPlan"]["readMemory"])
         self.assertTrue(debug["memoryEnabled"])
         self.assertEqual(debug["memoryReadCount"], 0)
+
+    def test_persona_policy_enables_memory_when_client_omits_override(self) -> None:
+        body = chat_body()
+        body["capabilities"].pop("memory")
+
+        response = call_chat(body, memory_store=InMemoryMemoryStore())
+
+        self.assertTrue(response["ok"])
+        debug = response["data"]["debug"]
+        self.assertTrue(debug["contextPlan"]["readMemory"])
+        self.assertTrue(debug["memoryEnabled"])
+
+    def test_persona_default_memory_safely_degrades_without_store(self) -> None:
+        body = chat_body()
+        body["capabilities"].pop("memory")
+
+        response = call_chat(body)
+
+        self.assertTrue(response["ok"])
+        debug = response["data"]["debug"]
+        self.assertFalse(debug["contextPlan"]["readMemory"])
+        self.assertFalse(debug["memoryEnabled"])
 
     def test_session_plan_enables_session_read(self) -> None:
         session_store = InMemorySessionStore()

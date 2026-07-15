@@ -70,8 +70,8 @@
 
 | 能力              | 规则                                 |
 | ----------------- | ------------------------------------ |
-| rag               | 默认关闭，开启后必须返回 source 摘要 |
-| memory            | 默认关闭，开启后必须经过 policy      |
+| rag               | 省略时遵循 persona 默认值；显式开启后必须返回 source 摘要 |
+| memory            | 省略时遵循 persona 默认值；开启后必须经过 policy      |
 | continuous_session | 默认关闭，开启后读写 session        |
 | safety_filter      | 契约已保留；SafetyGuard 接入后才执行内容审核 |
 | debug_trace        | 本地可开启，生产必须裁剪敏感信息    |
@@ -95,7 +95,7 @@
 - RAG 不写 session，不写 memory。
 - 本地 RAG 和云端 RAG 必须共享同一个 `RagService` port。
 - 云端 RAG provider 只出现在 adapter/infrastructure 层。
-- 先实现 provider smoke test，再接 rerank 和复杂 query rewrite。
+- 所有 provider 候选统一经过轻量重排、去重和类型配额；复杂 query rewrite 仍保持可选。
 
 ## Memory 设计规范
 

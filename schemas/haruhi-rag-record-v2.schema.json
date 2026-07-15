@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haruhi-roleplay.local/schemas/haruhi-rag-record-v2.schema.json",
+  "title": "凉宫角色扮演 RAG 记录 v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "corpus_version",
+    "document_id",
+    "title",
+    "character_id",
+    "timeline",
+    "spoiler_level",
+    "language",
+    "source_type",
+    "trust_level",
+    "record_kind",
+    "perspective",
+    "retrieval_channel",
+    "knowledge_owner",
+    "subject_character_id",
+    "usage",
+    "content",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "haruhi-rag-record.v2"
+    },
+    "corpus_version": {
+      "type": "string",
+      "pattern": "^haruhi-rag-[0-9a-f]{24}$"
+    },
+    "document_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "character_id": {
+      "enum": ["haruhi", "kyon", "mikuru", "yuki", "itsuki"]
+    },
+    "timeline": {
+      "enum": [
+        "melancholy",
+        "sigh",
+        "endless_eight",
+        "disappearance",
+        "mid_late",
+        "surprise"
+      ]
+    },
+    "spoiler_level": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "language": {
+      "const": "zh-CN"
+    },
+    "source_type": {
+      "const": "scene"
+    },
+    "trust_level": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_kind": {
+      "enum": [
+        "scene_memory",
+        "dialogue_example",
+        "inner_monologue",
+        "behavior_observation"
+      ]
+    },
+    "perspective": {
+      "enum": [
+        "kyon_first_person",
+        "spoken_by_character",
+        "kyon_inner_monologue",
+        "kyon_observation_not_character_memory"
+      ]
+    },
+    "retrieval_channel": {
+      "enum": [
+        "canonical_memory",
+        "dialogue_style",
+        "internal_voice",
+        "style_observation"
+      ]
+    },
+    "knowledge_owner": {
+      "enum": ["haruhi", "kyon", "mikuru", "yuki", "itsuki"]
+    },
+    "subject_character_id": {
+      "enum": ["haruhi", "kyon", "mikuru", "yuki", "itsuki"]
+    },
+    "usage": {
+      "enum": ["knowledge", "style_only", "style_and_memory"]
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 760
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "record_schema_version",
+        "corpus_version",
+        "record_kind",
+        "perspective",
+        "retrieval_channel",
+        "knowledge_owner",
+        "subject_character_id",
+        "usage"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

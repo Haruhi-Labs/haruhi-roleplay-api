@@ -1,0 +1,50 @@
+{
+  "corpus_version": "haruhi-rag-0f36a0e22da45a4e0df0a768",
+  "errors": [],
+  "passed": true,
+  "record_count": 17041,
+  "stats": {
+    "dialogue": {
+      "max_stimulus_turns": 2,
+      "records": 10586,
+      "review_certainty:certain": 10256,
+      "review_certainty:probable": 330,
+      "review_method:luna_first_pass": 7166,
+      "review_method:sol_adjudication": 3420,
+      "stimulus_turns": 17926
+    },
+    "duplicate_contents": 0,
+    "duplicate_document_ids": 0,
+    "max_content_chars": 759,
+    "records_by_character": {
+      "haruhi": 3433,
+      "itsuki": 2669,
+      "kyon": 8433,
+      "mikuru": 1502,
+      "yuki": 1004
+    },
+    "records_by_kind": {
+      "behavior_observation": 843,
+      "dialogue_example": 10586,
+      "inner_monologue": 1179,
+      "scene_memory": 4433
+    },
+    "records_by_retrieval_channel": {
+      "canonical_memory": 4433,
+      "dialogue_style": 10586,
+      "internal_voice": 1179,
+      "style_observation": 843
+    },
+    "records_by_timeline": {
+      "disappearance": 1007,
+      "endless_eight": 377,
+      "melancholy": 1518,
+      "mid_late": 5119,
+      "sigh": 3248,
+      "surprise": 5772
+    }
+  },
+  "warnings": [
+    "41 个引语单元有配对异常，已进入 Sol 复核"
+  ]
+}

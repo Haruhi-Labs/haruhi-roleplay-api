@@ -16,3 +16,6 @@ class TextEmbeddingProvider(Protocol):
 
     def embed(self, text: str) -> tuple[float, ...]:
         """Embed one text into a vector."""
+
+    def embed_many(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+        """一次嵌入多段文本，并保持输入顺序。"""

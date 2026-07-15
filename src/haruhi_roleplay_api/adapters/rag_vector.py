@@ -11,12 +11,13 @@ from typing import Any, Mapping, Protocol
 
 from haruhi_roleplay_api.adapters.embeddings import HashEmbeddingProvider
 from haruhi_roleplay_api.adapters.rag import (
-    _chunk_text,
+    _ingest_content_chunks,
     _matches_filters,
     _managed_documents,
     _metadata_with_title,
     _scoped_chunk_id,
 )
+from haruhi_roleplay_api.adapters.rag_ranking import rank_roleplay_chunks
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.domain import (
     AppId,
@@ -332,12 +333,18 @@ class LocalVectorRagService:
                 metadata=metadata,
             )
             for index, content in enumerate(
-                _chunk_text(ingest_input.content, self._chunk_size),
+                _ingest_content_chunks(
+                    ingest_input.content,
+                    metadata=metadata,
+                    chunk_size=self._chunk_size,
+                ),
                 start=1,
             )
         )
         vectors = tuple(
-            _normalize_embedding(self._embedding_provider.embed(chunk.content))
+            _normalize_embedding(
+                self._embedding_provider.embed(_contextual_embedding_text(chunk))
+            )
             for chunk in chunks
         )
         self._vector_store.upsert(chunks, vectors)
@@ -356,18 +363,21 @@ class LocalVectorRagService:
             query_vector=query_vector,
             retrieve_input=retrieve_input,
         )
-        chunks = tuple(
+        candidates = tuple(
             _chunk_with_score(hit.chunk, hit.score)
-            for hit in sorted(hits, key=lambda item: item.score, reverse=True)[
-                : retrieve_input.topK
-            ]
+            for hit in hits
+        )
+        chunks = rank_roleplay_chunks(
+            candidates,
+            query=retrieve_input.query,
+            top_k=retrieve_input.topK,
         )
         return RagRetrieveOutput(
             chunks=chunks,
             provider=self.provider_name,
             rawHitCount=len(hits),
-            filteredHitCount=len(chunks),
-            rerankApplied=False,
+            filteredHitCount=len(candidates),
+            rerankApplied=bool(candidates),
         )
 
     def list_documents(
@@ -433,7 +443,7 @@ def _chunk_with_score(chunk: RagChunk, score: float) -> RagChunk:
 
 
 def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
-    return {
+    payload = {
         "app_id": (
             str(chunk.metadata.appId)
             if chunk.metadata.appId is not None
@@ -454,6 +464,21 @@ def _payload_from_chunk(chunk: RagChunk) -> dict[str, Any]:
         "title": str(chunk.metadata.extra.get("title", "")),
         "metadata_json": json.dumps(dict(chunk.metadata.extra), ensure_ascii=False),
     }
+    for field in (
+        "record_kind",
+        "perspective",
+        "corpus_version",
+        "retrieval_channel",
+        "knowledge_owner",
+        "subject_character_id",
+        "usage",
+        "scene_id",
+        "conversation_id",
+    ):
+        value = chunk.metadata.extra.get(field)
+        if value is not None:
+            payload[field] = str(value)
+    return payload
 
 
 def _chunk_from_payload(
@@ -505,6 +530,21 @@ def _document_id_for_content(app_id: AppId, content: str) -> str:
         digest_size=8,
     ).hexdigest()
     return f"ragdoc-{digest}"
+
+
+def _contextual_embedding_text(chunk: RagChunk) -> str:
+    context = "；".join(
+        str(value)
+        for value in (
+            chunk.metadata.extra.get("title"),
+            chunk.metadata.extra.get("book_title"),
+            chunk.metadata.extra.get("section_title"),
+            chunk.metadata.extra.get("record_kind"),
+            chunk.metadata.extra.get("perspective"),
+        )
+        if value
+    )
+    return f"{context}\n{chunk.content}" if context else chunk.content
 
 
 def _optional_module(module_name: str, *, package_name: str):

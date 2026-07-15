@@ -42,6 +42,8 @@ def ingest_input(
         "社团 活动 计划：春日会主动安排调查和招募。"
         "\n长期互动中，她会更注意维持 SOS 团成员之间的关系。"
     ),
+    atomic_record: bool = False,
+    structured: bool = False,
 ) -> RagIngestInput:
     return RagIngestInput(
         appId=AppId(app_id),
@@ -56,6 +58,23 @@ def ingest_input(
             spoilerLevel=2,
             language="zh-CN",
             sourceType="timeline",
+            extra={
+                **({"atomic_record": True} if atomic_record else {}),
+                **(
+                    {
+                        "record_kind": "dialogue_example",
+                        "perspective": "spoken_by_character",
+                        "corpus_version": "haruhi-rag-test",
+                        "retrieval_channel": "dialogue_style",
+                        "knowledge_owner": character_id,
+                        "subject_character_id": character_id,
+                        "usage": "style_only",
+                        "scene_id": "scene-test",
+                    }
+                    if structured
+                    else {}
+                ),
+            },
         ),
     )
 
@@ -150,6 +169,19 @@ class LocalVectorRagProviderTests(unittest.TestCase):
         self.assertGreater(output.chunks[0].score, 0)
         self.assertEqual(output.chunks[0].metadata.extra["title"], "本地向量资料")
 
+    def test_local_vector_keeps_atomic_corpus_record_in_one_chunk(self) -> None:
+        service = LocalVectorRagService(chunk_size=12)
+        content = "【对话上下文】\n凉宫春日：现在行动。\n【目标角色回答】\n阿虚：又来了。"
+
+        result = service.ingest(
+            ingest_input(content=content, atomic_record=True)
+        )
+        chunks = service._vector_store.list_chunks()
+
+        self.assertEqual(result.chunkCount, 1)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].content, content)
+
     def test_local_vector_rag_keeps_character_isolated(self) -> None:
         service = LocalVectorRagService()
         service.ingest(ingest_input())
@@ -194,7 +226,7 @@ class LocalVectorRagProviderTests(unittest.TestCase):
         store._collection = collection
         service = LocalVectorRagService(vector_store=store)
 
-        service.ingest(ingest_input(app_id="app-a"))
+        service.ingest(ingest_input(app_id="app-a", structured=True))
         service.retrieve(retrieve_input(app_id="app-a"))
 
         self.assertIsNotNone(collection.upsert_kwargs)
@@ -208,6 +240,10 @@ class LocalVectorRagProviderTests(unittest.TestCase):
             )
         )
         self.assertEqual(collection.query_kwargs["where"], {"app_id": "app-a"})
+        metadata = collection.upsert_kwargs["metadatas"][0]
+        self.assertEqual(metadata["record_kind"], "dialogue_example")
+        self.assertEqual(metadata["retrieval_channel"], "dialogue_style")
+        self.assertEqual(metadata["scene_id"], "scene-test")
 
     def test_faiss_upsert_replaces_existing_chunk_ids(self) -> None:
         index = FakeFaissIndex()
@@ -252,7 +288,9 @@ class LocalVectorRagProviderTests(unittest.TestCase):
 
     def test_rag_search_api_returns_vector_chunks(self) -> None:
         service = LocalVectorRagService(chunk_size=24)
-        service.ingest(ingest_input(document_id="doc-search-vector"))
+        service.ingest(
+            ingest_input(document_id="doc-search-vector", structured=True)
+        )
 
         response = post_rag_search(
             {
@@ -265,6 +303,12 @@ class LocalVectorRagProviderTests(unittest.TestCase):
                 "filters": {
                     "source_types": ["timeline"],
                     "timelines": ["mid_late"],
+                    "record_kinds": ["dialogue_example"],
+                    "perspectives": ["spoken_by_character"],
+                    "corpus_versions": ["haruhi-rag-test"],
+                    "retrieval_channels": ["dialogue_style"],
+                    "knowledge_owners": ["haruhi"],
+                    "usages": ["style_only"],
                     "spoiler_level_max": 2,
                     "language": "zh-CN",
                 },

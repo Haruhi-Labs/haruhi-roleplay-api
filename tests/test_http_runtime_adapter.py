@@ -286,8 +286,10 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
 
         self.assertEqual(response.status, 200)
         self.assertTrue(body["ok"])
-        self.assertEqual(body["data"]["rag"], {"enabled": False})
-        self.assertEqual(body["data"]["memory"], {"enabled": False})
+        self.assertTrue(body["data"]["rag"]["enabled"])
+        self.assertEqual(body["data"]["rag"]["hit_count"], 0)
+        self.assertTrue(body["data"]["memory"]["enabled"])
+        self.assertEqual(body["data"]["memory"]["read_count"], 0)
         self.assertIsNone(body["data"]["debug"])
 
     def test_post_chat_stream_returns_sse_events(self) -> None:

@@ -54,7 +54,7 @@ Boolean 参数必须使用 JSON `true` / `false`，不要传字符串。当前�
 | generation   | 否   | 模型生成参数                                     |
 | metadata     | 否   | 调用方透传对象                                   |
 
-省略 `capabilities` 时，RAG、memory、连续会话和 debug 默认关闭，`safety_filter` 默认开启。省略 `generation` 或 `generation.model` 时，服务端使用 model router 的 default alias。普通前端不传 provider type、base URL、token 或 model alias；高级调用方仍可传服务端白名单 alias 和生成参数。
+省略 `capabilities` 或其中的 `rag`、`memory` 时，这两项遵循当前 persona 的默认策略；显式传入 `false` 可强制关闭。连续会话和 debug 默认关闭，`safety_filter` 默认开启。省略 `generation` 或 `generation.model` 时，服务端使用 model router 的 default alias。普通前端不传 provider type、base URL、token 或 model alias；高级调用方仍可传服务端白名单 alias 和生成参数。
 
 ### capabilities
 

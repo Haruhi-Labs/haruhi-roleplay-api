@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from time import perf_counter
 
 from haruhi_roleplay_api.application.errors import (
@@ -13,12 +13,14 @@ from haruhi_roleplay_api.application.errors import (
 )
 from haruhi_roleplay_api.application.agent import DeterministicAgentContextPlanner
 from haruhi_roleplay_api.application.memory import DefaultMemoryPolicyEngine
+from haruhi_roleplay_api.application.rag_query import build_roleplay_rag_query
 from haruhi_roleplay_api.domain import (
     ChatInput,
     ChatOutput,
     ChatStreamEvent,
     BackendContextFact,
     BackendContextRequest,
+    CharacterId,
     ContextPlan,
     DebugTrace,
     DTOValidationError,
@@ -33,12 +35,15 @@ from haruhi_roleplay_api.domain import (
     ModelResponse,
     ModelStreamEvent,
     PersonaPreset,
+    PersonaModeId,
     PromptBuildInput,
+    RagChunk,
     RagRetrieveFilters,
     RagRetrieveInput,
     RagRetrieveOutput,
     RequestId,
     Session,
+    SessionMessage,
     Visibility,
     model_messages_from_prompt,
 )
@@ -72,7 +77,7 @@ class _PreparedChat:
     events: list[str]
     persona: PersonaPreset
     session: Session | None
-    recent_messages: tuple[object, ...]
+    recent_messages: tuple[SessionMessage, ...]
     memory_items: tuple[MemoryItem, ...]
     rag_output: RagRetrieveOutput | None
     backend_context_facts: tuple[BackendContextFact, ...]
@@ -96,6 +101,7 @@ class RoleplayOrchestrator:
         recent_message_limit: int = 12,
         memory_read_limit: int = 5,
         rag_top_k: int = 5,
+        rag_min_relevance_score: float = 0.2,
         debug_trace_enabled: bool = True,
     ) -> None:
         self._persona_repository = persona_repository
@@ -112,6 +118,13 @@ class RoleplayOrchestrator:
         self._recent_message_limit = recent_message_limit
         self._memory_read_limit = memory_read_limit
         self._rag_top_k = rag_top_k
+        if (
+            isinstance(rag_min_relevance_score, bool)
+            or not isinstance(rag_min_relevance_score, int | float)
+            or not 0.0 <= rag_min_relevance_score <= 1.0
+        ):
+            raise ValueError("rag_min_relevance_score must be between 0 and 1")
+        self._rag_min_relevance_score = float(rag_min_relevance_score)
         self._debug_trace_enabled = debug_trace_enabled
 
     def run(self, chat_input: ChatInput) -> ChatOutput:
@@ -192,6 +205,26 @@ class RoleplayOrchestrator:
             chat_input=chat_input,
             persona=persona,
         )
+        if (
+            context_plan.retrieveRag
+            and self._rag_service is None
+            and not chat_input.capabilities.ragConfigured
+        ):
+            context_plan = replace(
+                context_plan,
+                retrieveRag=False,
+                notes=(*context_plan.notes, "rag-provider-unavailable"),
+            )
+        if (
+            context_plan.readMemory
+            and self._memory_store is None
+            and not chat_input.capabilities.memoryConfigured
+        ):
+            context_plan = replace(
+                context_plan,
+                readMemory=False,
+                notes=(*context_plan.notes, "memory-store-unavailable"),
+            )
         _record_event(events, "load_session")
         session = self._session_for_chat(chat_input, context_plan)
         _record_event(events, "read_session_messages")
@@ -199,7 +232,12 @@ class RoleplayOrchestrator:
         _record_event(events, "read_memory")
         memory_items = self._memory_for_chat(chat_input, persona, context_plan)
         _record_event(events, "retrieve_rag")
-        rag_output = self._rag_for_chat(chat_input, persona, context_plan)
+        rag_output = self._rag_for_chat(
+            chat_input,
+            persona,
+            context_plan,
+            recent_messages,
+        )
         _record_event(events, "read_backend_context")
         backend_context_facts = self._backend_context_for_chat(
             chat_input,
@@ -242,7 +280,11 @@ class RoleplayOrchestrator:
             _record_event(prepared.events, "write_session_messages")
             self._write_session_messages(chat_input, model_response.reply)
         _record_event(prepared.events, "write_memory")
-        written_memories = self._write_memory_for_chat(chat_input, prepared.persona)
+        written_memories = self._write_memory_for_chat(
+            chat_input,
+            prepared.persona,
+            prepared.context_plan,
+        )
         _record_event(prepared.events, "build_response")
 
         return ChatOutput(
@@ -258,9 +300,9 @@ class RoleplayOrchestrator:
             },
             rag=_rag_output_to_chat_metadata(prepared.rag_output),
             memory=_memory_output_to_chat_metadata(
-                chat_input,
                 prepared.memory_items,
                 written_memories,
+                enabled=prepared.context_plan.readMemory,
             ),
             safety={
                 "enabled": chat_input.capabilities.safetyFilter,
@@ -342,7 +384,7 @@ class RoleplayOrchestrator:
             userId=chat_input.userId,
             characterId=chat_input.characterId,
             personaMode=chat_input.personaMode,
-            enabled=chat_input.capabilities.memory,
+            enabled=context_plan.readMemory,
             allowedTypes=_memory_types_for_persona(persona),
             maxItems=self._memory_read_limit,
         )
@@ -363,8 +405,9 @@ class RoleplayOrchestrator:
         self,
         chat_input: ChatInput,
         persona: PersonaPreset,
+        context_plan: ContextPlan,
     ) -> tuple[MemoryItem, ...]:
-        if not chat_input.capabilities.memory:
+        if not context_plan.readMemory:
             return ()
         if self._memory_store is None:
             raise DTOValidationError("memoryStore is required for memory")
@@ -381,7 +424,7 @@ class RoleplayOrchestrator:
                 userId=chat_input.userId,
                 characterId=chat_input.characterId,
                 personaMode=chat_input.personaMode,
-                enabled=chat_input.capabilities.memory,
+                enabled=context_plan.readMemory,
                 allowedTypes=allowed_types,
                 candidate=candidate,
             )
@@ -405,22 +448,71 @@ class RoleplayOrchestrator:
         chat_input: ChatInput,
         persona: PersonaPreset,
         context_plan: ContextPlan,
+        recent_messages: tuple[SessionMessage, ...],
     ) -> RagRetrieveOutput | None:
         if not context_plan.retrieveRag:
             return None
         if self._rag_service is None:
             raise DTOValidationError("ragService is required for RAG")
-        return self._rag_service.retrieve(
+        query = build_roleplay_rag_query(
+            character_id=str(chat_input.characterId),
+            persona_mode=str(chat_input.personaMode),
+            timeline=persona.timeline,
+            current_message=chat_input.message,
+            recent_messages=(
+                (message.role, message.content) for message in recent_messages
+            ),
+        )
+        base_filters = _rag_filters_for_chat(chat_input, persona)
+        actor_output = self._rag_service.retrieve(
             RagRetrieveInput(
                 appId=chat_input.appId,
                 userId=chat_input.userId,
                 characterId=chat_input.characterId,
                 personaMode=chat_input.personaMode,
-                query=chat_input.message,
+                query=query,
                 topK=self._rag_top_k,
-                filters=_rag_filters_for_chat(chat_input, persona),
+                filters=base_filters,
                 debug=chat_input.capabilities.debugTrace,
             )
+        )
+        actor_output = replace(
+            actor_output,
+            chunks=tuple(
+                chunk
+                for chunk in actor_output.chunks
+                if chunk.metadata.extra.get("record_kind") != "scene_memory"
+            ),
+        )
+        actor_output = _filter_rag_output_by_relevance(
+            actor_output,
+            minimum_score=self._rag_min_relevance_score,
+        )
+        director_output = self._rag_service.retrieve(
+            RagRetrieveInput(
+                appId=chat_input.appId,
+                userId=chat_input.userId,
+                characterId=CharacterId("kyon"),
+                personaMode=_director_persona_mode(persona),
+                query=query,
+                topK=self._rag_top_k,
+                filters=replace(
+                    base_filters,
+                    recordKinds=("scene_memory",),
+                    retrievalChannels=("canonical_memory",),
+                    knowledgeOwners=("kyon",),
+                ),
+                debug=chat_input.capabilities.debugTrace,
+            )
+        )
+        director_output = _filter_rag_output_by_relevance(
+            director_output,
+            minimum_score=self._rag_min_relevance_score,
+        )
+        return _merge_roleplay_rag_outputs(
+            actor_output,
+            director_output,
+            top_k=self._rag_top_k,
         )
 
     def _backend_context_for_chat(
@@ -532,7 +624,7 @@ def _debug_trace_for_chat(
         modelRoute=model_response.model,
         safetyAction="allow",
         latencyMs=_elapsed_ms(started_at),
-        capabilities=_capability_trace(chat_input),
+        capabilities=_capability_trace(chat_input, context_plan),
         events=events,
         modelDebug=model_response.debug,
         contextPlan=context_plan.to_debug_mapping(),
@@ -545,11 +637,14 @@ def _backend_context_sources(
     return tuple(dict.fromkeys(fact.source for fact in facts))
 
 
-def _capability_trace(chat_input: ChatInput) -> dict[str, bool]:
+def _capability_trace(
+    chat_input: ChatInput,
+    context_plan: ContextPlan,
+) -> dict[str, bool]:
     capabilities = chat_input.capabilities
     return {
-        "rag": capabilities.rag,
-        "memory": capabilities.memory,
+        "rag": context_plan.retrieveRag,
+        "memory": context_plan.readMemory,
         "continuousSession": capabilities.continuousSession,
         "safetyFilter": capabilities.safetyFilter,
         "stream": capabilities.stream,
@@ -577,6 +672,107 @@ def _rag_filters_for_chat(
         timelines=persona.knowledgeBoundary.allowedTimelines,
         spoilerLevelMax=persona.knowledgeBoundary.spoilerLevel,
         language=chat_input.language,
+    )
+
+
+def _director_persona_mode(persona: PersonaPreset) -> PersonaModeId:
+    if persona.timeline == "mid_late":
+        return PersonaModeId("default_kyon")
+    return PersonaModeId(f"{persona.timeline}_kyon")
+
+
+def _filter_rag_output_by_relevance(
+    output: RagRetrieveOutput,
+    *,
+    minimum_score: float,
+) -> RagRetrieveOutput:
+    return replace(
+        output,
+        chunks=tuple(
+            chunk
+            for chunk in output.chunks
+            if _rag_chunk_relevance(chunk) >= minimum_score
+        ),
+    )
+
+
+def _rag_chunk_relevance(chunk: RagChunk) -> float:
+    internal_score = chunk.metadata.extra.get("_retrieval_relevance")
+    if (
+        isinstance(internal_score, int | float)
+        and not isinstance(internal_score, bool)
+    ):
+        return float(internal_score)
+    return chunk.score
+
+
+def _merge_roleplay_rag_outputs(
+    actor_output: RagRetrieveOutput,
+    director_output: RagRetrieveOutput,
+    *,
+    top_k: int,
+) -> RagRetrieveOutput:
+    actor_chunks = tuple(
+        _with_prompt_channel(chunk, "actor_reference")
+        for chunk in actor_output.chunks
+    )
+    director_chunks = tuple(
+        _with_prompt_channel(chunk, "director_bridge")
+        for chunk in director_output.chunks
+    )
+    director_budget = min(2, top_k // 2)
+    actor_budget = top_k - director_budget
+    selected: list[RagChunk] = []
+    used_documents: set[str] = set()
+    used_chunks: set[str] = set()
+    used_contents: set[str] = set()
+
+    def add(chunk: RagChunk) -> None:
+        document_id = str(chunk.documentId)
+        chunk_id = str(chunk.chunkId)
+        normalized_content = " ".join(chunk.content.split()).casefold()
+        if (
+            document_id in used_documents
+            or chunk_id in used_chunks
+            or normalized_content in used_contents
+            or len(selected) >= top_k
+        ):
+            return
+        selected.append(chunk)
+        used_documents.add(document_id)
+        used_chunks.add(chunk_id)
+        used_contents.add(normalized_content)
+
+    for chunk in actor_chunks[:actor_budget]:
+        add(chunk)
+    for chunk in director_chunks[:director_budget]:
+        add(chunk)
+    for chunk in actor_chunks[actor_budget:]:
+        add(chunk)
+
+    provider = actor_output.provider
+    if director_output.provider != provider:
+        provider = f"{provider}+{director_output.provider}"
+    return RagRetrieveOutput(
+        chunks=tuple(selected),
+        provider=provider,
+        rawHitCount=actor_output.rawHitCount + director_output.rawHitCount,
+        filteredHitCount=(
+            actor_output.filteredHitCount + director_output.filteredHitCount
+        ),
+        rerankApplied=(
+            actor_output.rerankApplied or director_output.rerankApplied
+        ),
+    )
+
+
+def _with_prompt_channel(chunk: RagChunk, channel: str) -> RagChunk:
+    return replace(
+        chunk,
+        metadata=replace(
+            chunk.metadata,
+            extra={**dict(chunk.metadata.extra), "prompt_channel": channel},
+        ),
     )
 
 
@@ -622,11 +818,12 @@ def _rag_output_to_chat_metadata(
 
 
 def _memory_output_to_chat_metadata(
-    chat_input: ChatInput,
     memory_items: tuple[MemoryItem, ...],
     written_memories: tuple[MemoryItem, ...],
+    *,
+    enabled: bool,
 ) -> dict[str, object]:
-    if not chat_input.capabilities.memory:
+    if not enabled:
         return {"enabled": False}
     return {
         "enabled": True,

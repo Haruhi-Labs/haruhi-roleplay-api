@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://haruhi-roleplay.local/schemas/haruhi-rag-eval-v2.schema.json",
+  "title": "凉宫自然对话 RAG 检索评测项 v2",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "case_id",
+    "status",
+    "retrieval_channel",
+    "target_character_id",
+    "persona_mode",
+    "timeline",
+    "conversation",
+    "current_input",
+    "top_k",
+    "filters",
+    "relevant_document_ids",
+    "minimum_relevant_hits",
+    "maximum_retrieved_hits"
+  ],
+  "properties": {
+    "schema_version": {"const": "haruhi-rag-eval.v2"},
+    "case_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["pending", "ready", "rejected"]},
+    "retrieval_channel": {
+      "enum": ["actor_reference", "director_bridge"]
+    },
+    "target_character_id": {
+      "enum": ["haruhi", "kyon", "mikuru", "yuki", "itsuki"]
+    },
+    "persona_mode": {"type": "string", "minLength": 1},
+    "timeline": {"type": "string", "minLength": 1},
+    "conversation": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "content"],
+        "properties": {
+          "role": {"enum": ["user", "assistant"]},
+          "content": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "current_input": {"type": "string"},
+    "query": {"type": "string"},
+    "top_k": {"type": "integer", "minimum": 1, "maximum": 20},
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_types": {"$ref": "#/$defs/stringArray"},
+        "timelines": {"$ref": "#/$defs/stringArray"},
+        "record_kinds": {"$ref": "#/$defs/stringArray"},
+        "perspectives": {"$ref": "#/$defs/stringArray"},
+        "corpus_versions": {"$ref": "#/$defs/stringArray"},
+        "retrieval_channels": {"$ref": "#/$defs/stringArray"},
+        "knowledge_owners": {"$ref": "#/$defs/stringArray"},
+        "usages": {"$ref": "#/$defs/stringArray"},
+        "spoiler_level_max": {"type": "integer", "minimum": 0},
+        "language": {"enum": ["zh-CN", "ja-JP", "en-US"]}
+      }
+    },
+    "relevant_document_ids": {"$ref": "#/$defs/stringArray"},
+    "minimum_relevant_hits": {"type": "integer", "minimum": 0},
+    "maximum_retrieved_hits": {"type": "integer", "minimum": 0},
+    "expected_record_kinds": {"$ref": "#/$defs/stringArray"},
+    "required_terms": {"$ref": "#/$defs/stringArray"},
+    "forbidden_document_ids": {"$ref": "#/$defs/stringArray"}
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    }
+  }
+}

@@ -62,9 +62,28 @@ class OpenAICompatibleEmbeddingProvider:
         return self._dimensions
 
     def embed(self, text: str) -> tuple[float, ...]:
+        response_data = self._request_embeddings(text)
+        return _embedding_from_mapping(
+            response_data,
+            dimensions=self._dimensions,
+            error_label=self._error_label,
+        )
+
+    def embed_many(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+        if not texts:
+            return ()
+        response_data = self._request_embeddings(list(texts))
+        return _embeddings_from_mapping(
+            response_data,
+            expected_count=len(texts),
+            dimensions=self._dimensions,
+            error_label=self._error_label,
+        )
+
+    def _request_embeddings(self, input_value: str | list[str]) -> Mapping[str, Any]:
         payload = {
             "model": self._model,
-            "input": text,
+            "input": input_value,
             "dimensions": self._dimensions,
             "encoding_format": "float",
         }
@@ -96,11 +115,12 @@ class OpenAICompatibleEmbeddingProvider:
                 message=f"{self._error_label} request failed.",
             ) from exc
 
-        return _embedding_from_mapping(
-            response_data,
-            dimensions=self._dimensions,
-            error_label=self._error_label,
-        )
+        if not isinstance(response_data, Mapping):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message=f"{self._error_label} response was invalid.",
+            )
+        return response_data
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -155,3 +175,35 @@ def _embedding_from_mapping(
             ),
         )
     return embedding
+
+
+def _embeddings_from_mapping(
+    data: Mapping[str, Any],
+    *,
+    expected_count: int,
+    dimensions: int,
+    error_label: str,
+) -> tuple[tuple[float, ...], ...]:
+    raw_items = data.get("data")
+    if not isinstance(raw_items, list) or len(raw_items) != expected_count:
+        raise AppError(
+            code=ErrorCode.RAG_PROVIDER_ERROR,
+            message=f"{error_label} response was invalid.",
+        )
+    if all(isinstance(item, Mapping) and isinstance(item.get("index"), int) for item in raw_items):
+        raw_items = sorted(raw_items, key=lambda item: int(item["index"]))
+    embeddings: list[tuple[float, ...]] = []
+    for item in raw_items:
+        if not isinstance(item, Mapping):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message=f"{error_label} response was invalid.",
+            )
+        embeddings.append(
+            _embedding_from_mapping(
+                {"data": [item]},
+                dimensions=dimensions,
+                error_label=error_label,
+            )
+        )
+    return tuple(embeddings)

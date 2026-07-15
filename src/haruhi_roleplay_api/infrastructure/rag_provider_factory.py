@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Mapping
 
 from haruhi_roleplay_api.adapters import (
@@ -15,10 +16,12 @@ from haruhi_roleplay_api.adapters.rag_vector import LocalVectorRagService
 from haruhi_roleplay_api.infrastructure.embedding_provider_factory import (
     EmbeddingProviderSettings,
     build_embedding_provider,
+    require_production_embedding,
 )
 from haruhi_roleplay_api.infrastructure.provider_config_facade import (
     apply_provider_config_facade,
 )
+from haruhi_roleplay_api.infrastructure.rag_corpus import ingest_corpus_file
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
 from haruhi_roleplay_api.ports import TextEmbeddingProvider
 
@@ -36,6 +39,9 @@ class RagProviderSettings:
     qdrantApiKey: str | None = None
     qdrantTimeoutMs: int = 10000
     qdrantEnsureCollection: bool = False
+    qdrantHybridSearch: bool = False
+    qdrantIngestBatchSize: int = 64
+    minimumRelevanceScore: float = 0.2
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, str]) -> "RagProviderSettings":
@@ -64,6 +70,21 @@ class RagProviderSettings:
             ),
             qdrantEnsureCollection=_bool_from_mapping(
                 data.get("QDRANT_ENSURE_COLLECTION", "false")
+            ),
+            qdrantHybridSearch=_bool_from_mapping(
+                data.get("QDRANT_HYBRID_SEARCH", "false")
+            ),
+            qdrantIngestBatchSize=_int_from_mapping(
+                data,
+                "QDRANT_INGEST_BATCH_SIZE",
+                default=64,
+            ),
+            minimumRelevanceScore=_float_from_mapping(
+                data,
+                "RAG_MIN_RELEVANCE_SCORE",
+                default=0.2,
+                minimum=0.0,
+                maximum=1.0,
             ),
         )
 
@@ -120,6 +141,8 @@ def build_rag_service(
             chunk_size=settings.chunkSize,
             embedding_provider=embedding_provider or _hash_embedding(settings),
             ensure_collection=settings.qdrantEnsureCollection,
+            hybrid_search=settings.qdrantHybridSearch,
+            ingest_batch_size=settings.qdrantIngestBatchSize,
         )
     raise AppError(
         code=ErrorCode.RAG_PROVIDER_ERROR,
@@ -131,12 +154,49 @@ def build_rag_service_from_env(env: Mapping[str, str]):
     env = apply_provider_config_facade(env)
     settings = RagProviderSettings.from_mapping(env)
     provider = settings.provider.strip().lower().replace("-", "_")
+    if provider in {"qdrant", "cloud_rag"}:
+        require_production_embedding(
+            env,
+            allow_test_embedding=_bool_from_mapping(
+                env.get("RAG_ALLOW_TEST_EMBEDDING", "false")
+            ),
+        )
     embedding_provider = (
         build_embedding_provider(EmbeddingProviderSettings.from_mapping(env))
         if _requires_embedding_provider(provider)
         else None
     )
-    return build_rag_service(settings, embedding_provider=embedding_provider)
+    service = build_rag_service(settings, embedding_provider=embedding_provider)
+    corpus_path = env.get("RAG_BOOTSTRAP_CORPUS_PATH", "").strip()
+    if corpus_path:
+        corpus_app_id = env.get("RAG_BOOTSTRAP_APP_ID", "").strip()
+        if not corpus_app_id:
+            raise AppError(
+                code=ErrorCode.RAG_INGEST_FAILED,
+                message=(
+                    "配置 RAG_BOOTSTRAP_CORPUS_PATH 时必须同时配置 "
+                    "RAG_BOOTSTRAP_APP_ID。"
+                ),
+            )
+        if not hasattr(service, "ingest"):
+            raise AppError(
+                code=ErrorCode.RAG_INGEST_FAILED,
+                message="当前配置的 RAG provider 不支持装载启动语料。",
+            )
+        try:
+            ingest_corpus_file(
+                service,
+                path=Path(corpus_path),
+                app_id=corpus_app_id,
+            )
+        except AppError:
+            raise
+        except Exception as exc:
+            raise AppError(
+                code=ErrorCode.RAG_INGEST_FAILED,
+                message=f"装载 RAG 启动语料失败：{corpus_path}",
+            ) from exc
+    return service
 
 
 def _requires_embedding_provider(provider: str) -> bool:
@@ -186,6 +246,32 @@ def _int_from_mapping(
             code=ErrorCode.RAG_PROVIDER_ERROR,
             message=f"{key} must be an integer.",
         ) from exc
+
+
+def _float_from_mapping(
+    data: Mapping[str, str],
+    key: str,
+    *,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    value = data.get(key)
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise AppError(
+            code=ErrorCode.RAG_PROVIDER_ERROR,
+            message=f"{key} must be a number.",
+        ) from exc
+    if not minimum <= parsed <= maximum:
+        raise AppError(
+            code=ErrorCode.RAG_PROVIDER_ERROR,
+            message=f"{key} must be between {minimum:g} and {maximum:g}.",
+        )
+    return parsed
 
 
 def _bool_from_mapping(value: str) -> bool:

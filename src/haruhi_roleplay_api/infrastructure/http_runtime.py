@@ -89,6 +89,7 @@ from haruhi_roleplay_api.infrastructure.memory_store_factory import (
     build_memory_store_from_env,
 )
 from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
+    RagProviderSettings,
     build_rag_service_from_env,
 )
 from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
@@ -218,6 +219,7 @@ class RoleplayHttpRuntime:
         api_key: str | None = None,
         debug_trace_enabled: bool = True,
         cors_allowed_origins: tuple[str, ...] = (),
+        rag_min_relevance_score: float = 0.2,
     ) -> None:
         self._persona_repository = persona_repository
         self._prompt_builder = prompt_builder
@@ -238,6 +240,7 @@ class RoleplayHttpRuntime:
         self._admin_cookie_secure = admin_cookie_secure
         self._debug_trace_enabled = debug_trace_enabled
         self._cors_allowed_origins = cors_allowed_origins
+        self._rag_min_relevance_score = rag_min_relevance_score
 
     @classmethod
     def local(
@@ -252,6 +255,7 @@ class RoleplayHttpRuntime:
         settings = HttpRuntimeSettings.from_env(runtime_env)
         settings.validate_for_bind()
         session_settings = SessionStoreSettings.from_mapping(runtime_env)
+        rag_settings = RagProviderSettings.from_mapping(runtime_env)
         return cls(
             persona_repository=LocalPersonaRepository(project_root / "personas"),
             prompt_builder=PersonaPromptBuilder(),
@@ -283,6 +287,7 @@ class RoleplayHttpRuntime:
             api_key=settings.api_key,
             debug_trace_enabled=settings.debug_trace_enabled,
             cors_allowed_origins=settings.cors_allowed_origins,
+            rag_min_relevance_score=rag_settings.minimumRelevanceScore,
         )
 
     @classmethod
@@ -562,6 +567,7 @@ class RoleplayHttpRuntime:
                     backend_context_provider=self._backend_context_provider,
                     agent_context_planner=self._agent_context_planner,
                     recent_message_limit=self._session_recent_limit,
+                    rag_min_relevance_score=self._rag_min_relevance_score,
                     request_id=request_id,
                     debug_trace_enabled=self._debug_trace_enabled,
                 )
@@ -808,6 +814,7 @@ class RoleplayHttpRuntime:
                     backend_context_provider=self._backend_context_provider,
                     agent_context_planner=self._agent_context_planner,
                     recent_message_limit=self._session_recent_limit,
+                    rag_min_relevance_score=self._rag_min_relevance_score,
                     request_id=request_id,
                     debug_trace_enabled=self._debug_trace_enabled,
                 )
@@ -1109,6 +1116,7 @@ class RoleplayHttpRuntime:
             backend_context_provider = build_backend_context_provider_from_env(env)
             agent_context_planner = build_agent_context_planner_from_env(env)
             session_settings = SessionStoreSettings.from_mapping(env)
+            rag_settings = RagProviderSettings.from_mapping(env)
             settings = HttpRuntimeSettings.from_env(env)
             settings.validate_for_bind()
         except Exception as exc:
@@ -1126,6 +1134,7 @@ class RoleplayHttpRuntime:
         self._backend_context_provider = backend_context_provider
         self._agent_context_planner = agent_context_planner
         self._session_recent_limit = session_settings.recentMessageLimit
+        self._rag_min_relevance_score = rag_settings.minimumRelevanceScore
         self._api_key = settings.api_key
         if set(hot_reload_keys) & {
             "ROLEPLAY_API_KEY",
@@ -1183,6 +1192,7 @@ class RoleplayHttpRuntime:
                     candidate_env
                 )
                 session_settings = SessionStoreSettings.from_mapping(candidate_env)
+                rag_settings = RagProviderSettings.from_mapping(candidate_env)
                 settings = HttpRuntimeSettings.from_env(candidate_env)
                 applied_keys = self._runtime_config_store.commit(update)
                 self._model_router = model_router
@@ -1190,6 +1200,7 @@ class RoleplayHttpRuntime:
                 self._backend_context_provider = backend_context_provider
                 self._agent_context_planner = agent_context_planner
                 self._session_recent_limit = session_settings.recentMessageLimit
+                self._rag_min_relevance_score = rag_settings.minimumRelevanceScore
                 self._api_key = settings.api_key
                 self._admin_cookie_secure = settings.admin_cookie_secure
                 self._debug_trace_enabled = settings.debug_trace_enabled

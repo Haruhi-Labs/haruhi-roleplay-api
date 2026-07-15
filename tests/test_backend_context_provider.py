@@ -139,9 +139,11 @@ class BackendContextProviderTests(unittest.TestCase):
         prompt_text = "\n".join(message.content for message in router.messages)
 
         self.assertTrue(response["ok"])
-        self.assertIn("业务后端上下文摘要", prompt_text)
-        self.assertIn("source=user_profile", prompt_text)
-        self.assertIn("source=game_state", prompt_text)
+        self.assertIn("当前可用的会话背景", prompt_text)
+        self.assertNotIn("source=user_profile", prompt_text)
+        self.assertNotIn("source=game_state", prompt_text)
+        self.assertNotIn("confidence=", prompt_text)
+        self.assertNotIn("ttl=", prompt_text)
         self.assertIn("用户偏好轻快推进对话", prompt_text)
         self.assertIn("当前活动进度", prompt_text)
 

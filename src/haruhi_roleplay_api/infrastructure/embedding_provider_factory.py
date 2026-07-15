@@ -125,6 +125,23 @@ def build_embedding_provider_from_env(
     return build_embedding_provider(EmbeddingProviderSettings.from_mapping(env))
 
 
+def require_production_embedding(
+    env: Mapping[str, str],
+    *,
+    allow_test_embedding: bool = False,
+) -> None:
+    settings = EmbeddingProviderSettings.from_mapping(env)
+    provider = _normalized_provider(settings.provider)
+    if provider in {"hash", "local_hash"} and not allow_test_embedding:
+        raise AppError(
+            code=ErrorCode.RAG_PROVIDER_ERROR,
+            message=(
+                "生产语料禁止使用 hash embedding；请配置真实的中文/多语 "
+                "EMBEDDING_PROVIDER（或 EMBEDDING_API_TYPE）、模型和维度。"
+            ),
+        )
+
+
 def _normalized_provider(provider: str) -> str:
     return provider.strip().lower().replace("-", "_")
 

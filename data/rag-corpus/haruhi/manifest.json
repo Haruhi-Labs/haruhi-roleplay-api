@@ -1,0 +1,222 @@
+{
+  "corpus_version": "haruhi-rag-0f36a0e22da45a4e0df0a768",
+  "dialogue_review": {
+    "adjudicated_spans": 5143,
+    "candidate_spans": 15596,
+    "candidate_units": 14641,
+    "duplicate_dialogue_records_removed": 2,
+    "final_reviewed_spans": 15596,
+    "indexed_dialogue_records": 10586,
+    "luna_coverage": 1.0,
+    "luna_sol_exact_agreement": 0.598094,
+    "parse_anomaly_units": 41,
+    "schema_version": "dialogue-review-overlay.v1",
+    "target_dialogue_by_certainty": {
+      "certain": 10258,
+      "probable": 330
+    },
+    "target_dialogue_by_character": {
+      "haruhi": 3139,
+      "itsuki": 2543,
+      "kyon": 2822,
+      "mikuru": 1275,
+      "yuki": 809
+    },
+    "target_dialogue_by_method": {
+      "luna_first_pass": 7168,
+      "sol_adjudication": 3420
+    },
+    "target_dialogue_records": 10588
+  },
+  "language": "zh-CN",
+  "pipeline_version": "1.0+agent-review.v2",
+  "quality": {
+    "errors": [],
+    "warnings": [
+      "41 个引语单元存在配对异常，已纳入 Sol 复核"
+    ]
+  },
+  "record_schema_version": "haruhi-rag-record.v2",
+  "release_artifact": {
+    "compression": "gzip",
+    "path": "records.jsonl.gz",
+    "record_count": 17041,
+    "sha256": "8b1161ba718ad42e1d31e8456fcfb140e2566264acc3bf2cc146efcf5704ecc9",
+    "size_bytes": 4961010,
+    "uncompressed_sha256": "e749b0e121bad1204a681438bf58a19b92122d19afe6c75d8209fe22b891da50",
+    "uncompressed_size_bytes": 59728591
+  },
+  "schema_version": 2,
+  "source_policy": {
+    "distribution_scope": "internal_project",
+    "generated_output": "内部项目可追踪的版本化发布产物；不包含原始小说或模型审阅中间文件",
+    "raw_text_embedded_in_repository": false
+  },
+  "sources": [
+    {
+      "body_characters": 92801,
+      "body_paragraphs": 2687,
+      "book_id": "v01-melancholy",
+      "bytes": 306630,
+      "filename": "涼宮春日的憂鬱.txt",
+      "sections": 9,
+      "sha256": "2c7a2f76f1653e0a58b5cb4fa9c3900f06ac2b58d1eb388e0485d82485219a4c",
+      "volume": 1
+    },
+    {
+      "body_characters": 94972,
+      "body_paragraphs": 2206,
+      "book_id": "v02-sigh",
+      "bytes": 305276,
+      "filename": "涼宮春日的嘆息.txt",
+      "sections": 7,
+      "sha256": "f28ca4f64a1801dd67c31f9e0c6172b0121672584a0abe2e21432f9dafca77c0",
+      "volume": 2
+    },
+    {
+      "body_characters": 98956,
+      "body_paragraphs": 2629,
+      "book_id": "v03-boredom",
+      "bytes": 321933,
+      "filename": "涼宮春日的煩悶.txt",
+      "sections": 5,
+      "sha256": "c2cb1254556d2ba6ef0837f41df864fa6e4e98e40b23be182b2c16d194652067",
+      "volume": 3
+    },
+    {
+      "body_characters": 81643,
+      "body_paragraphs": 2103,
+      "book_id": "v04-disappearance",
+      "bytes": 265268,
+      "filename": "涼宮春日的消失.txt",
+      "sections": 8,
+      "sha256": "db62a55477291be40b76fa701ee16544c898e5abf9ede44479660e646ae008f6",
+      "volume": 4
+    },
+    {
+      "body_characters": 107605,
+      "body_paragraphs": 2618,
+      "book_id": "v05-rampage",
+      "bytes": 344836,
+      "filename": "涼宮春日的暴走.txt",
+      "sections": 3,
+      "sha256": "19e927d378a51fa5da59478e51394a4a3e5adb87bca01ddb87fd8024394b605b",
+      "volume": 5
+    },
+    {
+      "body_characters": 97430,
+      "body_paragraphs": 2413,
+      "book_id": "v06-wavering",
+      "bytes": 313434,
+      "filename": "涼宮春日的動搖.txt",
+      "sections": 5,
+      "sha256": "44fcdbc165b5f1daf34dcef8e038344040ff3bbc603b5d4dd22d68debe7ff133",
+      "volume": 6
+    },
+    {
+      "body_characters": 150467,
+      "body_paragraphs": 3702,
+      "book_id": "v07-intrigues",
+      "bytes": 483532,
+      "filename": "涼宮春日的陰謀.txt",
+      "sections": 9,
+      "sha256": "554d1d89d1137ad06d9025cb1a5f7f990b60063aa355a0abdfb59c30bec1a647",
+      "volume": 7
+    },
+    {
+      "body_characters": 96675,
+      "body_paragraphs": 2373,
+      "book_id": "v08-indignation",
+      "bytes": 313272,
+      "filename": "涼宮春日的憤慨.txt",
+      "sections": 2,
+      "sha256": "91f9dffbf677cc032dca41e0fecab0b71895818540d971449fec90916ab27a3e",
+      "volume": 8
+    },
+    {
+      "body_characters": 96589,
+      "body_paragraphs": 2303,
+      "book_id": "v09-dissociation",
+      "bytes": 307977,
+      "filename": "涼宮春日的分裂.txt",
+      "sections": 14,
+      "sha256": "0fe6b35447c81c487a73eaf2672ffa81f1d9b50533e6797cd15bffd7a4232aaf",
+      "volume": 9
+    },
+    {
+      "body_characters": 90394,
+      "body_paragraphs": 2133,
+      "book_id": "v10-surprise-front",
+      "bytes": 287733,
+      "filename": "涼宮春日的驚愕〈前〉.txt",
+      "sections": 6,
+      "sha256": "ed612615d46855ccf5d2c0fda40891c6656d3198e382d8baf079e29ffcc2acff",
+      "volume": 10
+    },
+    {
+      "body_characters": 78496,
+      "body_paragraphs": 2126,
+      "book_id": "v11-surprise-back",
+      "bytes": 257565,
+      "filename": "涼宮春日的驚愕〈後〉.txt",
+      "sections": 12,
+      "sha256": "ac2f8b69219a21c2e6ad9755a5347003583aceeba34435356a9a9969f9ae6980",
+      "volume": 11
+    },
+    {
+      "body_characters": 117933,
+      "body_paragraphs": 3713,
+      "book_id": "v12-intuition",
+      "bytes": 386641,
+      "filename": "涼宮春日的直覺.txt",
+      "sections": 3,
+      "sha256": "3dc94cc791dbc0ce6be5d1f51e88f1ceb01b1bcb6583f9bfb1393c440f228976",
+      "volume": 12
+    },
+    {
+      "body_characters": 88426,
+      "body_paragraphs": 2679,
+      "book_id": "v13-theater",
+      "bytes": 203284,
+      "filename": "[谷川流]涼宮春日的劇場[系列Vol.13][繁].txt",
+      "sections": 4,
+      "sha256": "41030add4d8cd8fd632d82cf4935b930bb7a06b54042e9b852099d90c37ec01c",
+      "volume": 13
+    }
+  ],
+  "stats": {
+    "books": 13,
+    "max_content_chars": 759,
+    "quote_target_attribution_rate": 0.678892,
+    "quotes_attributed_target": 10588,
+    "quotes_high_confidence": 10258,
+    "quotes_medium_confidence": 330,
+    "quotes_total": 15596,
+    "quotes_unattributed_or_nontarget": 5008,
+    "records": 17041,
+    "records_by_character": {
+      "haruhi": 3433,
+      "itsuki": 2669,
+      "kyon": 8433,
+      "mikuru": 1502,
+      "yuki": 1004
+    },
+    "records_by_kind": {
+      "behavior_observation": 843,
+      "dialogue_example": 10586,
+      "inner_monologue": 1179,
+      "scene_memory": 4433
+    },
+    "records_by_timeline": {
+      "disappearance": 1007,
+      "endless_eight": 377,
+      "melancholy": 1518,
+      "mid_late": 5119,
+      "sigh": 3248,
+      "surprise": 5772
+    },
+    "sections": 87,
+    "source_body_characters": 1292387,
+    "source_body_paragraphs": 33685
+  }
+}

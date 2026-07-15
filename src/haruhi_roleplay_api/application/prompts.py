@@ -26,10 +26,10 @@ class PersonaPromptBuilder:
                     role="system",
                     content=_output_rules(prompt_input.generation),
                 ),
-                *_recent_message_section(prompt_input),
                 *_memory_item_section(prompt_input),
                 *_rag_chunk_section(prompt_input),
                 *_backend_context_section(prompt_input),
+                *_recent_message_section(prompt_input),
                 PromptMessage(role="user", content=prompt_input.userMessage),
             )
         )
@@ -99,12 +99,10 @@ def _output_rules(generation: GenerationConfig) -> str:
 def _recent_message_section(
     prompt_input: PromptBuildInput,
 ) -> tuple[PromptMessage, ...]:
-    if not prompt_input.recentMessages:
-        return ()
-    lines = ["最近会话消息："]
-    for message in prompt_input.recentMessages:
-        lines.append(f"- {message.role}: {message.content}")
-    return (PromptMessage(role="system", content="\n".join(lines)),)
+    return tuple(
+        PromptMessage(role=message.role, content=message.content)
+        for message in prompt_input.recentMessages
+    )
 
 
 def _memory_item_section(
@@ -112,29 +110,91 @@ def _memory_item_section(
 ) -> tuple[PromptMessage, ...]:
     if not prompt_input.memoryItems:
         return ()
-    lines = ["长期记忆摘要："]
+    lines = ["可延续的互动记忆："]
     for index, item in enumerate(prompt_input.memoryItems, start=1):
-        lines.append(
-            f"- [{index}] type={item.type.value}, "
-            f"confidence={item.confidence:.2f}: {item.content}"
-        )
-    lines.append("- 只把长期记忆作为角色互动的背景，不要逐字暴露记忆字段。")
+        lines.append(f"- 记忆 {index}：{item.content}")
+    lines.append("- 自然延续这些互动背景，不要说明自己读取了记忆。")
     return (PromptMessage(role="system", content="\n".join(lines)),)
 
 
 def _rag_chunk_section(prompt_input: PromptBuildInput) -> tuple[PromptMessage, ...]:
     if not prompt_input.ragChunks:
         return ()
-    lines = ["检索资料摘要："]
-    for index, chunk in enumerate(prompt_input.ragChunks, start=1):
-        lines.append(
-            f"- [{index}] {chunk.content} "
-            f"(source={chunk.documentId}/{chunk.chunkId}, "
-            f"timeline={chunk.metadata.timeline}, "
-            f"spoilerLevel={chunk.metadata.spoilerLevel})"
+    lines = [
+        "可借鉴的原作互动素材：",
+        "- 角色设定、当前时间线和知识边界始终优先。",
+        "- 借鉴关系张力、情绪变化、动作和应对节奏，不复演或复述原场景。",
+        "- 旁观叙述、他人内心和隐秘事实不自动属于当前角色的知识。",
+        "- 只选择真正贴合当前对话的部分；不贴合时直接忽略。",
+    ]
+    groups: dict[str, list[str]] = {
+        "director": [],
+        "background": [],
+        "dialogue": [],
+        "style": [],
+    }
+    for chunk in prompt_input.ragChunks:
+        extra = chunk.metadata.extra
+        prompt_channel = str(extra.get("prompt_channel") or "")
+        channel = str(extra.get("retrieval_channel") or "")
+        record_kind = str(extra.get("record_kind") or chunk.metadata.sourceType)
+        content = _clean_rag_content(chunk.content)
+        if prompt_channel == "director_bridge" or record_kind == "scene_memory":
+            group = "director"
+        elif channel == "dialogue_style" or record_kind == "dialogue_example":
+            group = "dialogue"
+        elif channel in {"internal_voice", "style_observation"} or record_kind in {
+            "inner_monologue",
+            "behavior_observation",
+        }:
+            group = "style"
+        else:
+            group = "background"
+        groups[group].append(content)
+    sections = (
+        (
+            "director",
+            "相似桥段：",
+            "- 这是幕后构思参考，不代表当前角色亲历、记得或知道其中全部信息。",
+        ),
+        (
+            "background",
+            "补充背景：",
+            "- 可以作为当前对话的事实参考，但仍须服从角色设定、时间线和知识边界。",
+        ),
+        (
+            "dialogue",
+            "角色应对范例：",
+            "- 借鉴目标角色的反应方式和表达节奏，不照搬台词。",
+        ),
+        (
+            "style",
+            "动作与语气参考：",
+            "- 只用于校准语气、动作和外显反应，不据此增加角色知识。",
+        ),
+    )
+    for group, heading, rule in sections:
+        if not groups[group]:
+            continue
+        lines.extend((heading, rule))
+        lines.extend(
+            f"- 参考 {index}：{content}"
+            for index, content in enumerate(groups[group], start=1)
         )
-    lines.append("- 只把这些资料作为当前对话的辅助上下文，不要逐字复述来源。")
+    lines.append("- 用这些素材增强当前自然对话，不要提及素材、检索或来源。")
     return (PromptMessage(role="system", content="\n".join(lines)),)
+
+
+def _clean_rag_content(content: str) -> str:
+    lines = content.splitlines()
+    if not lines:
+        return content
+    header_markers = ("作品：", "篇章：", "资料类型：", "角色：")
+    if all(marker in lines[0] for marker in header_markers):
+        cleaned = "\n".join(lines[1:]).strip()
+        if cleaned:
+            return cleaned
+    return content
 
 
 def _backend_context_section(
@@ -142,14 +202,10 @@ def _backend_context_section(
 ) -> tuple[PromptMessage, ...]:
     if not prompt_input.backendContextFacts:
         return ()
-    lines = ["业务后端上下文摘要："]
+    lines = ["当前可用的会话背景："]
     for index, fact in enumerate(prompt_input.backendContextFacts, start=1):
-        lines.append(
-            f"- [{index}] source={fact.source}, key={fact.key}, "
-            f"confidence={fact.confidence:.2f}, ttl={fact.ttlSeconds}s: "
-            f"{fact.content}"
-        )
-    lines.append("- 只把这些事实作为当前业务状态参考，不要暴露内部字段或声称正在读取后端。")
+        lines.append(f"- 背景 {index}：{fact.content}")
+    lines.append("- 自然使用这些当前背景，不要说明它们来自内部系统。")
     return (PromptMessage(role="system", content="\n".join(lines)),)
 
 

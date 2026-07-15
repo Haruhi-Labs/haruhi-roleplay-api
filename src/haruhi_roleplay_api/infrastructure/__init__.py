@@ -14,6 +14,7 @@ from haruhi_roleplay_api.infrastructure.embedding_provider_factory import (
     EmbeddingProviderSettings,
     build_embedding_provider,
     build_embedding_provider_from_env,
+    require_production_embedding,
 )
 from haruhi_roleplay_api.infrastructure.http_runtime import (
     HttpRuntimeResponse,
@@ -36,10 +37,29 @@ from haruhi_roleplay_api.infrastructure.models import (
 from haruhi_roleplay_api.infrastructure.provider_config_facade import (
     apply_provider_config_facade,
 )
+from haruhi_roleplay_api.infrastructure.qdrant_corpus_release import (
+    QdrantCorpusReleaseSummary,
+    activate_qdrant_collection,
+    corpus_version_from_file,
+    embedding_release_fingerprint,
+    publish_qdrant_corpus,
+    versioned_collection_name,
+)
 from haruhi_roleplay_api.infrastructure.rag_provider_factory import (
     RagProviderSettings,
     build_rag_service,
     build_rag_service_from_env,
+)
+from haruhi_roleplay_api.infrastructure.rag_evaluation import (
+    RagEvaluationCase,
+    RagEvaluationCaseResult,
+    RagEvaluationReport,
+    evaluate_rag_cases,
+    load_rag_evaluation_cases,
+)
+from haruhi_roleplay_api.infrastructure.rag_corpus import (
+    CorpusIngestSummary,
+    ingest_corpus_file,
 )
 from haruhi_roleplay_api.infrastructure.runtime_config import RuntimeConfigStore
 from haruhi_roleplay_api.infrastructure.session_store_factory import (
@@ -60,6 +80,11 @@ __all__ = [
     "ModelProviderConfig",
     "ModelProviderSettings",
     "RagProviderSettings",
+    "RagEvaluationCase",
+    "RagEvaluationCaseResult",
+    "RagEvaluationReport",
+    "CorpusIngestSummary",
+    "QdrantCorpusReleaseSummary",
     "RoleplayHttpRuntime",
     "RuntimeConfigStore",
     "SessionStoreSettings",
@@ -69,11 +94,20 @@ __all__ = [
     "build_backend_context_provider_from_env",
     "build_embedding_provider",
     "build_embedding_provider_from_env",
+    "require_production_embedding",
     "build_memory_store",
     "build_memory_store_from_env",
     "build_model_router",
     "build_rag_service",
     "build_rag_service_from_env",
+    "evaluate_rag_cases",
+    "activate_qdrant_collection",
+    "corpus_version_from_file",
+    "embedding_release_fingerprint",
+    "ingest_corpus_file",
+    "load_rag_evaluation_cases",
+    "publish_qdrant_corpus",
+    "versioned_collection_name",
     "build_session_store",
     "build_session_store_from_env",
     "create_local_runtime",

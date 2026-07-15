@@ -143,6 +143,12 @@ def _rag_retrieve_filters_from_body(data: Any) -> RagRetrieveFilters:
     return RagRetrieveFilters(
         sourceTypes=_string_tuple(data.get("source_types", ())),
         timelines=_string_tuple(data.get("timelines", ())),
+        recordKinds=_string_tuple(data.get("record_kinds", ())),
+        perspectives=_string_tuple(data.get("perspectives", ())),
+        corpusVersions=_string_tuple(data.get("corpus_versions", ())),
+        retrievalChannels=_string_tuple(data.get("retrieval_channels", ())),
+        knowledgeOwners=_string_tuple(data.get("knowledge_owners", ())),
+        usages=_string_tuple(data.get("usages", ())),
         spoilerLevelMax=(
             _integer(data["spoiler_level_max"], "filters.spoiler_level_max")
             if data.get("spoiler_level_max") is not None

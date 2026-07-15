@@ -138,7 +138,7 @@ class MemoryReadPolicyTests(unittest.TestCase):
         self.assertEqual(response["data"]["memory"], {"enabled": False})
         self.assertFalse(response["data"]["debug"]["memoryEnabled"])
         self.assertEqual(response["data"]["debug"]["memoryReadCount"], 0)
-        self.assertNotIn("长期记忆摘要", prompt_text)
+        self.assertNotIn("可延续的互动记忆", prompt_text)
 
     def test_memory_true_adds_allowed_items_to_prompt(self) -> None:
         router = RecordingModelRouter()
@@ -166,9 +166,9 @@ class MemoryReadPolicyTests(unittest.TestCase):
         self.assertTrue(memory["enabled"])
         self.assertEqual(memory["read_count"], 1)
         self.assertEqual(response["data"]["debug"]["memoryReadCount"], 1)
-        self.assertIn("长期记忆摘要", prompt_text)
-        self.assertIn("type=user_preference", prompt_text)
-        self.assertIn("confidence=0.90", prompt_text)
+        self.assertIn("可延续的互动记忆", prompt_text)
+        self.assertNotIn("type=user_preference", prompt_text)
+        self.assertNotIn("confidence=0.90", prompt_text)
         self.assertIn("用户喜欢先安排社团计划", prompt_text)
         self.assertNotIn("不应该进入当前 persona prompt", prompt_text)
 

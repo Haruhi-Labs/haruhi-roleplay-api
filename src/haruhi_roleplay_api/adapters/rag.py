@@ -6,6 +6,7 @@ import hashlib
 from uuid import uuid4
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
+from haruhi_roleplay_api.adapters.rag_ranking import rank_roleplay_chunks
 from haruhi_roleplay_api.domain import (
     AppId,
     CharacterId,
@@ -22,6 +23,19 @@ from haruhi_roleplay_api.domain import (
 )
 
 
+_COMMON_QUERY_NGRAMS = frozenset(
+    {
+        "请告诉",
+        "告诉我",
+        "你会怎",
+        "会怎么",
+        "怎么办",
+        "怎么样",
+        "如果是",
+    }
+)
+
+
 class FakeRagService:
     provider_name = "fake-rag"
 
@@ -32,15 +46,17 @@ class FakeRagService:
         filtered = tuple(
             chunk for chunk in self._chunks if _matches_filters(chunk, retrieve_input)
         )
-        ranked = tuple(
-            sorted(filtered, key=lambda chunk: chunk.score, reverse=True)
-        )[: retrieve_input.topK]
+        ranked = rank_roleplay_chunks(
+            filtered,
+            query=retrieve_input.query,
+            top_k=retrieve_input.topK,
+        )
         return RagRetrieveOutput(
             chunks=ranked,
             provider=self.provider_name,
             rawHitCount=len(self._chunks),
             filteredHitCount=len(filtered),
-            rerankApplied=False,
+            rerankApplied=bool(filtered),
         )
 
     def list_documents(
@@ -93,7 +109,11 @@ class LocalRagService:
                 metadata=metadata,
             )
             for index, content in enumerate(
-                _chunk_text(ingest_input.content, self._chunk_size),
+                _ingest_content_chunks(
+                    ingest_input.content,
+                    metadata=metadata,
+                    chunk_size=self._chunk_size,
+                ),
                 start=1,
             )
         )
@@ -116,16 +136,18 @@ class LocalRagService:
             )
             for chunk in metadata_filtered
         )
-        ranked = tuple(
-            chunk for chunk in sorted(scored, key=lambda item: item.score, reverse=True)
-            if chunk.score > 0
-        )[: retrieve_input.topK]
+        candidates = tuple(chunk for chunk in scored if chunk.score > 0)
+        ranked = rank_roleplay_chunks(
+            candidates,
+            query=retrieve_input.query,
+            top_k=retrieve_input.topK,
+        )
         return RagRetrieveOutput(
             chunks=ranked,
             provider=self.provider_name,
             rawHitCount=len(self._chunks),
             filteredHitCount=len(metadata_filtered),
-            rerankApplied=False,
+            rerankApplied=bool(candidates),
         )
 
     def list_documents(
@@ -167,10 +189,29 @@ def _matches_filters(chunk: RagChunk, retrieve_input: RagRetrieveInput) -> bool:
         and metadata.personaMode != retrieve_input.personaMode
     ):
         return False
+    allowed_persona_modes = metadata.extra.get("allowed_persona_modes")
+    if allowed_persona_modes:
+        if not isinstance(allowed_persona_modes, list | tuple):
+            return False
+        if str(retrieve_input.personaMode) not in {
+            str(item) for item in allowed_persona_modes
+        }:
+            return False
     if filters.sourceTypes and metadata.sourceType not in filters.sourceTypes:
         return False
     if filters.timelines and metadata.timeline not in filters.timelines:
         return False
+    extra_filters = (
+        (filters.recordKinds, "record_kind"),
+        (filters.perspectives, "perspective"),
+        (filters.corpusVersions, "corpus_version"),
+        (filters.retrievalChannels, "retrieval_channel"),
+        (filters.knowledgeOwners, "knowledge_owner"),
+        (filters.usages, "usage"),
+    )
+    for allowed, field in extra_filters:
+        if allowed and str(metadata.extra.get(field, "")) not in allowed:
+            return False
     if (
         filters.spoilerLevelMax is not None
         and metadata.spoilerLevel > filters.spoilerLevelMax
@@ -185,12 +226,59 @@ def _chunk_text(content: str, chunk_size: int) -> tuple[str, ...]:
     normalized = "\n".join(line.strip() for line in content.splitlines())
     paragraphs = tuple(part for part in normalized.split("\n") if part)
     chunks: list[str] = []
+    current: list[str] = []
+    current_length = 0
+
+    def flush() -> None:
+        nonlocal current, current_length
+        if current:
+            chunks.append("\n".join(current))
+        current = []
+        current_length = 0
+
     for paragraph in paragraphs or (content.strip(),):
-        for start in range(0, len(paragraph), chunk_size):
-            chunk = paragraph[start : start + chunk_size].strip()
-            if chunk:
-                chunks.append(chunk)
+        pieces = _split_long_paragraph(paragraph, chunk_size)
+        for piece in pieces:
+            extra_length = len(piece) + (1 if current else 0)
+            if current and current_length + extra_length > chunk_size:
+                flush()
+            current.append(piece)
+            current_length += len(piece) + (1 if len(current) > 1 else 0)
+    flush()
     return tuple(chunks)
+
+
+def _ingest_content_chunks(
+    content: str,
+    *,
+    metadata: RagDocumentMetadata,
+    chunk_size: int,
+) -> tuple[str, ...]:
+    if metadata.extra.get("atomic_record") is True:
+        return (content,)
+    return _chunk_text(content, chunk_size)
+
+
+def _split_long_paragraph(paragraph: str, chunk_size: int) -> tuple[str, ...]:
+    if len(paragraph) <= chunk_size:
+        return (paragraph,)
+    pieces: list[str] = []
+    remaining = paragraph
+    punctuation = "。！？；.!?;"
+    while len(remaining) > chunk_size:
+        candidate = remaining[:chunk_size]
+        split_at = max(candidate.rfind(mark) for mark in punctuation)
+        if split_at < chunk_size // 2:
+            split_at = chunk_size
+        else:
+            split_at += 1
+        piece = remaining[:split_at].strip()
+        if piece:
+            pieces.append(piece)
+        remaining = remaining[split_at:].strip()
+    if remaining:
+        pieces.append(remaining)
+    return tuple(pieces)
 
 
 def _metadata_with_title(
@@ -231,29 +319,54 @@ def _scoped_chunk_id(
 
 
 def _simple_score(query: str, chunk: RagChunk) -> float:
+    contextual_metadata = " ".join(
+        str(chunk.metadata.extra.get(field, ""))
+        for field in ("book_title", "section_title", "record_kind", "perspective")
+    )
     haystack = " ".join(
         (
             chunk.content,
             str(chunk.metadata.extra.get("title", "")),
+            contextual_metadata,
             chunk.metadata.sourceType,
             chunk.metadata.timeline,
         )
     ).lower()
-    terms = _query_terms(query)
+    query_focus = _query_focus(query)
+    terms = _query_terms(query_focus)
     if not terms:
         return 0.0
     hits = sum(1 for term in terms if term in haystack)
     if hits:
         return hits / len(terms)
-    query_chars = {char for char in query.lower() if not char.isspace()}
-    if not query_chars:
+    query_ngrams = _text_ngrams(query_focus) - _COMMON_QUERY_NGRAMS
+    if not query_ngrams:
         return 0.0
-    overlap = sum(1 for char in query_chars if char in haystack)
-    return overlap / len(query_chars)
+    content_ngrams = _text_ngrams(haystack)
+    overlap_count = len(query_ngrams & content_ngrams)
+    coverage = overlap_count / len(query_ngrams)
+    evidence = min(1.0, overlap_count / 6)
+    return max(coverage, evidence)
 
 
 def _query_terms(query: str) -> tuple[str, ...]:
     return tuple(term for term in query.lower().split() if term)
+
+
+def _query_focus(query: str) -> str:
+    current_marker = "当前用户输入：\n"
+    if current_marker not in query:
+        return query
+    return query.rsplit(current_marker, maxsplit=1)[-1]
+
+
+def _text_ngrams(text: str) -> set[str]:
+    compact = "".join(character for character in text.casefold() if character.isalnum())
+    width = 3 if len(compact) >= 3 else 2
+    return {
+        compact[index : index + width]
+        for index in range(len(compact) - width + 1)
+    }
 
 
 def _managed_documents(
@@ -368,6 +481,12 @@ def _chunk(
             spoilerLevel=spoiler_level,
             language="zh-CN",
             sourceType=source_type,
-            extra={"title": title},
+            extra={
+                "title": title,
+                "record_kind": "dialogue_example",
+                "retrieval_channel": "dialogue_style",
+                "knowledge_owner": character_id,
+                "usage": "style_only",
+            },
         ),
     )

@@ -27,6 +27,9 @@ class HashEmbeddingProvider:
             values[bucket] += sign
         return _normalize(values)
 
+    def embed_many(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+        return tuple(self.embed(text) for text in texts)
+
 
 def _tokens(text: str) -> tuple[str, ...]:
     normalized = text.lower()

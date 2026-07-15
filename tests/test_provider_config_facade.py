@@ -240,6 +240,8 @@ class ProviderConfigFacadeTests(unittest.TestCase):
             "RAG_BASE_URL": "https://qdrant.example",
             "RAG_INDEX": "haruhi_rag",
             "RAG_API_KEY": "qdrant-secret",
+            "RAG_ALLOW_TEST_EMBEDDING": "true",
+            "RAG_MIN_RELEVANCE_SCORE": "0.35",
         }
         settings = RagProviderSettings.from_mapping(env)
 
@@ -247,6 +249,7 @@ class ProviderConfigFacadeTests(unittest.TestCase):
         self.assertEqual(settings.qdrantUrl, "https://qdrant.example")
         self.assertEqual(settings.qdrantCollection, "haruhi_rag")
         self.assertEqual(settings.qdrantApiKey, "qdrant-secret")
+        self.assertEqual(settings.minimumRelevanceScore, 0.35)
 
         with patch(
             "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
@@ -321,6 +324,10 @@ class ProviderConfigFacadeTests(unittest.TestCase):
                     "RAG_API_TYPE": "qdrant",
                     "RAG_BASE_URL": "https://qdrant.example",
                     "RAG_INDEX": "haruhi_rag",
+                    "EMBEDDING_API_TYPE": "local_openai_compatible",
+                    "EMBEDDING_BASE_URL": "http://embedding.local/v1",
+                    "EMBEDDING_MODEL": "multilingual-embed",
+                    "EMBEDDING_DIMENSIONS": "768",
                 }
             }
         )

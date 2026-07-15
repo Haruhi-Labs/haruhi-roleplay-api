@@ -54,6 +54,7 @@ def post_chat(
     agent_context_planner: AgentContextPlanner | None = None,
     recent_message_limit: int = 12,
     memory_read_limit: int = 5,
+    rag_min_relevance_score: float = 0.2,
     debug_trace_enabled: bool = True,
     include_error_details: bool = False,
 ) -> ApiResponse:
@@ -75,6 +76,7 @@ def post_chat(
                 agent_context_planner=agent_context_planner,
                 recent_message_limit=recent_message_limit,
                 memory_read_limit=memory_read_limit,
+                rag_min_relevance_score=rag_min_relevance_score,
                 debug_trace_enabled=debug_trace_enabled,
             )
         ).execute(chat_input)
@@ -103,6 +105,7 @@ def post_chat_stream(
     agent_context_planner: AgentContextPlanner | None = None,
     recent_message_limit: int = 12,
     memory_read_limit: int = 5,
+    rag_min_relevance_score: float = 0.2,
     debug_trace_enabled: bool = True,
     include_error_details: bool = False,
 ) -> ApiResponse:
@@ -123,6 +126,7 @@ def post_chat_stream(
                 agent_context_planner=agent_context_planner,
                 recent_message_limit=recent_message_limit,
                 memory_read_limit=memory_read_limit,
+                rag_min_relevance_score=rag_min_relevance_score,
                 debug_trace_enabled=debug_trace_enabled,
             )
         )
@@ -154,6 +158,7 @@ def iter_chat_stream_events(
     agent_context_planner: AgentContextPlanner | None = None,
     recent_message_limit: int = 12,
     memory_read_limit: int = 5,
+    rag_min_relevance_score: float = 0.2,
     debug_trace_enabled: bool = True,
 ) -> Iterable[ChatStreamEvent]:
     effective_request_id = _effective_request_id(body, request_id)
@@ -177,6 +182,7 @@ def iter_chat_stream_events(
             agent_context_planner=agent_context_planner,
             recent_message_limit=recent_message_limit,
             memory_read_limit=memory_read_limit,
+            rag_min_relevance_score=rag_min_relevance_score,
             debug_trace_enabled=debug_trace_enabled,
         )
     ).stream(chat_input)
@@ -236,14 +242,17 @@ def _capabilities_to_internal(
         return {"stream": force_stream}
     if not isinstance(value, Mapping):
         raise DTOValidationError("capabilities must be an object")
-    return {
-        "rag": value.get("rag", False),
-        "memory": value.get("memory", False),
+    capabilities = {
         "continuousSession": value.get("continuous_session", False),
         "safetyFilter": value.get("safety_filter", True),
         "debugTrace": value.get("debug_trace", False),
         "stream": True if force_stream else value.get("stream", False),
     }
+    if "rag" in value:
+        capabilities["rag"] = value["rag"]
+    if "memory" in value:
+        capabilities["memory"] = value["memory"]
+    return capabilities
 
 
 def _generation_to_internal(value: Any) -> dict[str, Any] | None:

@@ -86,6 +86,33 @@ def retrieve_input() -> RagRetrieveInput:
 
 
 class EmbeddingProviderTests(unittest.TestCase):
+    def test_qdrant_factory_rejects_hash_embedding_without_test_override(self) -> None:
+        with self.assertRaises(AppError) as context:
+            build_rag_service_from_env(
+                {
+                    "RAG_PROVIDER": "qdrant",
+                    "QDRANT_URL": "https://qdrant.example",
+                    "QDRANT_COLLECTION": "haruhi_rag_live",
+                    "EMBEDDING_PROVIDER": "hash",
+                }
+            )
+
+        self.assertEqual(context.exception.code, ErrorCode.RAG_PROVIDER_ERROR)
+        self.assertIn("禁止使用 hash embedding", context.exception.public_message)
+
+    def test_qdrant_factory_allows_explicit_hash_test_override(self) -> None:
+        service = build_rag_service_from_env(
+            {
+                "RAG_PROVIDER": "qdrant",
+                "QDRANT_URL": "https://qdrant.example",
+                "QDRANT_COLLECTION": "haruhi_rag_test",
+                "EMBEDDING_PROVIDER": "hash",
+                "RAG_ALLOW_TEST_EMBEDDING": "true",
+            }
+        )
+
+        self.assertEqual(service.provider_name, "qdrant-rag")
+
     def test_hash_embedding_is_deterministic(self) -> None:
         provider = HashEmbeddingProvider(dimensions=16)
 
@@ -95,6 +122,35 @@ class EmbeddingProviderTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(len(first), 16)
         self.assertGreater(sum(abs(value) for value in first), 0)
+
+    def test_openai_compatible_embedding_batches_and_restores_index_order(self) -> None:
+        response = FakeHTTPResponse(
+            {
+                "data": [
+                    {"index": 1, "embedding": [0.0, 1.0]},
+                    {"index": 0, "embedding": [1.0, 0.0]},
+                ]
+            }
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.embeddings.openai_compatible.urllib.request.urlopen",
+            return_value=response,
+        ) as urlopen:
+            provider = build_embedding_provider(
+                EmbeddingProviderSettings.from_mapping(
+                    {
+                        "EMBEDDING_PROVIDER": "local_openai_compatible",
+                        "EMBEDDING_BASE_URL": "http://embedding.local/v1",
+                        "EMBEDDING_MODEL": "multilingual-embed",
+                        "EMBEDDING_DIMENSIONS": "2",
+                    }
+                )
+            )
+            embeddings = provider.embed_many(("第一条", "第二条"))
+
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(payload["input"], ["第一条", "第二条"])
+        self.assertEqual(embeddings, ((1.0, 0.0), (0.0, 1.0)))
 
     def test_openai_embedding_provider_uses_official_endpoint(self) -> None:
         with patch(
