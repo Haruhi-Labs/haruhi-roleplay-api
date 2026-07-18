@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Haruhi Roleplay API 公开演示：角色对话、流式输出、RAG、长期记忆与连续会话。"
+      content="Roleplay 服务调试工作台：展示并测试角色对话、流式输出、RAG、长期记忆与连续会话能力。"
     />
-    <title>SOS 团角色扮演调度台</title>
+    <title>Roleplay 服务调试工作台</title>
     <link rel="stylesheet" href="/chat/chat.css" />
   </head>
   <body>
@@ -15,11 +15,11 @@
 
     <div class="page-shell">
       <header class="topbar">
-        <a class="brand" href="/chat/" aria-label="返回演示首页">
+        <a class="brand" href="/chat/" aria-label="返回调试工作台首页">
           <span class="brand-stamp" aria-hidden="true">SOS</span>
           <span class="brand-copy">
-            <strong>角色扮演调度台</strong>
-            <span>Haruhi Roleplay API · 公开演示</span>
+            <strong>Roleplay 调试工作台</strong>
+            <span>服务能力展示 · 接口行为测试</span>
           </span>
         </a>
 
@@ -36,7 +36,6 @@
           <button id="openInspectorButton" class="icon-button mobile-only" type="button">
             上下文
           </button>
-          <a class="text-link" href="/admin/">管理后台</a>
         </div>
       </header>
 
@@ -45,7 +44,7 @@
           <div class="panel-heading">
             <div>
               <span class="eyebrow">CAST / 角色档案</span>
-              <h1>今天和谁对话？</h1>
+              <h1>选择测试角色</h1>
             </div>
             <button
               class="close-button mobile-only"
@@ -64,7 +63,7 @@
 
           <section class="identity-card" aria-labelledby="demoIdentityTitle">
             <div class="identity-title-row">
-              <h2 id="demoIdentityTitle">本次演示身份</h2>
+              <h2 id="demoIdentityTitle">本次调试身份</h2>
               <button id="resetIdentityButton" class="quiet-button" type="button">换一个</button>
             </div>
             <code id="userIdValue">demo-…</code>
@@ -121,11 +120,11 @@
 
           <section id="messageList" class="message-list" aria-live="polite" aria-label="对话记录">
             <div class="welcome-card">
-              <span class="welcome-kicker">OPERATION 01</span>
-              <h3>把熟悉的桥段，变成自然对话里的灵感。</h3>
+              <span class="welcome-kicker">ROLEPLAY SERVICE LAB</span>
+              <h3>在一个工作台里展示并测试 Roleplay 服务的完整能力。</h3>
               <p>
-                这里连接真实生产服务。角色会根据当前篇章设定，从 RAG
-                语料中寻找可能相关的桥段，同时结合本次连续会话和你明确保存的长期记忆来回答。
+                这里连接真实生产接口，可调试角色与篇章设定、流式输出、RAG
+                桥段检索、连续会话、长期记忆和生成参数；两侧面板会同步展示请求阶段、引用语料与模型用量。
               </p>
               <div id="starterPrompts" class="starter-prompts" aria-label="示例问题"></div>
             </div>
@@ -282,7 +281,7 @@
           </section>
 
           <p class="security-note">
-            公开页只代理安全的运行时接口；语料导入、令牌与后台管理不会暴露。服务令牌始终留在服务器。
+            本调试工作台只代理安全的运行时接口；语料导入、令牌与后台管理不会暴露。服务令牌始终留在服务器。
           </p>
         </aside>
       </main>

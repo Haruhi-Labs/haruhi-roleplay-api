@@ -200,19 +200,6 @@ a {
   gap: 8px;
 }
 
-.text-link {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.text-link:hover {
-  color: var(--ink);
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
 .workspace {
   min-height: 0;
   display: grid;
@@ -1408,8 +1395,7 @@ input[type="number"] {
     font-size: 13px;
   }
 
-  .brand-copy span,
-  .text-link {
+  .brand-copy span {
     display: none;
   }
 

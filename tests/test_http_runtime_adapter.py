@@ -466,7 +466,9 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
 
         self.assertEqual(response.status, 200)
         self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
-        self.assertIn("SOS 团角色扮演调度台", body)
+        self.assertIn("Roleplay 服务调试工作台", body)
+        self.assertIn("展示并测试 Roleplay 服务的完整能力", body)
+        self.assertNotIn('href="/admin/"', body)
         self.assertIn('src="/chat/chat.js"', body)
         self.assertNotIn("Authorization", body)
         self.assertNotIn("API Key", body)
