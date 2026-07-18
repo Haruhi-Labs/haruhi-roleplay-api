@@ -302,6 +302,33 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(point["payload"]["character_id"], "haruhi")
         self.assertGreater(len(point["vector"]), 0)
 
+    def test_qdrant_retries_transient_upsert_gateway_error(self) -> None:
+        gateway_error = urllib.error.HTTPError(
+            url="https://qdrant.example/collections/haruhi_rag/points",
+            code=502,
+            msg="bad gateway",
+            hdrs=None,
+            fp=None,
+        )
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            side_effect=(
+                gateway_error,
+                FakeHTTPResponse({"result": {"status": "ok"}}),
+            ),
+        ) as urlopen, patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.time.sleep"
+        ) as sleep:
+            result = service.ingest(ingest_input())
+
+        self.assertEqual(result.status, "imported")
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(0.5)
+
     def test_qdrant_keeps_atomic_corpus_record_in_one_point(self) -> None:
         service = QdrantRagService(
             base_url="https://qdrant.example",
@@ -624,7 +651,9 @@ class QdrantRagProviderTests(unittest.TestCase):
         with patch(
             "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
             side_effect=http_error,
-        ):
+        ) as urlopen, patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.time.sleep"
+        ) as sleep:
             with self.assertRaises(AppError) as context:
                 service.retrieve(retrieve_input())
 
@@ -633,6 +662,8 @@ class QdrantRagProviderTests(unittest.TestCase):
             context.exception.public_message,
             "Qdrant RAG provider failed with HTTP 503.",
         )
+        self.assertEqual(urlopen.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
 
     def test_qdrant_ingest_maps_provider_error(self) -> None:
         http_error = urllib.error.HTTPError(
@@ -649,7 +680,9 @@ class QdrantRagProviderTests(unittest.TestCase):
         with patch(
             "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
             side_effect=http_error,
-        ):
+        ) as urlopen, patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.time.sleep"
+        ) as sleep:
             with self.assertRaises(AppError) as context:
                 service.ingest(ingest_input())
 
@@ -658,6 +691,8 @@ class QdrantRagProviderTests(unittest.TestCase):
             context.exception.public_message,
             "Qdrant RAG provider failed with HTTP 500.",
         )
+        self.assertEqual(urlopen.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
 
     def test_rag_provider_factory_builds_qdrant_service(self) -> None:
         service = build_rag_service(

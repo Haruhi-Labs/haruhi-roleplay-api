@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import socket
+import time
 import urllib.error
 import urllib.request
 from dataclasses import replace
@@ -70,6 +71,9 @@ _QDRANT_PAYLOAD_INDEXES: tuple[tuple[str, str | Mapping[str, Any]], ...] = (
 _CURRENT_INPUT_MARKER = "当前用户输入：\n"
 _NON_SEARCH_CHARACTER = re.compile(r"[\W_]+", re.UNICODE)
 _RRF_K = 60
+_MAX_REQUEST_ATTEMPTS = 4
+_RETRY_BACKOFF_SECONDS = (0.5, 1.0, 2.0)
+_RETRYABLE_HTTP_STATUS = {408, 409, 429, 500, 502, 503, 504}
 
 
 class QdrantRagService:
@@ -544,39 +548,56 @@ class QdrantRagService:
         error_code: ErrorCode,
         allow_not_found: bool = False,
     ) -> Mapping[str, Any] | None:
-        request = urllib.request.Request(
-            f"{self._base_url}{path}",
-            data=(
-                json.dumps(payload, ensure_ascii=False).encode("utf-8")
-                if payload is not None
-                else None
-            ),
-            headers=self._headers(),
-            method=method,
-        )
-        try:
-            with urllib.request.urlopen(
-                request,
-                timeout=self._timeout_seconds,
-            ) as response:
-                raw_body = response.read()
-        except (TimeoutError, socket.timeout) as exc:
-            raise AppError(
-                code=error_code,
-                message="Qdrant RAG provider timed out.",
-            ) from exc
-        except urllib.error.HTTPError as exc:
-            if allow_not_found and exc.code == 404:
-                return None
-            raise AppError(
-                code=error_code,
-                message=f"Qdrant RAG provider failed with HTTP {exc.code}.",
-            ) from exc
-        except (urllib.error.URLError, OSError) as exc:
+        raw_body: bytes | None = None
+        for attempt in range(_MAX_REQUEST_ATTEMPTS):
+            request = urllib.request.Request(
+                f"{self._base_url}{path}",
+                data=(
+                    json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                    if payload is not None
+                    else None
+                ),
+                headers=self._headers(),
+                method=method,
+            )
+            try:
+                with urllib.request.urlopen(
+                    request,
+                    timeout=self._timeout_seconds,
+                ) as response:
+                    raw_body = response.read()
+                break
+            except (TimeoutError, socket.timeout) as exc:
+                if _retry_request(method, path, attempt):
+                    continue
+                raise AppError(
+                    code=error_code,
+                    message="Qdrant RAG provider timed out.",
+                ) from exc
+            except urllib.error.HTTPError as exc:
+                if allow_not_found and exc.code == 404:
+                    return None
+                if (
+                    exc.code in _RETRYABLE_HTTP_STATUS
+                    and _retry_request(method, path, attempt)
+                ):
+                    continue
+                raise AppError(
+                    code=error_code,
+                    message=f"Qdrant RAG provider failed with HTTP {exc.code}.",
+                ) from exc
+            except (urllib.error.URLError, OSError) as exc:
+                if _retry_request(method, path, attempt):
+                    continue
+                raise AppError(
+                    code=error_code,
+                    message="Qdrant RAG provider request failed.",
+                ) from exc
+        if raw_body is None:
             raise AppError(
                 code=error_code,
                 message="Qdrant RAG provider request failed.",
-            ) from exc
+            )
         if not raw_body:
             return {}
         try:
@@ -598,6 +619,32 @@ class QdrantRagService:
         if self._api_key:
             headers["api-key"] = self._api_key
         return headers
+
+
+def _retry_request(method: str, path: str, attempt: int) -> bool:
+    if attempt >= len(_RETRY_BACKOFF_SECONDS):
+        return False
+    if not _is_idempotent_request(method, path):
+        return False
+    time.sleep(_RETRY_BACKOFF_SECONDS[attempt])
+    return True
+
+
+def _is_idempotent_request(method: str, path: str) -> bool:
+    normalized_method = method.upper()
+    if normalized_method in {"GET", "PUT"}:
+        return True
+    if normalized_method != "POST":
+        return False
+    return any(
+        marker in path
+        for marker in (
+            "/points/search",
+            "/points/scroll",
+            "/points/count",
+            "/points/delete",
+        )
+    )
 
 
 def _qdrant_filter(retrieve_input: RagRetrieveInput) -> dict[str, Any]:
