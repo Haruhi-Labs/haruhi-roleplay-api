@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,7 @@ class CorpusIngestSummary:
     appId: AppId
     documentCount: int
     chunkCount: int
+    skippedDocumentCount: int = 0
 
 
 def ingest_corpus_file(
@@ -30,6 +32,7 @@ def ingest_corpus_file(
     path: Path,
     app_id: str,
     batch_size: int = 64,
+    skip_document_ids: Collection[str] = (),
 ) -> CorpusIngestSummary:
     if not app_id.strip():
         raise ValueError("RAG 语料装载需要非空 app_id")
@@ -38,6 +41,11 @@ def ingest_corpus_file(
     scoped_app_id = AppId(app_id.strip())
     if batch_size <= 0:
         raise ValueError("RAG 语料装载 batch_size 必须为正整数")
+    skipped_ids = frozenset(skip_document_ids)
+    record_ids = {record.document_id for record in records}
+    unknown_skipped_ids = skipped_ids - record_ids
+    if unknown_skipped_ids:
+        raise ValueError("待跳过的 document_id 不属于当前语料")
     ingest_inputs = tuple(
         RagIngestInput(
             appId=scoped_app_id,
@@ -57,8 +65,10 @@ def ingest_corpus_file(
             ),
         )
         for record in records
+        if record.document_id not in skipped_ids
     )
-    chunk_count = 0
+    # 正式语料的 atomic_record 保证每个已验证的跳过文档对应一个 point。
+    chunk_count = len(skipped_ids)
     ingest_batch = getattr(rag_service, "ingest_batch", None)
     if callable(ingest_batch):
         for index in range(0, len(ingest_inputs), batch_size):
@@ -75,4 +85,5 @@ def ingest_corpus_file(
         appId=scoped_app_id,
         documentCount=len(records),
         chunkCount=chunk_count,
+        skippedDocumentCount=len(skipped_ids),
     )

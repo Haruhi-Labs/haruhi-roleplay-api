@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Mapping
 
 from haruhi_roleplay_api.application.errors import AppError, ErrorCode
+
+
+_MAX_REQUEST_ATTEMPTS = 4
+_RETRY_BACKOFF_SECONDS = (0.5, 1.0, 2.0)
+_RETRYABLE_HTTP_STATUS = {408, 409, 429, 500, 502, 503, 504}
 
 
 class OpenAICompatibleEmbeddingProvider:
@@ -87,33 +93,42 @@ class OpenAICompatibleEmbeddingProvider:
             "dimensions": self._dimensions,
             "encoding_format": "float",
         }
-        http_request = urllib.request.Request(
-            self._endpoint,
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers=self._headers(),
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(
-                http_request,
-                timeout=self._timeout_seconds,
-            ) as response:
-                response_data = json.loads(response.read().decode("utf-8"))
-        except (TimeoutError, socket.timeout) as exc:
-            raise AppError(
-                code=ErrorCode.RAG_PROVIDER_ERROR,
-                message=f"{self._error_label} timed out.",
-            ) from exc
-        except urllib.error.HTTPError as exc:
-            raise AppError(
-                code=ErrorCode.RAG_PROVIDER_ERROR,
-                message=f"{self._error_label} failed with HTTP {exc.code}.",
-            ) from exc
-        except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
-            raise AppError(
-                code=ErrorCode.RAG_PROVIDER_ERROR,
-                message=f"{self._error_label} request failed.",
-            ) from exc
+        response_data: Any = None
+        for attempt in range(_MAX_REQUEST_ATTEMPTS):
+            http_request = urllib.request.Request(
+                self._endpoint,
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers=self._headers(),
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(
+                    http_request,
+                    timeout=self._timeout_seconds,
+                ) as response:
+                    response_data = json.loads(response.read().decode("utf-8"))
+                break
+            except (TimeoutError, socket.timeout) as exc:
+                if _retry_request(attempt):
+                    continue
+                raise AppError(
+                    code=ErrorCode.RAG_PROVIDER_ERROR,
+                    message=f"{self._error_label} timed out.",
+                ) from exc
+            except urllib.error.HTTPError as exc:
+                if _retry_http_error(exc.code, attempt):
+                    continue
+                raise AppError(
+                    code=ErrorCode.RAG_PROVIDER_ERROR,
+                    message=f"{self._error_label} failed with HTTP {exc.code}.",
+                ) from exc
+            except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+                if _retry_request(attempt):
+                    continue
+                raise AppError(
+                    code=ErrorCode.RAG_PROVIDER_ERROR,
+                    message=f"{self._error_label} request failed.",
+                ) from exc
 
         if not isinstance(response_data, Mapping):
             raise AppError(
@@ -127,6 +142,23 @@ class OpenAICompatibleEmbeddingProvider:
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
+
+
+def _retry_http_error(status: int, attempt: int) -> bool:
+    # DashScope 偶尔会把可恢复的推理失败返回为 400；只额外重放一次，
+    # 避免永久参数错误拖成长时间重试。标准限流和服务错误使用完整重试预算。
+    if status == 400:
+        return attempt == 0 and _retry_request(attempt)
+    if status not in _RETRYABLE_HTTP_STATUS:
+        return False
+    return _retry_request(attempt)
+
+
+def _retry_request(attempt: int) -> bool:
+    if attempt >= len(_RETRY_BACKOFF_SECONDS):
+        return False
+    time.sleep(_RETRY_BACKOFF_SECONDS[attempt])
+    return True
 
 
 LocalOpenAICompatibleEmbeddingProvider = OpenAICompatibleEmbeddingProvider

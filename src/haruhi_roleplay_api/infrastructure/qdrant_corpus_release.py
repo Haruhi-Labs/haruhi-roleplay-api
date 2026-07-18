@@ -90,8 +90,10 @@ def publish_qdrant_corpus(
     path: Path,
     app_id: str,
     alias: str,
+    resume_existing: bool = False,
 ) -> QdrantCorpusReleaseSummary:
-    if service.collection_exists():
+    collection_exists = service.collection_exists()
+    if collection_exists and not resume_existing:
         raise AppError(
             code=ErrorCode.RAG_INGEST_FAILED,
             message=(
@@ -112,8 +114,20 @@ def publish_qdrant_corpus(
             message=f"Qdrant 发布前语料审计失败：{details}",
         )
     corpus_version = audit.corpusVersion
+    skipped_document_ids: frozenset[str] = frozenset()
+    if collection_exists:
+        skipped_document_ids = _resumable_document_ids(
+            service,
+            path=resolved_path,
+            app_id=app_id,
+        )
     service.ensure_collection_schema()
-    ingest = ingest_corpus_file(service, path=resolved_path, app_id=app_id)
+    ingest = ingest_corpus_file(
+        service,
+        path=resolved_path,
+        app_id=app_id,
+        skip_document_ids=skipped_document_ids,
+    )
     if ingest.documentCount != ingest.chunkCount:
         raise AppError(
             code=ErrorCode.RAG_INGEST_FAILED,
@@ -140,6 +154,51 @@ def publish_qdrant_corpus(
         ingest=ingest,
         pointCount=point_count,
     )
+
+
+def _resumable_document_ids(
+    service: QdrantRagService,
+    *,
+    path: Path,
+    app_id: str,
+) -> frozenset[str]:
+    active_aliases = sorted(
+        alias_name
+        for alias_name, collection_name in service.aliases().items()
+        if collection_name == service.collection
+    )
+    if active_aliases:
+        raise AppError(
+            code=ErrorCode.RAG_INGEST_FAILED,
+            message=(
+                f"拒绝续传已被 alias 引用的 Qdrant 集合 {service.collection}："
+                + "、".join(active_aliases)
+            ),
+        )
+    records = load_corpus_records(path)
+    corpus_document_ids = {record.document_id for record in records}
+    existing_documents = service.list_documents(app_id=app_id)
+    existing_document_ids = {
+        str(document.documentId) for document in existing_documents
+    }
+    unknown_document_ids = existing_document_ids - corpus_document_ids
+    if unknown_document_ids:
+        raise AppError(
+            code=ErrorCode.RAG_INGEST_FAILED,
+            message="失败集合包含不属于当前语料的 document_id，拒绝续传。",
+        )
+    if any(document.chunkCount != 1 for document in existing_documents):
+        raise AppError(
+            code=ErrorCode.RAG_INGEST_FAILED,
+            message="失败集合不满足一条文档对应一个 point，拒绝续传。",
+        )
+    total_point_count = service.count_points()
+    if total_point_count != len(existing_document_ids):
+        raise AppError(
+            code=ErrorCode.RAG_INGEST_FAILED,
+            message="失败集合包含其他 app_id 或重复 point，拒绝续传。",
+        )
+    return frozenset(existing_document_ids)
 
 
 def activate_qdrant_collection(

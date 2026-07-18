@@ -301,7 +301,9 @@ class EmbeddingProviderTests(unittest.TestCase):
         with patch(
             "haruhi_roleplay_api.adapters.embeddings.openai_compatible.urllib.request.urlopen",
             side_effect=http_error,
-        ):
+        ) as urlopen, patch(
+            "haruhi_roleplay_api.adapters.embeddings.openai_compatible.time.sleep"
+        ) as sleep:
             provider = build_embedding_provider(
                 EmbeddingProviderSettings.from_mapping(
                     {
@@ -318,6 +320,68 @@ class EmbeddingProviderTests(unittest.TestCase):
             context.exception.public_message,
             "ollama-embedding provider failed with HTTP 500.",
         )
+        self.assertEqual(urlopen.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
+
+    def test_embedding_provider_replays_one_transient_http_400(self) -> None:
+        http_error = urllib.error.HTTPError(
+            url="https://embedding.example/v1/embeddings",
+            code=400,
+            msg="failed",
+            hdrs=None,
+            fp=None,
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.embeddings.openai_compatible.urllib.request.urlopen",
+            side_effect=(http_error, embedding_response([0.1, 0.2, 0.3])),
+        ) as urlopen, patch(
+            "haruhi_roleplay_api.adapters.embeddings.openai_compatible.time.sleep"
+        ) as sleep:
+            provider = build_embedding_provider(
+                EmbeddingProviderSettings.from_mapping(
+                    {
+                        "EMBEDDING_PROVIDER": "local_openai_compatible",
+                        "EMBEDDING_BASE_URL": "https://embedding.example/v1",
+                        "EMBEDDING_MODEL": "multilingual-embed",
+                        "EMBEDDING_DIMENSIONS": "3",
+                    }
+                )
+            )
+            embedding = provider.embed("可恢复错误")
+
+        self.assertEqual(embedding, (0.1, 0.2, 0.3))
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(0.5)
+
+    def test_embedding_provider_does_not_repeat_permanent_http_400(self) -> None:
+        http_error = urllib.error.HTTPError(
+            url="https://embedding.example/v1/embeddings",
+            code=400,
+            msg="failed",
+            hdrs=None,
+            fp=None,
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.embeddings.openai_compatible.urllib.request.urlopen",
+            side_effect=http_error,
+        ) as urlopen, patch(
+            "haruhi_roleplay_api.adapters.embeddings.openai_compatible.time.sleep"
+        ) as sleep:
+            provider = build_embedding_provider(
+                EmbeddingProviderSettings.from_mapping(
+                    {
+                        "EMBEDDING_PROVIDER": "local_openai_compatible",
+                        "EMBEDDING_BASE_URL": "https://embedding.example/v1",
+                        "EMBEDDING_MODEL": "multilingual-embed",
+                        "EMBEDDING_DIMENSIONS": "3",
+                    }
+                )
+            )
+            with self.assertRaises(AppError):
+                provider.embed("永久参数错误")
+
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(0.5)
 
 
 if __name__ == "__main__":
