@@ -13,6 +13,8 @@ from dataclasses import replace
 from typing import Any, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid5
 
+import urllib3
+
 from haruhi_roleplay_api.adapters.rag import (
     _ingest_content_chunks,
     _matches_filters,
@@ -73,6 +75,7 @@ _CURRENT_INPUT_MARKER = "当前用户输入：\n"
 _NON_SEARCH_CHARACTER = re.compile(r"[\W_]+", re.UNICODE)
 _RRF_K = 60
 _MAX_REQUEST_ATTEMPTS = 4
+_HTTP_POOL_MAX_SIZE = 8
 _RETRY_BACKOFF_SECONDS = (0.5, 1.0, 2.0)
 _RETRYABLE_HTTP_STATUS = {408, 409, 429, 500, 502, 503, 504}
 
@@ -122,6 +125,11 @@ class QdrantRagService:
         self._hybrid_search = hybrid_search
         self._ingest_batch_size = ingest_batch_size
         self._collection_ready = False
+        self._http_pool = urllib3.PoolManager(
+            num_pools=1,
+            maxsize=_HTTP_POOL_MAX_SIZE,
+            block=True,
+        )
 
     def ingest(self, ingest_input: RagIngestInput) -> RagIngestResult:
         return self.ingest_batch((ingest_input,))[0]
@@ -725,9 +733,10 @@ class QdrantRagService:
                 method=method,
             )
             try:
-                with urllib.request.urlopen(
+                with _pooled_urlopen(
                     request,
                     timeout=self._timeout_seconds,
+                    pool=self._http_pool,
                 ) as response:
                     raw_body = response.read()
                 break
@@ -783,6 +792,52 @@ class QdrantRagService:
         if self._api_key:
             headers["api-key"] = self._api_key
         return headers
+
+
+class _PooledHTTPResponse:
+    def __init__(self, response: urllib3.BaseHTTPResponse) -> None:
+        self._response = response
+
+    def __enter__(self) -> "_PooledHTTPResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self._response.release_conn()
+
+    def read(self) -> bytes:
+        return self._response.data
+
+
+def _pooled_urlopen(
+    request: urllib.request.Request,
+    timeout: float,
+    *,
+    pool: urllib3.PoolManager,
+) -> _PooledHTTPResponse:
+    try:
+        response = pool.request(
+            request.method,
+            request.full_url,
+            body=request.data,
+            headers=dict(request.header_items()),
+            timeout=urllib3.Timeout(total=timeout),
+            retries=False,
+            preload_content=True,
+        )
+    except urllib3.exceptions.TimeoutError as exc:
+        raise TimeoutError(str(exc)) from exc
+    except urllib3.exceptions.HTTPError as exc:
+        raise urllib.error.URLError(exc) from exc
+    if response.status >= 400:
+        response.release_conn()
+        raise urllib.error.HTTPError(
+            url=request.full_url,
+            code=response.status,
+            msg=response.reason,
+            hdrs=response.headers,
+            fp=None,
+        )
+    return _PooledHTTPResponse(response)
 
 
 def _retry_request(method: str, path: str, attempt: int) -> bool:
