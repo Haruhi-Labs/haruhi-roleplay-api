@@ -1512,7 +1512,7 @@ async function renderRag() {
   }
   const scope = `app_id=${encodeURIComponent(state.ragAppId)}`;
   const [data, personaData, summary] = await Promise.all([
-    request(`/v1/admin/rag/documents?${scope}&limit=100`),
+    request(`/v1/admin/rag/documents?${scope}&limit=20`),
     request("/v1/admin/personas"),
     request(`/v1/admin/rag/documents?${scope}&summary=true`),
   ]);
@@ -1530,7 +1530,7 @@ async function renderRag() {
       <div class="lead-actions"><button id="testRagButton" class="secondary-action" type="button">检索测试</button><button id="importRagButton" class="primary-action" type="button">导入文档</button></div>
     </div>
     <section class="metric-rack compact-metrics">
-      ${metricCell("当前加载", formatNumber(data.count), `应用 ${state.ragAppId} · 最多 100 份`)}
+      ${metricCell("当前加载", formatNumber(data.count), `应用 ${state.ragAppId} · 最多 20 份`)}
       ${metricCell("索引分块", formatNumber(summary.chunk_count), "当前应用中的全部 chunks")}
       ${metricCell("应用 / 角色", `${formatNumber(appCount)} / ${formatNumber(characterCount)}`, "知识隔离范围")}
       ${metricCell("RAG Provider", data.provider || "unknown", "当前运行时检索后端")}
