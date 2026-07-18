@@ -1,6 +1,7 @@
 const API_ROOT = "/v1/demo";
 const APP_ID = "roleplay-prod";
 const USER_STORAGE_KEY = "haruhi-roleplay-demo-user-v1";
+const STREAM_RENDER_INTERVAL_MS = 50;
 
 const STARTERS = {
   haruhi: [
@@ -56,6 +57,7 @@ const state = {
   busy: false,
   controller: null,
   toastTimer: null,
+  scrollFrame: null,
 };
 
 const els = {
@@ -370,6 +372,8 @@ function appendMessage(role, content, options = {}) {
 }
 
 function updateMessage(message, patch) {
+  cancelScheduledMessageRender(message);
+  const shouldFollow = isMessageListNearBottom();
   Object.assign(message, patch);
   const existing = els.messageList.querySelector(`[data-message-id="${message.id}"]`);
   if (existing) {
@@ -377,7 +381,42 @@ function updateMessage(message, patch) {
   } else {
     renderMessages();
   }
-  scrollMessages();
+  if (shouldFollow) {
+    scrollMessages();
+  }
+}
+
+function scheduleStreamingMessage(message, content) {
+  message.content = content;
+  if (message.renderTimer != null) {
+    return;
+  }
+  message.renderTimer = window.setTimeout(() => {
+    message.renderTimer = null;
+    renderStreamingMessage(message);
+  }, STREAM_RENDER_INTERVAL_MS);
+}
+
+function renderStreamingMessage(message) {
+  const existing = els.messageList.querySelector(`[data-message-id="${message.id}"]`);
+  const bubble = existing?.querySelector(".message-bubble");
+  if (!bubble) {
+    renderMessages();
+    return;
+  }
+  const shouldFollow = isMessageListNearBottom();
+  bubble.textContent = message.content || "正在组织语言…";
+  if (shouldFollow) {
+    scrollMessages();
+  }
+}
+
+function cancelScheduledMessageRender(message) {
+  if (message.renderTimer == null) {
+    return;
+  }
+  window.clearTimeout(message.renderTimer);
+  message.renderTimer = null;
 }
 
 async function sendMessage() {
@@ -584,7 +623,7 @@ async function streamChat(body, assistant) {
         phaseComplete("memory");
         phaseActive("model");
         reply += data.text || "";
-        updateMessage(assistant, { pending: true, content: reply });
+        scheduleStreamingMessage(assistant, reply);
       } else if (event.type === "usage") {
         state.usage = data;
         renderUsage();
@@ -1155,7 +1194,18 @@ function memoryTypeName(value) {
 }
 
 function scrollMessages() {
-  requestAnimationFrame(() => {
+  if (state.scrollFrame != null) {
+    return;
+  }
+  state.scrollFrame = requestAnimationFrame(() => {
+    state.scrollFrame = null;
     els.messageList.scrollTop = els.messageList.scrollHeight;
   });
+}
+
+function isMessageListNearBottom() {
+  const remaining = els.messageList.scrollHeight
+    - els.messageList.scrollTop
+    - els.messageList.clientHeight;
+  return remaining < 120;
 }

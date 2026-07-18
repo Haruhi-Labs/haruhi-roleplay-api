@@ -496,6 +496,12 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(stylesheet.headers["Content-Type"], "text/css; charset=utf-8")
         self.assertIn('const API_ROOT = "/v1/demo";', script_body)
         self.assertIn('const APP_ID = "roleplay-prod";', script_body)
+        self.assertIn("scheduleStreamingMessage(assistant, reply)", script_body)
+        self.assertIn("STREAM_RENDER_INTERVAL_MS = 50", script_body)
+        self.assertNotIn(
+            'updateMessage(assistant, { pending: true, content: reply })',
+            script_body,
+        )
         self.assertNotIn("Bearer ", script_body)
         self.assertNotIn("X-API-Key", script_body)
 
