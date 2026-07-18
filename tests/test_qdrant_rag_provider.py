@@ -5,6 +5,7 @@ import sys
 import unittest
 import urllib.error
 from pathlib import Path
+from threading import Barrier
 from unittest.mock import patch
 
 
@@ -466,16 +467,25 @@ class QdrantRagProviderTests(unittest.TestCase):
                 language="zh-CN",
             ),
         )
+        request_barrier = Barrier(2)
+
+        def qdrant_response(request: object, **_: object) -> FakeHTTPResponse:
+            request_barrier.wait(timeout=1)
+            if request.full_url.endswith("/points/search"):
+                return FakeHTTPResponse({"result": [dense_hit]})
+            return FakeHTTPResponse({"result": {"points": [lexical_hit]}})
+
         with patch(
             "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
-            side_effect=[
-                FakeHTTPResponse({"result": [dense_hit]}),
-                FakeHTTPResponse({"result": {"points": [lexical_hit]}}),
-            ],
+            side_effect=qdrant_response,
         ) as urlopen:
             output = service.retrieve(scoped_input)
 
-        lexical_request = urlopen.call_args_list[1].args[0]
+        lexical_request = next(
+            call.args[0]
+            for call in urlopen.call_args_list
+            if call.args[0].full_url.endswith("/points/scroll")
+        )
         lexical_payload = json.loads(lexical_request.data.decode("utf-8"))
         self.assertTrue(lexical_request.full_url.endswith("/points/scroll"))
         self.assertEqual(

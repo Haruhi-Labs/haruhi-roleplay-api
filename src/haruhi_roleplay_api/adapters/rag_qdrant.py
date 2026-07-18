@@ -8,6 +8,7 @@ import socket
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid5
@@ -209,25 +210,25 @@ class QdrantRagService:
 
     def retrieve(self, retrieve_input: RagRetrieveInput) -> RagRetrieveOutput:
         query_vector = self._embedding_provider.embed(retrieve_input.query)
-        response = self._request_json(
-            "POST",
-            f"/collections/{self._collection}/points/search",
-            {
-                "vector": list(query_vector),
-                "limit": retrieve_input.topK * 8,
-                "with_payload": True,
-                "filter": _qdrant_filter(retrieve_input),
-            },
-            error_code=ErrorCode.RAG_PROVIDER_ERROR,
-        )
-        result = response.get("result", []) if response is not None else []
-        if not isinstance(result, list):
-            raise AppError(
-                code=ErrorCode.RAG_PROVIDER_ERROR,
-                message="Qdrant RAG response was invalid.",
-            )
-        dense_chunks = tuple(_chunk_from_qdrant_hit(hit) for hit in result)
-        lexical_chunks = self._lexical_candidates(retrieve_input)
+        if self._hybrid_search and _lexical_query(retrieve_input.query):
+            with ThreadPoolExecutor(
+                max_workers=2,
+                thread_name_prefix="qdrant-hybrid",
+            ) as executor:
+                dense_future = executor.submit(
+                    self._dense_candidates,
+                    retrieve_input,
+                    query_vector,
+                )
+                lexical_future = executor.submit(
+                    self._lexical_candidates,
+                    retrieve_input,
+                )
+                dense_chunks = dense_future.result()
+                lexical_chunks = lexical_future.result()
+        else:
+            dense_chunks = self._dense_candidates(retrieve_input, query_vector)
+            lexical_chunks = ()
         raw_chunks = (
             _reciprocal_rank_fusion(
                 dense_chunks,
@@ -252,6 +253,30 @@ class QdrantRagService:
             filteredHitCount=len(filtered),
             rerankApplied=bool(filtered),
         )
+
+    def _dense_candidates(
+        self,
+        retrieve_input: RagRetrieveInput,
+        query_vector: Sequence[float],
+    ) -> tuple[RagChunk, ...]:
+        response = self._request_json(
+            "POST",
+            f"/collections/{self._collection}/points/search",
+            {
+                "vector": list(query_vector),
+                "limit": retrieve_input.topK * 8,
+                "with_payload": True,
+                "filter": _qdrant_filter(retrieve_input),
+            },
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        result = response.get("result", []) if response is not None else []
+        if not isinstance(result, list):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message="Qdrant RAG response was invalid.",
+            )
+        return tuple(_chunk_from_qdrant_hit(hit) for hit in result)
 
     def _lexical_candidates(
         self,
