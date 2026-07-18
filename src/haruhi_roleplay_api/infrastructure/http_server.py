@@ -189,6 +189,8 @@ def _write_stream_response(
     except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
         return
     finally:
+        # SSE 响应没有 Content-Length；关闭连接是本服务器的消息结束边界。
+        handler.close_connection = True
         close = getattr(events, "close", None)
         if callable(close):
             close()

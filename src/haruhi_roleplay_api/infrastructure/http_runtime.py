@@ -839,7 +839,9 @@ class RoleplayHttpRuntime:
                 **_base_headers(),
                 "Content-Type": "text/event-stream; charset=utf-8",
                 "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
+                # 当前响应是一轮有限事件流；标准库服务器不编码 HTTP/1.1
+                # chunked 尾块，因此必须以关闭连接明确标记消息结束。
+                "Connection": "close",
             },
             events=_stream_event_mappings(first_event, event_iterator),
         )
