@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from threading import Event, Lock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -65,6 +66,23 @@ class RecordingRagService:
     def retrieve(self, retrieve_input: object):
         self.calls.append(retrieve_input)
         return self.service.retrieve(retrieve_input)
+
+
+class ParallelRagService(RecordingRagService):
+    def __init__(self) -> None:
+        super().__init__()
+        self._entered = 0
+        self._lock = Lock()
+        self._both_entered = Event()
+
+    def retrieve(self, retrieve_input: object):
+        with self._lock:
+            self._entered += 1
+            if self._entered == 2:
+                self._both_entered.set()
+        if not self._both_entered.wait(timeout=1):
+            raise AssertionError("目标角色与导演桥段检索没有并行执行")
+        return super().retrieve(retrieve_input)
 
 
 def chat_body(
@@ -207,7 +225,11 @@ class FakeRagRetrieveTests(unittest.TestCase):
 
         self.assertTrue(response["ok"])
         self.assertEqual(len(rag_service.calls), 2)
-        actor_call, director_call = rag_service.calls
+        calls_by_character = {
+            str(call.characterId): call for call in rag_service.calls
+        }
+        actor_call = calls_by_character["haruhi"]
+        director_call = calls_by_character["kyon"]
         self.assertEqual(str(actor_call.characterId), "haruhi")
         self.assertEqual(actor_call.filters.recordKinds, ())
         self.assertEqual(str(director_call.characterId), "kyon")
@@ -223,6 +245,15 @@ class FakeRagRetrieveTests(unittest.TestCase):
         prompt_text = "\n".join(message.content for message in router.calls[0])
         self.assertIn("那就去找更有趣的事", prompt_text)
         self.assertIn("春日立刻把抱怨改造成全团调查", prompt_text)
+
+    def test_actor_and_director_retrievals_run_in_parallel(self) -> None:
+        response = call_chat(
+            chat_body(rag=True),
+            model_router=RecordingModelRouter(),
+            rag_service=ParallelRagService(),
+        )
+
+        self.assertTrue(response["ok"])
 
     def test_low_relevance_results_do_not_enter_model_prompt(self) -> None:
         router = RecordingModelRouter()

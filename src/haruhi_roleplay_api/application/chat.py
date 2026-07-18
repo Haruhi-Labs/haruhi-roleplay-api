@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from time import perf_counter
 
@@ -464,18 +465,42 @@ class RoleplayOrchestrator:
             ),
         )
         base_filters = _rag_filters_for_chat(chat_input, persona)
-        actor_output = self._rag_service.retrieve(
-            RagRetrieveInput(
-                appId=chat_input.appId,
-                userId=chat_input.userId,
-                characterId=chat_input.characterId,
-                personaMode=chat_input.personaMode,
-                query=query,
-                topK=self._rag_top_k,
-                filters=base_filters,
-                debug=chat_input.capabilities.debugTrace,
-            )
+        actor_input = RagRetrieveInput(
+            appId=chat_input.appId,
+            userId=chat_input.userId,
+            characterId=chat_input.characterId,
+            personaMode=chat_input.personaMode,
+            query=query,
+            topK=self._rag_top_k,
+            filters=base_filters,
+            debug=chat_input.capabilities.debugTrace,
         )
+        director_input = RagRetrieveInput(
+            appId=chat_input.appId,
+            userId=chat_input.userId,
+            characterId=CharacterId("kyon"),
+            personaMode=_director_persona_mode(persona),
+            query=query,
+            topK=self._rag_top_k,
+            filters=replace(
+                base_filters,
+                recordKinds=("scene_memory",),
+                retrievalChannels=("canonical_memory",),
+                knowledgeOwners=("kyon",),
+            ),
+            debug=chat_input.capabilities.debugTrace,
+        )
+        with ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="roleplay-rag",
+        ) as executor:
+            actor_future = executor.submit(self._rag_service.retrieve, actor_input)
+            director_future = executor.submit(
+                self._rag_service.retrieve,
+                director_input,
+            )
+            actor_output = actor_future.result()
+            director_output = director_future.result()
         actor_output = replace(
             actor_output,
             chunks=tuple(
@@ -487,23 +512,6 @@ class RoleplayOrchestrator:
         actor_output = _filter_rag_output_by_relevance(
             actor_output,
             minimum_score=self._rag_min_relevance_score,
-        )
-        director_output = self._rag_service.retrieve(
-            RagRetrieveInput(
-                appId=chat_input.appId,
-                userId=chat_input.userId,
-                characterId=CharacterId("kyon"),
-                personaMode=_director_persona_mode(persona),
-                query=query,
-                topK=self._rag_top_k,
-                filters=replace(
-                    base_filters,
-                    recordKinds=("scene_memory",),
-                    retrievalChannels=("canonical_memory",),
-                    knowledgeOwners=("kyon",),
-                ),
-                debug=chat_input.capabilities.debugTrace,
-            )
         )
         director_output = _filter_rag_output_by_relevance(
             director_output,
