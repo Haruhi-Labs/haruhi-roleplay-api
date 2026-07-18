@@ -210,6 +210,47 @@ class QdrantRagService:
 
     def retrieve(self, retrieve_input: RagRetrieveInput) -> RagRetrieveOutput:
         query_vector = self._embedding_provider.embed(retrieve_input.query)
+        return self._retrieve_with_vector(retrieve_input, query_vector)
+
+    def retrieve_many(
+        self,
+        retrieve_inputs: Sequence[RagRetrieveInput],
+    ) -> tuple[RagRetrieveOutput, ...]:
+        if not retrieve_inputs:
+            return ()
+        unique_queries = dict.fromkeys(
+            retrieve_input.query for retrieve_input in retrieve_inputs
+        )
+        vectors_by_query = {
+            query: self._embedding_provider.embed(query) for query in unique_queries
+        }
+        if len(retrieve_inputs) == 1:
+            retrieve_input = retrieve_inputs[0]
+            return (
+                self._retrieve_with_vector(
+                    retrieve_input,
+                    vectors_by_query[retrieve_input.query],
+                ),
+            )
+        with ThreadPoolExecutor(
+            max_workers=min(len(retrieve_inputs), 8),
+            thread_name_prefix="qdrant-channels",
+        ) as executor:
+            futures = tuple(
+                executor.submit(
+                    self._retrieve_with_vector,
+                    retrieve_input,
+                    vectors_by_query[retrieve_input.query],
+                )
+                for retrieve_input in retrieve_inputs
+            )
+            return tuple(future.result() for future in futures)
+
+    def _retrieve_with_vector(
+        self,
+        retrieve_input: RagRetrieveInput,
+        query_vector: Sequence[float],
+    ) -> RagRetrieveOutput:
         if self._hybrid_search and _lexical_query(retrieve_input.query):
             with ThreadPoolExecutor(
                 max_workers=2,

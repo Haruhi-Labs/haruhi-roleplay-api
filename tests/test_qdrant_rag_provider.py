@@ -44,6 +44,21 @@ class FakeHTTPResponse:
         return json.dumps(self._payload, ensure_ascii=False).encode("utf-8")
 
 
+class CountingEmbeddingProvider:
+    provider_name = "counting"
+    dimensions = 3
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def embed(self, text: str) -> tuple[float, ...]:
+        self.calls.append(text)
+        return (1.0, 0.0, 0.0)
+
+    def embed_many(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+        return tuple(self.embed(text) for text in texts)
+
+
 def ingest_input(
     *,
     app_id: str = "web",
@@ -536,6 +551,39 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(output.filteredHitCount, 1)
         self.assertEqual(output.chunks[0].documentId, "doc-qdrant-haruhi")
         self.assertEqual(output.chunks[0].score, 0.91)
+
+    def test_qdrant_batch_reuses_embedding_for_same_query(self) -> None:
+        embedding_provider = CountingEmbeddingProvider()
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+            embedding_provider=embedding_provider,
+        )
+        actor_input = retrieve_input()
+        director_input = RagRetrieveInput(
+            appId=actor_input.appId,
+            userId=actor_input.userId,
+            characterId=CharacterId("kyon"),
+            personaMode=PersonaModeId("default_kyon"),
+            query=actor_input.query,
+            topK=actor_input.topK,
+            filters=actor_input.filters,
+        )
+        request_barrier = Barrier(2)
+
+        def qdrant_response(*_: object, **__: object) -> FakeHTTPResponse:
+            request_barrier.wait(timeout=1)
+            return FakeHTTPResponse({"result": []})
+
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            side_effect=qdrant_response,
+        ) as urlopen:
+            outputs = service.retrieve_many((actor_input, director_input))
+
+        self.assertEqual(len(outputs), 2)
+        self.assertEqual(embedding_provider.calls, [actor_input.query])
+        self.assertEqual(urlopen.call_count, 2)
 
     def test_qdrant_same_document_id_uses_distinct_points_per_app(self) -> None:
         service = QdrantRagService(

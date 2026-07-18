@@ -51,6 +51,7 @@ from haruhi_roleplay_api.domain import (
 from haruhi_roleplay_api.ports import (
     AgentContextPlanner,
     BackendContextProvider,
+    BatchRagService,
     ChatModelRouter,
     MemoryPolicyEngine,
     MemoryStore,
@@ -490,17 +491,25 @@ class RoleplayOrchestrator:
             ),
             debug=chat_input.capabilities.debugTrace,
         )
-        with ThreadPoolExecutor(
-            max_workers=2,
-            thread_name_prefix="roleplay-rag",
-        ) as executor:
-            actor_future = executor.submit(self._rag_service.retrieve, actor_input)
-            director_future = executor.submit(
-                self._rag_service.retrieve,
-                director_input,
+        if isinstance(self._rag_service, BatchRagService):
+            actor_output, director_output = self._rag_service.retrieve_many(
+                (actor_input, director_input)
             )
-            actor_output = actor_future.result()
-            director_output = director_future.result()
+        else:
+            with ThreadPoolExecutor(
+                max_workers=2,
+                thread_name_prefix="roleplay-rag",
+            ) as executor:
+                actor_future = executor.submit(
+                    self._rag_service.retrieve,
+                    actor_input,
+                )
+                director_future = executor.submit(
+                    self._rag_service.retrieve,
+                    director_input,
+                )
+                actor_output = actor_future.result()
+                director_output = director_future.result()
         actor_output = replace(
             actor_output,
             chunks=tuple(

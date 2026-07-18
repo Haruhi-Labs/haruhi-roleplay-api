@@ -85,6 +85,18 @@ class ParallelRagService(RecordingRagService):
         return super().retrieve(retrieve_input)
 
 
+class BatchRecordingRagService(RecordingRagService):
+    def retrieve(self, retrieve_input: object):
+        raise AssertionError("支持批量检索时不应回退到单条接口")
+
+    def retrieve_many(self, retrieve_inputs: tuple[object, ...]):
+        self.calls.extend(retrieve_inputs)
+        return tuple(
+            self.service.retrieve(retrieve_input)
+            for retrieve_input in retrieve_inputs
+        )
+
+
 def chat_body(
     *,
     rag: bool,
@@ -254,6 +266,18 @@ class FakeRagRetrieveTests(unittest.TestCase):
         )
 
         self.assertTrue(response["ok"])
+
+    def test_chat_uses_batch_retrieval_when_provider_supports_it(self) -> None:
+        rag_service = BatchRecordingRagService()
+
+        response = call_chat(
+            chat_body(rag=True),
+            model_router=RecordingModelRouter(),
+            rag_service=rag_service,
+        )
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(len(rag_service.calls), 2)
 
     def test_low_relevance_results_do_not_enter_model_prompt(self) -> None:
         router = RecordingModelRouter()
