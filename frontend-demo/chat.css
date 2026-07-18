@@ -1048,6 +1048,12 @@ input[type="number"] {
   gap: 8px;
 }
 
+.source-card header {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
 .source-card h3,
 .memory-card h3 {
   overflow: hidden;
@@ -1069,7 +1075,6 @@ input[type="number"] {
   font-size: 8px;
 }
 
-.source-card p,
 .memory-card p {
   display: -webkit-box;
   overflow: hidden;
@@ -1078,6 +1083,41 @@ input[type="number"] {
   font-size: 10px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
+}
+
+.source-content {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--display-font);
+  font-size: 12px;
+  line-height: 1.72;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.source-content.collapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 8;
+}
+
+.source-content.expanded {
+  display: block;
+}
+
+.source-expand-button {
+  margin-top: 6px;
+  padding: 0;
+  color: var(--blue);
+  background: transparent;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.source-expand-button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .source-meta,

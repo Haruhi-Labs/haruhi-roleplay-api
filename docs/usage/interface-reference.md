@@ -97,7 +97,7 @@ Boolean 参数必须使用 JSON `true` / `false`，不要传字符串。当前�
 | safety       | 安全检查结果      |
 | debug        | 调试信息          |
 
-`rag.enabled=false` 时只返回 `{"enabled": false}`。`rag.enabled=true` 时返回 `provider`、`hit_count`、`raw_hit_count`、`filtered_hit_count` 和 `sources`。每个 source 至少包含 `document_id`、`chunk_id`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。
+`rag.enabled=false` 时只返回 `{"enabled": false}`。`rag.enabled=true` 时返回 `provider`、`hit_count`、`raw_hit_count`、`filtered_hit_count` 和 `sources`。每个 source 至少包含 `document_id`、`chunk_id`、`content`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。其中 `content` 是本次实际注入提示词的检索 chunk；前端必须把它当作不受信任的纯文本渲染。
 
 `memory.enabled=false` 时只返回 `{"enabled": false}`。`memory.enabled=true` 时返回 `read_count` 和 `write_count`。当前不会从普通聊天内容中自由抽取记忆，只有显式候选才可能写入。
 
@@ -131,7 +131,7 @@ Boolean 参数必须使用 JSON `true` / `false`，不要传字符串。当前�
 | event  | data                                                                                                    |
 | ------ | ------------------------------------------------------------------------------------------------------- |
 | start  | `request_id`、`session_id`、`character_id`、`persona_mode`                                              |
-| source | `source`，单条 RAG source 摘要                                                                          |
+| source | `source`，包含实际检索 chunk `content` 的单条 RAG 来源                                              |
 | delta  | `text`，模型增量文本                                                                                    |
 | usage  | `prompt_tokens`、`completion_tokens`、`total_tokens`、`provider`、`model`                               |
 | done   | `request_id`、`session_id`、`character_id`、`persona_mode`、`reply`、`rag`、`memory`、`safety`、`debug` |

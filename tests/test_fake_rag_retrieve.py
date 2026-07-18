@@ -170,6 +170,7 @@ class FakeRagRetrieveTests(unittest.TestCase):
         self.assertIn("中后期的春日仍然主动推动社团活动", prompt_text)
         self.assertEqual(rag["sources"][0]["document_id"], "doc-haruhi-timeline")
         self.assertEqual(rag["sources"][0]["chunk_id"], "chunk-haruhi-mid-late-1")
+        self.assertIn("中后期的春日", rag["sources"][0]["content"])
 
     def test_chat_merges_actor_examples_and_director_bridges(self) -> None:
         router = RecordingModelRouter()

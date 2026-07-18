@@ -362,6 +362,10 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
             chat_result["data"]["rag"]["sources"][0]["document_id"],
             "doc-http-rag",
         )
+        self.assertIn(
+            "春日会主动安排调查和招募",
+            chat_result["data"]["rag"]["sources"][0]["content"],
+        )
 
     def test_rag_search_uses_runtime_provider(self) -> None:
         app = runtime({"RAG_PROVIDER": "local_vector", "RAG_CHUNK_SIZE": "24"})
@@ -498,6 +502,8 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
         self.assertIn('const APP_ID = "roleplay-prod";', script_body)
         self.assertIn("scheduleStreamingMessage(assistant, reply)", script_body)
         self.assertIn("STREAM_RENDER_INTERVAL_MS = 50", script_body)
+        self.assertIn('content.className = "source-content"', script_body)
+        self.assertIn("展开完整语料", script_body)
         self.assertNotIn(
             'updateMessage(assistant, { pending: true, content: reply })',
             script_body,

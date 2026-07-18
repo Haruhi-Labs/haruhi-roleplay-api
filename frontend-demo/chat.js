@@ -807,6 +807,30 @@ function renderSources() {
 function sourceNode(source, index) {
   const card = document.createElement("article");
   card.className = "source-card";
+
+  const contentText = source.content || source.text || source.preview;
+  if (contentText) {
+    const content = document.createElement("p");
+    content.className = "source-content";
+    content.textContent = contentText;
+    card.append(content);
+    if (contentText.length > 280) {
+      content.classList.add("collapsed");
+      const expandButton = document.createElement("button");
+      expandButton.type = "button";
+      expandButton.className = "source-expand-button";
+      expandButton.textContent = "展开完整语料";
+      expandButton.setAttribute("aria-expanded", "false");
+      expandButton.addEventListener("click", () => {
+        const expanded = content.classList.toggle("expanded");
+        content.classList.toggle("collapsed", !expanded);
+        expandButton.textContent = expanded ? "收起语料" : "展开完整语料";
+        expandButton.setAttribute("aria-expanded", String(expanded));
+      });
+      card.append(expandButton);
+    }
+  }
+
   const header = document.createElement("header");
   const title = document.createElement("h3");
   title.textContent = source.title || source.document_title || source.document_id || `引用 ${index + 1}`;
@@ -815,12 +839,6 @@ function sourceNode(source, index) {
   score.textContent = Number.isFinite(Number(source.score)) ? Number(source.score).toFixed(3) : "source";
   header.append(title, score);
   card.append(header);
-
-  if (source.content || source.text || source.preview) {
-    const content = document.createElement("p");
-    content.textContent = source.content || source.text || source.preview;
-    card.append(content);
-  }
   const meta = document.createElement("div");
   meta.className = "source-meta";
   meta.textContent = [
