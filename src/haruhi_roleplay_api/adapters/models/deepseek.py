@@ -26,6 +26,7 @@ class DeepSeekModelProvider(OpenAICompatibleModelProvider):
             timeout_seconds=timeout_seconds,
             api_key=api_key,
             provider_name=self.provider_name,
+            extra_body={"thinking": {"type": "disabled"}},
             chat_completions_path=(
                 chat_completions_path or self.default_chat_completions_path
             ),

@@ -155,6 +155,7 @@ class CloudModelProviderTests(unittest.TestCase):
         self.assertEqual(request.headers["Authorization"], "Bearer deepseek-secret")
         self.assertEqual(payload["model"], "deepseek-chat")
         self.assertEqual(payload["temperature"], 0.2)
+        self.assertEqual(payload["thinking"], {"type": "disabled"})
         self.assertEqual(response.provider, "deepseek")
         self.assertEqual(response.model, "haruhi-deepseek")
         self.assertEqual(response.reply, "DeepSeek 回复")
@@ -283,6 +284,7 @@ class CloudModelProviderTests(unittest.TestCase):
         done = events[-1].response
 
         self.assertTrue(payload["stream"])
+        self.assertEqual(payload["thinking"], {"type": "disabled"})
         self.assertEqual(
             "".join(event.delta for event in events if event.event == "delta"),
             "云端流式",
