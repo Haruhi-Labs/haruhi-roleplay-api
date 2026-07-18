@@ -338,6 +338,11 @@ character 字段：
 | `POST /v1/admin/rag/search` | 使用与业务检索相同的应用隔离规则执行后台检索测试 |
 | `DELETE /v1/admin/rag/documents/{document_id}?app_id=...` | 按 `app_id + document_id` 删除实际检索后端中的全部 chunks |
 
+文档列表支持两种有界读取方式：`summary=true` 只返回当前作用域的
+`chunk_count`，Qdrant 会直接使用点计数接口；`app_id=...&limit=...` 返回指定
+应用内最多 1–200 份文档，并通过 `truncated` 标记是否仍有更多结果。后台总览
+只调用摘要接口，文档管理页默认最多加载 100 份，避免大型云端语料触发全量扫描。
+
 管理接口不是旁路元数据账本。本地文本、本地向量、FAISS、Chroma 和 Qdrant Provider 都直接列举及删除真实检索数据；删除时必须显式提供 `app_id`，避免同名文档跨应用误删。Qdrant 使用 payload filter 删除，FAISS 会用剩余向量重建索引。
 
 ## Memory: GET /v1/memory/{user_id}

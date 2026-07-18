@@ -338,6 +338,104 @@ class QdrantRagService:
             app_id=app_id,
         )
 
+    def list_documents_limited(
+        self,
+        *,
+        app_id: str,
+        limit: int,
+    ) -> tuple[tuple[RagManagedDocument, ...], bool]:
+        """通过 payload facet 只读取有限数量的应用内文档。"""
+        facet_response = self._request_json(
+            "POST",
+            f"/collections/{self._collection}/facet",
+            {
+                "key": "document_id",
+                "limit": limit + 1,
+                "exact": True,
+                "filter": {
+                    "must": [
+                        {"key": "app_id", "match": {"value": app_id}}
+                    ]
+                },
+            },
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        facet_result = (
+            facet_response.get("result") if facet_response is not None else None
+        )
+        facet_hits = (
+            facet_result.get("hits")
+            if isinstance(facet_result, Mapping)
+            else None
+        )
+        if not isinstance(facet_hits, list):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message="Qdrant 文档分面响应格式无效。",
+            )
+        selected_hits = facet_hits[:limit]
+        document_ids = [
+            str(hit["value"])
+            for hit in selected_hits
+            if isinstance(hit, Mapping) and hit.get("value") is not None
+        ]
+        if not document_ids:
+            return (), False
+
+        all_points: list[Any] = []
+        offset: Any = None
+        while True:
+            payload: dict[str, Any] = {
+                "limit": 1000,
+                "with_payload": True,
+                "with_vector": False,
+                "filter": {
+                    "must": [
+                        {"key": "app_id", "match": {"value": app_id}},
+                        {
+                            "key": "document_id",
+                            "match": {"any": document_ids},
+                        },
+                    ]
+                },
+            }
+            if offset is not None:
+                payload["offset"] = offset
+            response = self._request_json(
+                "POST",
+                f"/collections/{self._collection}/points/scroll",
+                payload,
+                error_code=ErrorCode.RAG_PROVIDER_ERROR,
+            )
+            result = response.get("result", {})
+            points = result.get("points", []) if isinstance(result, Mapping) else []
+            if not isinstance(points, list):
+                raise AppError(
+                    code=ErrorCode.RAG_PROVIDER_ERROR,
+                    message="Qdrant 文档列表响应格式无效。",
+                )
+            all_points.extend(points)
+            offset = (
+                result.get("next_page_offset")
+                if isinstance(result, Mapping)
+                else None
+            )
+            if offset is None:
+                break
+
+        documents = _managed_documents(
+            tuple(_chunk_from_qdrant_hit(point) for point in all_points),
+            provider=self.provider_name,
+            app_id=app_id,
+        )
+        by_document_id = {str(item.documentId): item for item in documents}
+        ordered = tuple(
+            by_document_id[document_id]
+            for document_id in document_ids
+            if document_id in by_document_id
+        )
+        return ordered, len(facet_hits) > limit
+
     def delete_document(self, *, app_id: str, document_id: str) -> int:
         documents = self.list_documents(app_id=app_id)
         document = next(

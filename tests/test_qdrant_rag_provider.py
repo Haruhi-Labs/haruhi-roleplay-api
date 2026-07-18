@@ -636,6 +636,53 @@ class QdrantRagProviderTests(unittest.TestCase):
             [{"key": "app_id", "match": {"value": "web"}}],
         )
 
+    def test_qdrant_admin_limited_list_uses_facet_and_scoped_scroll(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            side_effect=[
+                FakeHTTPResponse(
+                    {
+                        "result": {
+                            "hits": [
+                                {"value": "doc-qdrant-haruhi", "count": 1},
+                                {"value": "doc-next", "count": 1},
+                            ]
+                        }
+                    }
+                ),
+                FakeHTTPResponse(
+                    {
+                        "result": {
+                            "points": [qdrant_hit()],
+                            "next_page_offset": None,
+                        }
+                    }
+                ),
+            ],
+        ) as urlopen:
+            documents, truncated = service.list_documents_limited(
+                app_id="web",
+                limit=1,
+            )
+
+        self.assertEqual(len(documents), 1)
+        self.assertTrue(truncated)
+        facet_payload = json.loads(urlopen.call_args_list[0].args[0].data.decode())
+        self.assertEqual(facet_payload["key"], "document_id")
+        self.assertEqual(facet_payload["limit"], 2)
+        scroll_payload = json.loads(urlopen.call_args_list[1].args[0].data.decode())
+        self.assertEqual(
+            scroll_payload["filter"]["must"][1],
+            {
+                "key": "document_id",
+                "match": {"any": ["doc-qdrant-haruhi"]},
+            },
+        )
+
     def test_qdrant_retrieve_maps_provider_error(self) -> None:
         http_error = urllib.error.HTTPError(
             url="https://qdrant.example/collections/haruhi_rag/points/search",

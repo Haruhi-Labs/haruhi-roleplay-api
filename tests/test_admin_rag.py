@@ -67,6 +67,29 @@ class AdminRagHttpTests(unittest.TestCase):
         self.assertEqual(response.status, 400)
         self.assertEqual(_body(response)["error"]["code"], "VALIDATION_ERROR")
 
+    def test_admin_rag_summary_and_limited_listing_are_bounded(self) -> None:
+        self.request("POST", "/v1/admin/rag/documents", rag_document_body())
+
+        summary = self.request(
+            "GET",
+            "/v1/admin/rag/documents?app_id=admin-app&summary=true",
+        )
+        limited = self.request(
+            "GET",
+            "/v1/admin/rag/documents?app_id=admin-app&limit=1",
+        )
+        missing_scope = self.request(
+            "GET",
+            "/v1/admin/rag/documents?limit=1",
+        )
+
+        self.assertEqual(_body(summary)["data"]["chunk_count"], 1)
+        self.assertTrue(_body(summary)["data"]["summary"])
+        self.assertEqual(_body(limited)["data"]["count"], 1)
+        self.assertEqual(_body(limited)["data"]["limit"], 1)
+        self.assertFalse(_body(limited)["data"]["truncated"])
+        self.assertEqual(missing_scope.status, 400)
+
     def test_service_token_cannot_manage_rag_documents(self) -> None:
         issued = self.request(
             "POST",

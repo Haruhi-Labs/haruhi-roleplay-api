@@ -295,7 +295,7 @@ async function renderOverview(force) {
       request("/v1/access-tokens"),
       request("/v1/runtime-config"),
       request("/v1/admin/usage?days=7"),
-      request("/v1/admin/rag/documents"),
+      request("/v1/admin/rag/documents?summary=true"),
       request("/v1/admin/memories?limit=1"),
       request("/v1/admin/sessions?status=active&limit=1"),
     ]);
@@ -389,7 +389,7 @@ async function renderOverview(force) {
         <header class="surface-head"><div><h3>上下文资源</h3><p>角色、知识、记忆与连续会话</p></div></header>
         <div class="surface-body resource-list">
           ${overviewResourceRow("角色与 Persona", `${formatNumber(roleCount)} / ${formatNumber(modeCount)}`, "可用角色 / 模式", "personas")}
-          ${overviewResourceRow("RAG 知识", formatNumber(rag.count), `${rag.provider} · 实际文档`, "rag")}
+          ${overviewResourceRow("RAG 知识", formatNumber(rag.chunk_count), `${rag.provider} · 索引分块`, "rag")}
           ${overviewResourceRow("长期记忆", formatNumber(memories.total), `${memories.provider} · 全部作用域`, "memory")}
           ${overviewResourceRow("活跃会话", formatNumber(sessions.total), `${sessions.provider} · 不读取正文`, "sessions")}
         </div>
@@ -1500,12 +1500,21 @@ function providerLabel(value) {
 }
 
 async function renderRag() {
-  const query = state.ragAppId
-    ? `?app_id=${encodeURIComponent(state.ragAppId)}`
-    : "";
-  const [data, personaData] = await Promise.all([
-    request(`/v1/admin/rag/documents${query}`),
+  const tokenData = await request("/v1/access-tokens");
+  const knownApps = [...new Set(
+    (tokenData.items || [])
+      .map((item) => String(item.app_id || "").trim())
+      .filter(Boolean),
+  )].sort();
+  if (!state.ragAppId && knownApps.length) state.ragAppId = knownApps[0];
+  if (!state.ragAppId) {
+    throw new Error("请先创建一个绑定 App ID 的服务令牌，再管理该应用的 RAG 文档。");
+  }
+  const scope = `app_id=${encodeURIComponent(state.ragAppId)}`;
+  const [data, personaData, summary] = await Promise.all([
+    request(`/v1/admin/rag/documents?${scope}&limit=100`),
     request("/v1/admin/personas"),
+    request(`/v1/admin/rag/documents?${scope}&summary=true`),
   ]);
   state.personas = personaData.characters || [];
   const documents = data.items || [];
@@ -1521,17 +1530,17 @@ async function renderRag() {
       <div class="lead-actions"><button id="testRagButton" class="secondary-action" type="button">检索测试</button><button id="importRagButton" class="primary-action" type="button">导入文档</button></div>
     </div>
     <section class="metric-rack compact-metrics">
-      ${metricCell("知识文档", formatNumber(data.count), state.ragAppId ? `应用 ${state.ragAppId}` : "全部应用")}
-      ${metricCell("索引分块", formatNumber(chunkCount), "当前列表中的实际 chunks")}
+      ${metricCell("当前加载", formatNumber(data.count), `应用 ${state.ragAppId} · 最多 100 份`)}
+      ${metricCell("索引分块", formatNumber(summary.chunk_count), "当前应用中的全部 chunks")}
       ${metricCell("应用 / 角色", `${formatNumber(appCount)} / ${formatNumber(characterCount)}`, "知识隔离范围")}
       ${metricCell("RAG Provider", data.provider || "unknown", "当前运行时检索后端")}
     </section>
     <section class="surface data-surface">
       <form id="ragFilterForm" class="table-toolbar resource-toolbar">
-        <label class="search-control"><span>按应用筛选</span><input name="app_id" value="${escapeHtml(state.ragAppId)}" placeholder="留空查看全部应用" /></label>
+        <label class="search-control"><span>按应用筛选</span><input name="app_id" required list="ragKnownApps" value="${escapeHtml(state.ragAppId)}" placeholder="输入 App ID" /></label>
+        <datalist id="ragKnownApps">${knownApps.map((appId) => `<option value="${escapeHtml(appId)}"></option>`).join("")}</datalist>
         <button class="secondary-action" type="submit">应用筛选</button>
-        ${state.ragAppId ? '<button id="clearRagFilter" class="ghost-action" type="button">清除</button>' : ""}
-        <span class="table-count">${formatNumber(documents.length)} 个文档</span>
+        <span class="table-count">${formatNumber(documents.length)} 个文档${data.truncated ? " · 列表已限流" : ""}</span>
       </form>
       <div class="table-wrap">
         ${documents.length ? ragDocumentTable(documents) : tableEmpty("当前范围没有知识文档", "导入一份经过角色知识边界校验的资料，或调整 App 筛选。")}
@@ -1542,10 +1551,6 @@ async function renderRag() {
   document.querySelector("#ragFilterForm").addEventListener("submit", (event) => {
     event.preventDefault();
     state.ragAppId = String(new FormData(event.currentTarget).get("app_id") || "").trim();
-    renderRoute();
-  });
-  document.querySelector("#clearRagFilter")?.addEventListener("click", () => {
-    state.ragAppId = "";
     renderRoute();
   });
   document.querySelector("#importRagButton").addEventListener("click", showRagImportDialog);
