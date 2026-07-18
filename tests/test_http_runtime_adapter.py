@@ -455,6 +455,127 @@ class HttpRuntimeAdapterTests(unittest.TestCase):
 
         self.assertEqual(response.status, 404)
 
+    def test_public_chat_page_is_served_without_api_auth(self) -> None:
+        app = runtime({"ROLEPLAY_API_KEY": "secret"})
+        response = app.handle(method="GET", target="/chat/", headers={})
+        body = response.body.decode("utf-8")
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertIn("SOS 团角色扮演调度台", body)
+        self.assertIn('src="/chat/chat.js"', body)
+        self.assertNotIn("Authorization", body)
+        self.assertNotIn("API Key", body)
+
+    def test_root_redirects_to_public_chat(self) -> None:
+        response = runtime({"ROLEPLAY_API_KEY": "secret"}).handle(
+            method="GET",
+            target="/",
+            headers={},
+        )
+
+        self.assertEqual(response.status, 302)
+        self.assertEqual(response.headers["Location"], "/chat/")
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_public_chat_assets_use_server_side_demo_proxy(self) -> None:
+        script = runtime().handle(method="GET", target="/chat/chat.js", headers={})
+        script_body = script.body.decode("utf-8")
+        stylesheet = runtime().handle(
+            method="GET",
+            target="/chat/chat.css",
+            headers={},
+        )
+
+        self.assertEqual(script.status, 200)
+        self.assertEqual(
+            script.headers["Content-Type"],
+            "text/javascript; charset=utf-8",
+        )
+        self.assertEqual(stylesheet.status, 200)
+        self.assertEqual(stylesheet.headers["Content-Type"], "text/css; charset=utf-8")
+        self.assertIn('const API_ROOT = "/v1/demo";', script_body)
+        self.assertIn('const APP_ID = "roleplay-prod";', script_body)
+        self.assertNotIn("Bearer ", script_body)
+        self.assertNotIn("X-API-Key", script_body)
+
+    def test_public_chat_static_route_rejects_path_traversal(self) -> None:
+        response = runtime().handle(
+            method="GET",
+            target="/chat/../README.md",
+            headers={},
+        )
+
+        self.assertEqual(response.status, 404)
+
+    def test_public_demo_aliases_safe_runtime_routes(self) -> None:
+        app = runtime({"ROLEPLAY_API_KEY": "secret"})
+        health = app.handle(
+            method="GET",
+            target="/v1/demo/health",
+            headers=auth_headers(),
+        )
+        personas = app.handle(
+            method="GET",
+            target="/v1/demo/personas",
+            headers=auth_headers(),
+        )
+        demo_chat_body = chat_body(user_id="demo-browser-user")
+        chat = app.handle(
+            method="POST",
+            target="/v1/demo/chat",
+            headers=auth_headers(),
+            body=json_body(demo_chat_body),
+        )
+
+        self.assertEqual(health.status, 200)
+        self.assertEqual(json_response(health.body)["data"]["status"], "ok")
+        self.assertEqual(personas.status, 200)
+        self.assertIn("characters", json_response(personas.body)["data"])
+        self.assertEqual(chat.status, 200)
+        self.assertEqual(json_response(chat.body)["data"]["character_id"], "haruhi")
+
+    def test_public_demo_rejects_non_demo_user_scope(self) -> None:
+        app = runtime({"ROLEPLAY_API_KEY": "secret"})
+        chat = app.handle(
+            method="POST",
+            target="/v1/demo/chat",
+            headers=auth_headers(),
+            body=json_body(chat_body(user_id="production-user")),
+        )
+        memory = app.handle(
+            method="GET",
+            target=(
+                "/v1/demo/memory/production-user"
+                "?app_id=web&character_id=haruhi&persona_mode=mid_late_haruhi"
+            ),
+            headers=auth_headers(),
+        )
+
+        self.assertEqual(chat.status, 403)
+        self.assertEqual(
+            json_response(chat.body)["error"]["code"],
+            "AUTH_PERMISSION_DENIED",
+        )
+        self.assertEqual(memory.status, 403)
+
+    def test_public_demo_rejects_rag_ingest_and_admin_routes(self) -> None:
+        app = runtime({"ROLEPLAY_API_KEY": "secret"})
+        ingest = app.handle(
+            method="POST",
+            target="/v1/demo/rag/documents",
+            headers=auth_headers(),
+            body=json_body(rag_document_body()),
+        )
+        admin = app.handle(
+            method="GET",
+            target="/v1/demo/admin/usage",
+            headers=auth_headers(),
+        )
+
+        self.assertEqual(ingest.status, 403)
+        self.assertEqual(admin.status, 403)
+
     def test_config_editor_page_is_served_without_api_auth(self) -> None:
         app = runtime({"ROLEPLAY_API_KEY": "secret"})
         response = app.handle(method="GET", target="/config", headers={})

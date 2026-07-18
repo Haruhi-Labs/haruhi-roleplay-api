@@ -433,6 +433,9 @@ class RoleplayHttpRuntime:
         json_body = _json_body(body, request_id)
         if isinstance(json_body, HttpRuntimeResponse):
             return json_body
+        public_demo_path = _public_demo_path_parts(method, path_parts)
+        if public_demo_path is not None:
+            path_parts = public_demo_path
         if path_parts == ["v1", "admin", "session"]:
             return self._admin_session(method, json_body, headers, request_id)
 
@@ -446,6 +449,8 @@ class RoleplayHttpRuntime:
                     request_id,
                 ),
             )
+        if public_demo_path is not None:
+            _enforce_public_demo_identity(path_parts, json_body)
         if access_token is not None:
             _enforce_access_token_app_scope(
                 access_token,
@@ -454,7 +459,8 @@ class RoleplayHttpRuntime:
                 body=json_body,
                 query=query,
             )
-            if _consumes_model_tokens(method, parsed.path):
+            canonical_path = f"/{'/'.join(path_parts)}"
+            if _consumes_model_tokens(method, canonical_path):
                 self._access_token_store.ensure_quota_available(access_token.tokenId)
 
         if method == "GET" and path_parts == ["health"]:
@@ -1536,6 +1542,68 @@ def _consumes_model_tokens(method: str, path: str) -> bool:
     return method.upper() == "POST" and path in {"/v1/chat", "/v1/chat/stream"}
 
 
+def _public_demo_path_parts(method: str, path_parts: list[str]) -> list[str] | None:
+    if path_parts[:2] != ["v1", "demo"]:
+        return None
+    demo_route = tuple(path_parts[2:])
+    allowed_routes = {
+        ("GET", ("health",)): ["health"],
+        ("GET", ("personas",)): ["v1", "personas"],
+        ("POST", ("sessions",)): ["v1", "sessions"],
+        ("POST", ("chat",)): ["v1", "chat"],
+        ("POST", ("chat", "stream")): ["v1", "chat", "stream"],
+        ("POST", ("rag", "search")): ["v1", "rag", "search"],
+    }
+    canonical = allowed_routes.get((method.upper(), demo_route))
+    if canonical is not None:
+        return canonical
+    if method.upper() == "GET" and len(demo_route) == 2 and demo_route[0] == "memory":
+        return ["v1", "memory", demo_route[1]]
+    if (
+        method.upper() == "DELETE"
+        and len(demo_route) == 3
+        and demo_route[0] == "memory"
+    ):
+        return ["v1", "memory", demo_route[1], demo_route[2]]
+    raise AppError(
+        code=ErrorCode.AUTH_PERMISSION_DENIED,
+        message="公开演示代理不允许访问这个接口。",
+    )
+
+
+def _enforce_public_demo_identity(
+    path_parts: list[str],
+    body: Mapping[str, Any],
+) -> None:
+    if tuple(path_parts) in {
+        ("v1", "sessions"),
+        ("v1", "chat"),
+        ("v1", "chat", "stream"),
+        ("v1", "rag", "search"),
+    }:
+        user_id = body.get("user_id")
+    elif path_parts[:2] == ["v1", "memory"] and len(path_parts) in {3, 4}:
+        user_id = path_parts[2]
+    else:
+        return
+    if not _is_public_demo_user_id(user_id):
+        raise AppError(
+            code=ErrorCode.AUTH_PERMISSION_DENIED,
+            message="公开演示只能访问随机生成的 demo 用户作用域。",
+        )
+
+
+def _is_public_demo_user_id(value: Any) -> bool:
+    if not isinstance(value, str) or not 13 <= len(value) <= 95:
+        return False
+    if not value.startswith("demo-"):
+        return False
+    return all(
+        character.isascii() and (character.isalnum() or character in "_-")
+        for character in value
+    )
+
+
 def _enforce_access_token_app_scope(
     access_token: AccessToken,
     *,
@@ -1694,6 +1762,16 @@ def _empty_response(status: int) -> HttpRuntimeResponse:
 def _demo_static_response(method: str, path: str) -> HttpRuntimeResponse | None:
     if method != "GET":
         return None
+    if path == "/":
+        return HttpRuntimeResponse(
+            status=302,
+            headers={
+                **_base_headers(),
+                "Location": "/chat/",
+                "Cache-Control": "no-store",
+            },
+            body=b"",
+        )
     mount = _static_mount(path)
     if mount is None:
         return None
@@ -1724,6 +1802,7 @@ def _demo_static_response(method: str, path: str) -> HttpRuntimeResponse | None:
 def _static_mount(path: str) -> tuple[str, str] | None:
     for prefix, index_file in {
         "/demo": "index.html",
+        "/chat": "chat.html",
         "/config": "config.html",
         "/admin": "admin.html",
     }.items():

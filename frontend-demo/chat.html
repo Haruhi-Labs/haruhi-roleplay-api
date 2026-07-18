@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Haruhi Roleplay API 公开演示：角色对话、流式输出、RAG、长期记忆与连续会话。"
+    />
+    <title>SOS 团角色扮演调度台</title>
+    <link rel="stylesheet" href="/chat/chat.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#chatComposer">跳到消息输入框</a>
+
+    <div class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="/chat/" aria-label="返回演示首页">
+          <span class="brand-stamp" aria-hidden="true">SOS</span>
+          <span class="brand-copy">
+            <strong>角色扮演调度台</strong>
+            <span>Haruhi Roleplay API · 公开演示</span>
+          </span>
+        </a>
+
+        <div class="topbar-status" aria-live="polite">
+          <span id="connectionLight" class="status-light" aria-hidden="true"></span>
+          <span id="connectionText">正在连接服务</span>
+          <span id="latencyBadge" class="latency-badge">— ms</span>
+        </div>
+
+        <div class="topbar-actions">
+          <button id="openCharactersButton" class="icon-button mobile-only" type="button">
+            角色
+          </button>
+          <button id="openInspectorButton" class="icon-button mobile-only" type="button">
+            上下文
+          </button>
+          <a class="text-link" href="/admin/">管理后台</a>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside id="characterPanel" class="character-panel" aria-label="角色选择">
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">CAST / 角色档案</span>
+              <h1>今天和谁对话？</h1>
+            </div>
+            <button
+              class="close-button mobile-only"
+              data-close-panel="characterPanel"
+              type="button"
+              aria-label="关闭角色面板"
+            >
+              ×
+            </button>
+          </div>
+
+          <div class="catalog-note">
+            <span id="characterCount">0</span> 名公开角色，篇章设定由服务端实时返回。
+          </div>
+          <nav id="characterList" class="character-list" aria-label="公开角色"></nav>
+
+          <section class="identity-card" aria-labelledby="demoIdentityTitle">
+            <div class="identity-title-row">
+              <h2 id="demoIdentityTitle">本次演示身份</h2>
+              <button id="resetIdentityButton" class="quiet-button" type="button">换一个</button>
+            </div>
+            <code id="userIdValue">demo-…</code>
+            <p>浏览器只保存随机演示 ID，不保存服务令牌。</p>
+          </section>
+        </aside>
+
+        <section class="chat-stage" aria-labelledby="activeCharacterName">
+          <header class="persona-header">
+            <div class="persona-profile">
+              <div id="personaAvatar" class="persona-avatar" aria-hidden="true">春</div>
+              <div class="persona-copy">
+                <span class="eyebrow">ON AIR / 当前角色</span>
+                <h2 id="activeCharacterName">正在读取角色目录</h2>
+                <p id="activeCharacterDescription">请稍候，正在和角色扮演服务建立连接。</p>
+              </div>
+            </div>
+
+            <div class="persona-controls">
+              <label class="select-control" for="modeSelect">
+                <span>篇章设定</span>
+                <select id="modeSelect" disabled>
+                  <option>载入中…</option>
+                </select>
+              </label>
+              <button id="newSessionButton" class="secondary-button" type="button">
+                新对话
+              </button>
+            </div>
+          </header>
+
+          <div class="capability-strip" aria-label="对话能力开关">
+            <label class="switch-chip">
+              <input id="streamToggle" type="checkbox" checked />
+              <span>流式输出</span>
+            </label>
+            <label class="switch-chip">
+              <input id="sessionToggle" type="checkbox" checked />
+              <span>连续会话</span>
+            </label>
+            <label class="switch-chip">
+              <input id="ragToggle" type="checkbox" checked />
+              <span>桥段检索</span>
+            </label>
+            <label class="switch-chip">
+              <input id="memoryToggle" type="checkbox" checked />
+              <span>长期记忆</span>
+            </label>
+            <label class="switch-chip">
+              <input id="safetyToggle" type="checkbox" checked />
+              <span>安全意图</span>
+            </label>
+          </div>
+
+          <section id="messageList" class="message-list" aria-live="polite" aria-label="对话记录">
+            <div class="welcome-card">
+              <span class="welcome-kicker">OPERATION 01</span>
+              <h3>把熟悉的桥段，变成自然对话里的灵感。</h3>
+              <p>
+                这里连接真实生产服务。角色会根据当前篇章设定，从 RAG
+                语料中寻找可能相关的桥段，同时结合本次连续会话和你明确保存的长期记忆来回答。
+              </p>
+              <div id="starterPrompts" class="starter-prompts" aria-label="示例问题"></div>
+            </div>
+          </section>
+
+          <div id="noticeBar" class="notice-bar" role="status" hidden></div>
+
+          <form id="composerForm" class="composer">
+            <div class="remember-row">
+              <label class="remember-toggle">
+                <input id="rememberToggle" type="checkbox" />
+                <span>把这条明确保存为长期记忆候选</span>
+              </label>
+              <select id="memoryTypeSelect" aria-label="长期记忆类型" disabled>
+                <option value="user_preference">用户偏好</option>
+                <option value="relationship">关系约定</option>
+                <option value="roleplay_fact">角色扮演事实</option>
+              </select>
+            </div>
+
+            <div class="composer-main">
+              <textarea
+                id="chatComposer"
+                rows="1"
+                maxlength="16000"
+                placeholder="和角色自然地说点什么…（Enter 发送，Shift + Enter 换行）"
+                aria-label="发送给角色的消息"
+              ></textarea>
+              <button id="stopButton" class="stop-button" type="button" hidden>停止</button>
+              <button id="sendButton" class="send-button" type="submit">
+                <span>发送</span>
+                <span aria-hidden="true">↗</span>
+              </button>
+            </div>
+
+            <div class="composer-footer">
+              <span id="sessionStatus">连续会话：等待创建</span>
+              <span id="composerCount">0 / 16000</span>
+            </div>
+          </form>
+        </section>
+
+        <aside id="inspectorPanel" class="inspector-panel" aria-label="上下文与高级能力">
+          <div class="panel-heading inspector-heading">
+            <div>
+              <span class="eyebrow">CONTEXT DECK / 上下文</span>
+              <h2>请求是怎样组成的</h2>
+            </div>
+            <button
+              class="close-button mobile-only"
+              data-close-panel="inspectorPanel"
+              type="button"
+              aria-label="关闭上下文面板"
+            >
+              ×
+            </button>
+          </div>
+
+          <ol id="contextReel" class="context-reel" aria-label="请求处理阶段">
+            <li data-phase="credential"><span>01</span><div><strong>受限凭证</strong><small>服务端代理注入</small></div></li>
+            <li data-phase="persona"><span>02</span><div><strong>角色设定</strong><small>角色与篇章 preset</small></div></li>
+            <li data-phase="rag"><span>03</span><div><strong>桥段检索</strong><small>Qdrant 向量语料</small></div></li>
+            <li data-phase="memory"><span>04</span><div><strong>记忆与会话</strong><small>作用域隔离读取</small></div></li>
+            <li data-phase="model"><span>05</span><div><strong>模型生成</strong><small>流式或完整回复</small></div></li>
+          </ol>
+
+          <div class="inspector-tabs" role="tablist" aria-label="上下文详情">
+            <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab="sources">
+              引用 <span id="sourceCount">0</span>
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="memories">
+              记忆 <span id="memoryCount">0</span>
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="retrieval">
+              检索
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="settings">
+              参数
+            </button>
+          </div>
+
+          <section id="sourcesTab" class="tab-panel active" role="tabpanel" data-panel="sources">
+            <div id="sourceList" class="card-list empty-list">
+              发送一条启用桥段检索的消息后，引用来源会出现在这里。
+            </div>
+          </section>
+
+          <section id="memoriesTab" class="tab-panel" role="tabpanel" data-panel="memories" hidden>
+            <div class="tab-actions">
+              <p>仅展示当前随机演示身份与角色下的记忆。</p>
+              <button id="refreshMemoriesButton" class="quiet-button" type="button">刷新</button>
+            </div>
+            <div id="memoryList" class="card-list empty-list">暂时没有长期记忆。</div>
+          </section>
+
+          <section id="retrievalTab" class="tab-panel" role="tabpanel" data-panel="retrieval" hidden>
+            <form id="ragSearchForm" class="tool-form">
+              <label>
+                <span>独立检索问题</span>
+                <textarea id="ragQueryInput" rows="3" maxlength="4000" placeholder="例如：春日想组织一次什么样的社团活动？"></textarea>
+              </label>
+              <div class="form-grid">
+                <label>
+                  <span>返回条数</span>
+                  <input id="topKInput" type="number" min="1" max="20" value="6" />
+                </label>
+                <label>
+                  <span>最大剧透</span>
+                  <input id="spoilerInput" type="number" min="0" max="5" value="2" />
+                </label>
+              </div>
+              <label>
+                <span>来源类型（逗号分隔，可留空）</span>
+                <input id="sourceTypesInput" type="text" placeholder="dialogue, scene" />
+              </label>
+              <button id="ragSearchButton" class="secondary-button full-width" type="submit">
+                直接检索生产语料
+              </button>
+            </form>
+            <div id="ragSearchSummary" class="tool-summary">尚未执行独立检索。</div>
+          </section>
+
+          <section id="settingsTab" class="tab-panel" role="tabpanel" data-panel="settings" hidden>
+            <div class="settings-form">
+              <label class="range-control">
+                <span><b>温度</b><output id="temperatureValue">0.80</output></span>
+                <input id="temperatureInput" type="range" min="0" max="2" step="0.05" value="0.8" />
+              </label>
+              <label class="range-control">
+                <span><b>角色强度</b><output id="styleValue">0.85</output></span>
+                <input id="styleInput" type="range" min="0" max="1" step="0.05" value="0.85" />
+              </label>
+              <label>
+                <span>最大输出 Token</span>
+                <input id="maxTokensInput" type="number" min="64" max="8192" value="900" />
+              </label>
+              <label>
+                <span>模型别名（留空使用服务端默认）</span>
+                <input id="modelInput" type="text" autocomplete="off" placeholder="服务端默认" />
+              </label>
+              <label class="check-row">
+                <input id="narrationToggle" type="checkbox" checked />
+                <span>允许适量动作与场景叙述</span>
+              </label>
+            </div>
+
+            <dl class="usage-card">
+              <div><dt>Provider</dt><dd id="providerValue">—</dd></div>
+              <div><dt>Model</dt><dd id="modelValue">—</dd></div>
+              <div><dt>Prompt</dt><dd id="promptTokensValue">—</dd></div>
+              <div><dt>Completion</dt><dd id="completionTokensValue">—</dd></div>
+              <div><dt>Request</dt><dd id="requestIdValue">—</dd></div>
+            </dl>
+          </section>
+
+          <p class="security-note">
+            公开页只代理安全的运行时接口；语料导入、令牌与后台管理不会暴露。服务令牌始终留在服务器。
+          </p>
+        </aside>
+      </main>
+    </div>
+
+    <div id="panelBackdrop" class="panel-backdrop" hidden></div>
+    <div id="toast" class="toast" role="alert" hidden></div>
+    <script src="/chat/chat.js" type="module"></script>
+  </body>
+</html>
