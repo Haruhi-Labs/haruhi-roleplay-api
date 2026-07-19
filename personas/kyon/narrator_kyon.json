@@ -26,7 +26,7 @@
   },
   "ragPolicy": {
     "enabledByDefault": false,
-    "sourceTypes": ["character_profile"]
+    "sourceTypes": ["scene"]
   },
   "memoryPolicy": {
     "enabledByDefault": false,

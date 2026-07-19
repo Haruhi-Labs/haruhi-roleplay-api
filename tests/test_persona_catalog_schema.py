@@ -45,6 +45,10 @@ class PersonaCatalogSchemaTests(unittest.TestCase):
                 )
                 self.assertEqual(str(preset.characterId), character_id)
                 self.assertEqual(str(preset.personaMode), str(mode))
+                self.assertNotIn(
+                    "character_profile",
+                    preset.ragPolicy.get("sourceTypes", ()),
+                )
 
     def test_disappearance_presets_keep_altered_world_perspective_bounded(self) -> None:
         for character_id in ("haruhi", "mikuru", "yuki", "itsuki"):
@@ -121,6 +125,16 @@ class PersonaCatalogSchemaTests(unittest.TestCase):
         del data["tone"]
 
         with self.assertRaisesRegex(DTOValidationError, "tone is required"):
+            PersonaPreset.from_mapping(data)
+
+    def test_character_profile_cannot_be_used_as_rag_source(self) -> None:
+        data = load_json("personas/haruhi/mid_late_haruhi.json")
+        data["ragPolicy"]["sourceTypes"].append("character_profile")
+
+        with self.assertRaisesRegex(
+            DTOValidationError,
+            "不能包含 character_profile",
+        ):
             PersonaPreset.from_mapping(data)
 
 

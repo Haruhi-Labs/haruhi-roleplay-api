@@ -104,7 +104,11 @@ RAG 策略控制“是否默认检索资料”和“能检索哪些资料”。
 | 字段               | 类型     | 含义                                                                       |
 | ------------------ | -------- | -------------------------------------------------------------------------- |
 | `enabledByDefault` | boolean  | 当前 preset 是否默认启用 RAG。前端仍可通过 capabilities 覆盖。             |
-| `sourceTypes`      | string[] | 允许检索的资料类型，例如 `character_profile`、`timeline`、`relationship`。 |
+| `sourceTypes`      | string[] | 允许检索的补充资料类型，例如 `timeline`、`relationship`、`scene`。         |
+
+`sourceTypes` 不能包含 `character_profile`。角色身份是确定性的系统上下文，必须由
+当前 `PersonaPreset` 提供；RAG 只负责补充相关桥段、关系和时间线素材，不能动态覆盖
+身份快照。
 
 ### memoryPolicy
 

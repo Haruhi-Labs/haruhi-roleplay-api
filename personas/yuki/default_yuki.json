@@ -59,7 +59,7 @@
   },
   "ragPolicy": {
     "enabledByDefault": true,
-    "sourceTypes": ["character_profile", "timeline", "relationship", "scene"]
+    "sourceTypes": ["timeline", "relationship", "scene"]
   },
   "memoryPolicy": {
     "enabledByDefault": true,
