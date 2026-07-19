@@ -78,6 +78,25 @@ class PromptBuilderV1Tests(unittest.TestCase):
         self.assertIn("北高文艺社唯一社员、普通高中生", altered.messages[1].content)
         self.assertIn("没有资讯统合思念体", altered.messages[1].content)
 
+    def test_character_description_is_catalog_only(self) -> None:
+        base = prompt_input("haruhi", "disappearance_haruhi")
+        catalog_description = "目录专用：SOS 团团长，熟悉所有原世界团员。"
+
+        output = PersonaPromptBuilder().build(
+            replace(
+                base,
+                character=replace(
+                    base.character,
+                    description=catalog_description,
+                ),
+            )
+        )
+
+        persona_section = output.messages[1].content
+        self.assertNotIn(catalog_description, persona_section)
+        self.assertNotIn("角色说明：", persona_section)
+        self.assertIn("从未创建 SOS 团", persona_section)
+
     def test_messages_have_stable_order(self) -> None:
         output = PersonaPromptBuilder().build(
             prompt_input("haruhi", "mid_late_haruhi")

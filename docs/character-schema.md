@@ -27,7 +27,7 @@
 | ----------------------- | -------- | ----------------------------------------------------------------- |
 | `characterId`           | string   | 稳定角色 ID。用于 API 参数、RAG metadata、memory scope 和目录名。 |
 | `displayName`           | string   | 前端展示名。只用于展示，不用于逻辑判断。                          |
-| `description`           | string   | 角色简短说明，帮助前端和后台管理理解角色定位。                    |
+| `description`           | string   | 角色目录摘要，仅供前端和后台展示，不进入模型提示词。              |
 | `defaultPersonaMode`    | string   | 默认 preset。前端未指定 `personaMode` 时使用。                    |
 | `availablePersonaModes` | string[] | 当前角色可被选择的 preset 列表。`defaultPersonaMode` 必须在其中。 |
 | `tags`                  | string[] | 前端筛选和分类标签，例如 `haruhi`、`sos-brigade`、`student`。     |
