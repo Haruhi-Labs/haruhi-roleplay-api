@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Sequence
+from typing import Protocol, runtime_checkable
 
 from haruhi_roleplay_api.domain import (
     RagIngestInput,
@@ -16,6 +17,15 @@ from haruhi_roleplay_api.domain import (
 class RagService(Protocol):
     def retrieve(self, retrieve_input: RagRetrieveInput) -> RagRetrieveOutput:
         """Retrieve RAG chunks using already-built metadata filters."""
+
+
+@runtime_checkable
+class BatchRagService(Protocol):
+    def retrieve_many(
+        self,
+        retrieve_inputs: Sequence[RagRetrieveInput],
+    ) -> tuple[RagRetrieveOutput, ...]:
+        """批量检索，并允许提供方复用同一查询的中间结果。"""
 
 
 class RagIngestService(Protocol):

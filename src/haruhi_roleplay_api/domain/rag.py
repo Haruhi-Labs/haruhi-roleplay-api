@@ -266,6 +266,7 @@ class RagChunk:
             "document_id": str(self.documentId),
             "chunk_id": str(self.chunkId),
             "title": self.metadata.extra.get("title"),
+            "content": self.content,
             "source_type": self.metadata.sourceType,
             "character_id": str(self.metadata.characterId),
             "persona_mode": (

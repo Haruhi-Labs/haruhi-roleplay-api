@@ -5,6 +5,7 @@ import sys
 import unittest
 import urllib.error
 from pathlib import Path
+from threading import Barrier
 from unittest.mock import patch
 
 
@@ -41,6 +42,21 @@ class FakeHTTPResponse:
 
     def read(self) -> bytes:
         return json.dumps(self._payload, ensure_ascii=False).encode("utf-8")
+
+
+class CountingEmbeddingProvider:
+    provider_name = "counting"
+    dimensions = 3
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def embed(self, text: str) -> tuple[float, ...]:
+        self.calls.append(text)
+        return (1.0, 0.0, 0.0)
+
+    def embed_many(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+        return tuple(self.embed(text) for text in texts)
 
 
 def ingest_input(
@@ -137,7 +153,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             ensure_collection=True,
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             side_effect=[not_found]
             + [FakeHTTPResponse({"result": {"status": "ok"}})] * 21,
         ) as urlopen:
@@ -177,7 +193,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             }
         }
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse(collection_info),
         ):
             with self.assertRaises(AppError) as context:
@@ -193,7 +209,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             collection="haruhi_rag__v2",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             side_effect=[
                 FakeHTTPResponse(
                     {
@@ -237,7 +253,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             collection="haruhi_rag__v2",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse({"result": {"count": 17043}}),
         ) as urlopen:
             count = service.count_points(app_id="web-demo")
@@ -256,7 +272,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             collection="haruhi_rag__v2",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse(
                 {
                     "result": {
@@ -282,7 +298,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             api_key="qdrant-secret",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse({"result": {"status": "ok"}}),
         ) as urlopen:
             result = service.ingest(ingest_input())
@@ -302,6 +318,33 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(point["payload"]["character_id"], "haruhi")
         self.assertGreater(len(point["vector"]), 0)
 
+    def test_qdrant_retries_transient_upsert_gateway_error(self) -> None:
+        gateway_error = urllib.error.HTTPError(
+            url="https://qdrant.example/collections/haruhi_rag/points",
+            code=502,
+            msg="bad gateway",
+            hdrs=None,
+            fp=None,
+        )
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
+            side_effect=(
+                gateway_error,
+                FakeHTTPResponse({"result": {"status": "ok"}}),
+            ),
+        ) as urlopen, patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.time.sleep"
+        ) as sleep:
+            result = service.ingest(ingest_input())
+
+        self.assertEqual(result.status, "imported")
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(0.5)
+
     def test_qdrant_keeps_atomic_corpus_record_in_one_point(self) -> None:
         service = QdrantRagService(
             base_url="https://qdrant.example",
@@ -309,7 +352,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             chunk_size=8,
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse({"result": {"status": "ok"}}),
         ) as urlopen:
             result = service.ingest(ingest_input(atomic_record=True))
@@ -328,7 +371,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             ingest_batch_size=64,
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse({"result": {"status": "ok"}}),
         ) as urlopen:
             results = service.ingest_batch(
@@ -350,7 +393,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             collection="haruhi_rag",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse({"result": {"status": "ok"}}),
         ) as urlopen:
             service.ingest(ingest_input(structured=True))
@@ -385,7 +428,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             ),
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse({"result": []}),
         ) as urlopen:
             service.retrieve(scoped_input)
@@ -439,16 +482,25 @@ class QdrantRagProviderTests(unittest.TestCase):
                 language="zh-CN",
             ),
         )
+        request_barrier = Barrier(2)
+
+        def qdrant_response(request: object, **_: object) -> FakeHTTPResponse:
+            request_barrier.wait(timeout=1)
+            if request.full_url.endswith("/points/search"):
+                return FakeHTTPResponse({"result": [dense_hit]})
+            return FakeHTTPResponse({"result": {"points": [lexical_hit]}})
+
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
-            side_effect=[
-                FakeHTTPResponse({"result": [dense_hit]}),
-                FakeHTTPResponse({"result": {"points": [lexical_hit]}}),
-            ],
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
+            side_effect=qdrant_response,
         ) as urlopen:
             output = service.retrieve(scoped_input)
 
-        lexical_request = urlopen.call_args_list[1].args[0]
+        lexical_request = next(
+            call.args[0]
+            for call in urlopen.call_args_list
+            if call.args[0].full_url.endswith("/points/scroll")
+        )
         lexical_payload = json.loads(lexical_request.data.decode("utf-8"))
         self.assertTrue(lexical_request.full_url.endswith("/points/scroll"))
         self.assertEqual(
@@ -473,7 +525,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             collection="haruhi_rag",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse({"result": [qdrant_hit()]}),
         ) as urlopen:
             output = service.retrieve(retrieve_input())
@@ -500,13 +552,62 @@ class QdrantRagProviderTests(unittest.TestCase):
         self.assertEqual(output.chunks[0].documentId, "doc-qdrant-haruhi")
         self.assertEqual(output.chunks[0].score, 0.91)
 
+    def test_qdrant_reuses_http_pool_between_requests(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
+            return_value=FakeHTTPResponse({"result": []}),
+        ) as pooled_urlopen:
+            service.retrieve(retrieve_input())
+            service.retrieve(retrieve_input())
+
+        first_pool = pooled_urlopen.call_args_list[0].kwargs["pool"]
+        second_pool = pooled_urlopen.call_args_list[1].kwargs["pool"]
+        self.assertIs(first_pool, second_pool)
+
+    def test_qdrant_batch_reuses_embedding_for_same_query(self) -> None:
+        embedding_provider = CountingEmbeddingProvider()
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+            embedding_provider=embedding_provider,
+        )
+        actor_input = retrieve_input()
+        director_input = RagRetrieveInput(
+            appId=actor_input.appId,
+            userId=actor_input.userId,
+            characterId=CharacterId("kyon"),
+            personaMode=PersonaModeId("default_kyon"),
+            query=actor_input.query,
+            topK=actor_input.topK,
+            filters=actor_input.filters,
+        )
+        request_barrier = Barrier(2)
+
+        def qdrant_response(*_: object, **__: object) -> FakeHTTPResponse:
+            request_barrier.wait(timeout=1)
+            return FakeHTTPResponse({"result": []})
+
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
+            side_effect=qdrant_response,
+        ) as urlopen:
+            outputs = service.retrieve_many((actor_input, director_input))
+
+        self.assertEqual(len(outputs), 2)
+        self.assertEqual(embedding_provider.calls, [actor_input.query])
+        self.assertEqual(urlopen.call_count, 2)
+
     def test_qdrant_same_document_id_uses_distinct_points_per_app(self) -> None:
         service = QdrantRagService(
             base_url="https://qdrant.example",
             collection="haruhi_rag",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse({"result": {"status": "ok"}}),
         ) as urlopen:
             service.ingest(ingest_input(app_id="app-a"))
@@ -526,7 +627,7 @@ class QdrantRagProviderTests(unittest.TestCase):
         legacy_hit = qdrant_hit()
         legacy_hit["payload"].pop("app_id")
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse(
                 {"result": [qdrant_hit(app_id="other-app"), legacy_hit]}
             ),
@@ -543,7 +644,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             collection="haruhi_rag",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             side_effect=[
                 FakeHTTPResponse({"result": {"points": [qdrant_hit()]}}),
                 FakeHTTPResponse({"result": {"points": [qdrant_hit()]}}),
@@ -582,7 +683,7 @@ class QdrantRagProviderTests(unittest.TestCase):
             collection="haruhi_rag",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             side_effect=[
                 FakeHTTPResponse(
                     {
@@ -609,6 +710,53 @@ class QdrantRagProviderTests(unittest.TestCase):
             [{"key": "app_id", "match": {"value": "web"}}],
         )
 
+    def test_qdrant_admin_limited_list_uses_facet_and_scoped_scroll(self) -> None:
+        service = QdrantRagService(
+            base_url="https://qdrant.example",
+            collection="haruhi_rag",
+        )
+        with patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
+            side_effect=[
+                FakeHTTPResponse(
+                    {
+                        "result": {
+                            "hits": [
+                                {"value": "doc-qdrant-haruhi", "count": 1},
+                                {"value": "doc-next", "count": 1},
+                            ]
+                        }
+                    }
+                ),
+                FakeHTTPResponse(
+                    {
+                        "result": {
+                            "points": [qdrant_hit()],
+                            "next_page_offset": None,
+                        }
+                    }
+                ),
+            ],
+        ) as urlopen:
+            documents, truncated = service.list_documents_limited(
+                app_id="web",
+                limit=1,
+            )
+
+        self.assertEqual(len(documents), 1)
+        self.assertTrue(truncated)
+        facet_payload = json.loads(urlopen.call_args_list[0].args[0].data.decode())
+        self.assertEqual(facet_payload["key"], "document_id")
+        self.assertEqual(facet_payload["limit"], 2)
+        scroll_payload = json.loads(urlopen.call_args_list[1].args[0].data.decode())
+        self.assertEqual(
+            scroll_payload["filter"]["must"][1],
+            {
+                "key": "document_id",
+                "match": {"any": ["doc-qdrant-haruhi"]},
+            },
+        )
+
     def test_qdrant_retrieve_maps_provider_error(self) -> None:
         http_error = urllib.error.HTTPError(
             url="https://qdrant.example/collections/haruhi_rag/points/search",
@@ -622,9 +770,11 @@ class QdrantRagProviderTests(unittest.TestCase):
             collection="haruhi_rag",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             side_effect=http_error,
-        ):
+        ) as urlopen, patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.time.sleep"
+        ) as sleep:
             with self.assertRaises(AppError) as context:
                 service.retrieve(retrieve_input())
 
@@ -633,6 +783,8 @@ class QdrantRagProviderTests(unittest.TestCase):
             context.exception.public_message,
             "Qdrant RAG provider failed with HTTP 503.",
         )
+        self.assertEqual(urlopen.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
 
     def test_qdrant_ingest_maps_provider_error(self) -> None:
         http_error = urllib.error.HTTPError(
@@ -647,9 +799,11 @@ class QdrantRagProviderTests(unittest.TestCase):
             collection="haruhi_rag",
         )
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             side_effect=http_error,
-        ):
+        ) as urlopen, patch(
+            "haruhi_roleplay_api.adapters.rag_qdrant.time.sleep"
+        ) as sleep:
             with self.assertRaises(AppError) as context:
                 service.ingest(ingest_input())
 
@@ -658,6 +812,8 @@ class QdrantRagProviderTests(unittest.TestCase):
             context.exception.public_message,
             "Qdrant RAG provider failed with HTTP 500.",
         )
+        self.assertEqual(urlopen.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
 
     def test_rag_provider_factory_builds_qdrant_service(self) -> None:
         service = build_rag_service(

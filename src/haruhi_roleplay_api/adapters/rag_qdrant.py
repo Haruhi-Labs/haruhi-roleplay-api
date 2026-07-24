@@ -5,11 +5,15 @@ from __future__ import annotations
 import json
 import re
 import socket
+import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 from uuid import NAMESPACE_URL, uuid5
+
+import urllib3
 
 from haruhi_roleplay_api.adapters.rag import (
     _ingest_content_chunks,
@@ -70,6 +74,10 @@ _QDRANT_PAYLOAD_INDEXES: tuple[tuple[str, str | Mapping[str, Any]], ...] = (
 _CURRENT_INPUT_MARKER = "当前用户输入：\n"
 _NON_SEARCH_CHARACTER = re.compile(r"[\W_]+", re.UNICODE)
 _RRF_K = 60
+_MAX_REQUEST_ATTEMPTS = 4
+_HTTP_POOL_MAX_SIZE = 8
+_RETRY_BACKOFF_SECONDS = (0.5, 1.0, 2.0)
+_RETRYABLE_HTTP_STATUS = {408, 409, 429, 500, 502, 503, 504}
 
 
 class QdrantRagService:
@@ -117,6 +125,11 @@ class QdrantRagService:
         self._hybrid_search = hybrid_search
         self._ingest_batch_size = ingest_batch_size
         self._collection_ready = False
+        self._http_pool = urllib3.PoolManager(
+            num_pools=1,
+            maxsize=_HTTP_POOL_MAX_SIZE,
+            block=True,
+        )
 
     def ingest(self, ingest_input: RagIngestInput) -> RagIngestResult:
         return self.ingest_batch((ingest_input,))[0]
@@ -205,25 +218,66 @@ class QdrantRagService:
 
     def retrieve(self, retrieve_input: RagRetrieveInput) -> RagRetrieveOutput:
         query_vector = self._embedding_provider.embed(retrieve_input.query)
-        response = self._request_json(
-            "POST",
-            f"/collections/{self._collection}/points/search",
-            {
-                "vector": list(query_vector),
-                "limit": retrieve_input.topK * 8,
-                "with_payload": True,
-                "filter": _qdrant_filter(retrieve_input),
-            },
-            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        return self._retrieve_with_vector(retrieve_input, query_vector)
+
+    def retrieve_many(
+        self,
+        retrieve_inputs: Sequence[RagRetrieveInput],
+    ) -> tuple[RagRetrieveOutput, ...]:
+        if not retrieve_inputs:
+            return ()
+        unique_queries = dict.fromkeys(
+            retrieve_input.query for retrieve_input in retrieve_inputs
         )
-        result = response.get("result", []) if response is not None else []
-        if not isinstance(result, list):
-            raise AppError(
-                code=ErrorCode.RAG_PROVIDER_ERROR,
-                message="Qdrant RAG response was invalid.",
+        vectors_by_query = {
+            query: self._embedding_provider.embed(query) for query in unique_queries
+        }
+        if len(retrieve_inputs) == 1:
+            retrieve_input = retrieve_inputs[0]
+            return (
+                self._retrieve_with_vector(
+                    retrieve_input,
+                    vectors_by_query[retrieve_input.query],
+                ),
             )
-        dense_chunks = tuple(_chunk_from_qdrant_hit(hit) for hit in result)
-        lexical_chunks = self._lexical_candidates(retrieve_input)
+        with ThreadPoolExecutor(
+            max_workers=min(len(retrieve_inputs), 8),
+            thread_name_prefix="qdrant-channels",
+        ) as executor:
+            futures = tuple(
+                executor.submit(
+                    self._retrieve_with_vector,
+                    retrieve_input,
+                    vectors_by_query[retrieve_input.query],
+                )
+                for retrieve_input in retrieve_inputs
+            )
+            return tuple(future.result() for future in futures)
+
+    def _retrieve_with_vector(
+        self,
+        retrieve_input: RagRetrieveInput,
+        query_vector: Sequence[float],
+    ) -> RagRetrieveOutput:
+        if self._hybrid_search and _lexical_query(retrieve_input.query):
+            with ThreadPoolExecutor(
+                max_workers=2,
+                thread_name_prefix="qdrant-hybrid",
+            ) as executor:
+                dense_future = executor.submit(
+                    self._dense_candidates,
+                    retrieve_input,
+                    query_vector,
+                )
+                lexical_future = executor.submit(
+                    self._lexical_candidates,
+                    retrieve_input,
+                )
+                dense_chunks = dense_future.result()
+                lexical_chunks = lexical_future.result()
+        else:
+            dense_chunks = self._dense_candidates(retrieve_input, query_vector)
+            lexical_chunks = ()
         raw_chunks = (
             _reciprocal_rank_fusion(
                 dense_chunks,
@@ -248,6 +302,30 @@ class QdrantRagService:
             filteredHitCount=len(filtered),
             rerankApplied=bool(filtered),
         )
+
+    def _dense_candidates(
+        self,
+        retrieve_input: RagRetrieveInput,
+        query_vector: Sequence[float],
+    ) -> tuple[RagChunk, ...]:
+        response = self._request_json(
+            "POST",
+            f"/collections/{self._collection}/points/search",
+            {
+                "vector": list(query_vector),
+                "limit": retrieve_input.topK * 8,
+                "with_payload": True,
+                "filter": _qdrant_filter(retrieve_input),
+            },
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        result = response.get("result", []) if response is not None else []
+        if not isinstance(result, list):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message="Qdrant RAG response was invalid.",
+            )
+        return tuple(_chunk_from_qdrant_hit(hit) for hit in result)
 
     def _lexical_candidates(
         self,
@@ -333,6 +411,104 @@ class QdrantRagService:
             provider=self.provider_name,
             app_id=app_id,
         )
+
+    def list_documents_limited(
+        self,
+        *,
+        app_id: str,
+        limit: int,
+    ) -> tuple[tuple[RagManagedDocument, ...], bool]:
+        """通过 payload facet 只读取有限数量的应用内文档。"""
+        facet_response = self._request_json(
+            "POST",
+            f"/collections/{self._collection}/facet",
+            {
+                "key": "document_id",
+                "limit": limit + 1,
+                "exact": True,
+                "filter": {
+                    "must": [
+                        {"key": "app_id", "match": {"value": app_id}}
+                    ]
+                },
+            },
+            error_code=ErrorCode.RAG_PROVIDER_ERROR,
+        )
+        facet_result = (
+            facet_response.get("result") if facet_response is not None else None
+        )
+        facet_hits = (
+            facet_result.get("hits")
+            if isinstance(facet_result, Mapping)
+            else None
+        )
+        if not isinstance(facet_hits, list):
+            raise AppError(
+                code=ErrorCode.RAG_PROVIDER_ERROR,
+                message="Qdrant 文档分面响应格式无效。",
+            )
+        selected_hits = facet_hits[:limit]
+        document_ids = [
+            str(hit["value"])
+            for hit in selected_hits
+            if isinstance(hit, Mapping) and hit.get("value") is not None
+        ]
+        if not document_ids:
+            return (), False
+
+        all_points: list[Any] = []
+        offset: Any = None
+        while True:
+            payload: dict[str, Any] = {
+                "limit": 1000,
+                "with_payload": True,
+                "with_vector": False,
+                "filter": {
+                    "must": [
+                        {"key": "app_id", "match": {"value": app_id}},
+                        {
+                            "key": "document_id",
+                            "match": {"any": document_ids},
+                        },
+                    ]
+                },
+            }
+            if offset is not None:
+                payload["offset"] = offset
+            response = self._request_json(
+                "POST",
+                f"/collections/{self._collection}/points/scroll",
+                payload,
+                error_code=ErrorCode.RAG_PROVIDER_ERROR,
+            )
+            result = response.get("result", {})
+            points = result.get("points", []) if isinstance(result, Mapping) else []
+            if not isinstance(points, list):
+                raise AppError(
+                    code=ErrorCode.RAG_PROVIDER_ERROR,
+                    message="Qdrant 文档列表响应格式无效。",
+                )
+            all_points.extend(points)
+            offset = (
+                result.get("next_page_offset")
+                if isinstance(result, Mapping)
+                else None
+            )
+            if offset is None:
+                break
+
+        documents = _managed_documents(
+            tuple(_chunk_from_qdrant_hit(point) for point in all_points),
+            provider=self.provider_name,
+            app_id=app_id,
+        )
+        by_document_id = {str(item.documentId): item for item in documents}
+        ordered = tuple(
+            by_document_id[document_id]
+            for document_id in document_ids
+            if document_id in by_document_id
+        )
+        return ordered, len(facet_hits) > limit
 
     def delete_document(self, *, app_id: str, document_id: str) -> int:
         documents = self.list_documents(app_id=app_id)
@@ -544,39 +720,57 @@ class QdrantRagService:
         error_code: ErrorCode,
         allow_not_found: bool = False,
     ) -> Mapping[str, Any] | None:
-        request = urllib.request.Request(
-            f"{self._base_url}{path}",
-            data=(
-                json.dumps(payload, ensure_ascii=False).encode("utf-8")
-                if payload is not None
-                else None
-            ),
-            headers=self._headers(),
-            method=method,
-        )
-        try:
-            with urllib.request.urlopen(
-                request,
-                timeout=self._timeout_seconds,
-            ) as response:
-                raw_body = response.read()
-        except (TimeoutError, socket.timeout) as exc:
-            raise AppError(
-                code=error_code,
-                message="Qdrant RAG provider timed out.",
-            ) from exc
-        except urllib.error.HTTPError as exc:
-            if allow_not_found and exc.code == 404:
-                return None
-            raise AppError(
-                code=error_code,
-                message=f"Qdrant RAG provider failed with HTTP {exc.code}.",
-            ) from exc
-        except (urllib.error.URLError, OSError) as exc:
+        raw_body: bytes | None = None
+        for attempt in range(_MAX_REQUEST_ATTEMPTS):
+            request = urllib.request.Request(
+                f"{self._base_url}{path}",
+                data=(
+                    json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                    if payload is not None
+                    else None
+                ),
+                headers=self._headers(),
+                method=method,
+            )
+            try:
+                with _pooled_urlopen(
+                    request,
+                    timeout=self._timeout_seconds,
+                    pool=self._http_pool,
+                ) as response:
+                    raw_body = response.read()
+                break
+            except (TimeoutError, socket.timeout) as exc:
+                if _retry_request(method, path, attempt):
+                    continue
+                raise AppError(
+                    code=error_code,
+                    message="Qdrant RAG provider timed out.",
+                ) from exc
+            except urllib.error.HTTPError as exc:
+                if allow_not_found and exc.code == 404:
+                    return None
+                if (
+                    exc.code in _RETRYABLE_HTTP_STATUS
+                    and _retry_request(method, path, attempt)
+                ):
+                    continue
+                raise AppError(
+                    code=error_code,
+                    message=f"Qdrant RAG provider failed with HTTP {exc.code}.",
+                ) from exc
+            except (urllib.error.URLError, OSError) as exc:
+                if _retry_request(method, path, attempt):
+                    continue
+                raise AppError(
+                    code=error_code,
+                    message="Qdrant RAG provider request failed.",
+                ) from exc
+        if raw_body is None:
             raise AppError(
                 code=error_code,
                 message="Qdrant RAG provider request failed.",
-            ) from exc
+            )
         if not raw_body:
             return {}
         try:
@@ -598,6 +792,78 @@ class QdrantRagService:
         if self._api_key:
             headers["api-key"] = self._api_key
         return headers
+
+
+class _PooledHTTPResponse:
+    def __init__(self, response: urllib3.BaseHTTPResponse) -> None:
+        self._response = response
+
+    def __enter__(self) -> "_PooledHTTPResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self._response.release_conn()
+
+    def read(self) -> bytes:
+        return self._response.data
+
+
+def _pooled_urlopen(
+    request: urllib.request.Request,
+    timeout: float,
+    *,
+    pool: urllib3.PoolManager,
+) -> _PooledHTTPResponse:
+    try:
+        response = pool.request(
+            request.method,
+            request.full_url,
+            body=request.data,
+            headers=dict(request.header_items()),
+            timeout=urllib3.Timeout(total=timeout),
+            retries=False,
+            preload_content=True,
+        )
+    except urllib3.exceptions.TimeoutError as exc:
+        raise TimeoutError(str(exc)) from exc
+    except urllib3.exceptions.HTTPError as exc:
+        raise urllib.error.URLError(exc) from exc
+    if response.status >= 400:
+        response.release_conn()
+        raise urllib.error.HTTPError(
+            url=request.full_url,
+            code=response.status,
+            msg=response.reason,
+            hdrs=response.headers,
+            fp=None,
+        )
+    return _PooledHTTPResponse(response)
+
+
+def _retry_request(method: str, path: str, attempt: int) -> bool:
+    if attempt >= len(_RETRY_BACKOFF_SECONDS):
+        return False
+    if not _is_idempotent_request(method, path):
+        return False
+    time.sleep(_RETRY_BACKOFF_SECONDS[attempt])
+    return True
+
+
+def _is_idempotent_request(method: str, path: str) -> bool:
+    normalized_method = method.upper()
+    if normalized_method in {"GET", "PUT"}:
+        return True
+    if normalized_method != "POST":
+        return False
+    return any(
+        marker in path
+        for marker in (
+            "/points/search",
+            "/points/scroll",
+            "/points/count",
+            "/points/delete",
+        )
+    )
 
 
 def _qdrant_filter(retrieve_input: RagRetrieveInput) -> dict[str, Any]:

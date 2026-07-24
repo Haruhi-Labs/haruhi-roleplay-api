@@ -91,7 +91,7 @@
 | filtered_hit_count | metadata 过滤后候选数     |
 | sources            | source 摘要列表           |
 
-`sources` 至少包含 `document_id`、`chunk_id`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。
+`sources` 至少包含 `document_id`、`chunk_id`、`content`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。`content` 是本次实际注入提示词的检索 chunk，前端应按不受信任的纯文本渲染，不要作为 HTML 插入页面。
 
 `memory` 字段：
 
@@ -141,7 +141,7 @@
 | event  | data 说明                                                  |
 | ------ | ---------------------------------------------------------- |
 | start  | `request_id`、`session_id`、`character_id`、`persona_mode` |
-| source | 单条 RAG source 摘要                                       |
+| source | 单条 RAG source，包含实际检索 chunk 的 `content`           |
 | delta  | `text` 增量文本                                            |
 | usage  | token 使用、provider 和 model                              |
 | done   | 完整 chat 结果摘要，包含最终 `reply`                       |

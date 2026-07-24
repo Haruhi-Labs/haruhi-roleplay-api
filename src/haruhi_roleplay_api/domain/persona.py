@@ -230,6 +230,14 @@ class PersonaPreset:
         _require_non_empty(self.timeline, "timeline")
         if self.timeline not in self.knowledgeBoundary.allowedTimelines:
             raise DTOValidationError("timeline must be allowed by knowledgeBoundary")
+        source_types = tuple(
+            str(item) for item in (self.ragPolicy.get("sourceTypes") or ())
+        )
+        if "character_profile" in source_types:
+            raise DTOValidationError(
+                "ragPolicy.sourceTypes 不能包含 character_profile；"
+                "角色身份必须由 Persona 确定。"
+            )
 
 
 def public_persona_presets(

@@ -252,7 +252,7 @@ class ProviderConfigFacadeTests(unittest.TestCase):
         self.assertEqual(settings.minimumRelevanceScore, 0.35)
 
         with patch(
-            "haruhi_roleplay_api.adapters.rag_qdrant.urllib.request.urlopen",
+            "haruhi_roleplay_api.adapters.rag_qdrant._pooled_urlopen",
             return_value=FakeHTTPResponse({"result": []}),
         ) as urlopen:
             service = build_rag_service_from_env(env)

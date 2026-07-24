@@ -27,7 +27,7 @@
 | ----------------------- | -------- | ----------------------------------------------------------------- |
 | `characterId`           | string   | 稳定角色 ID。用于 API 参数、RAG metadata、memory scope 和目录名。 |
 | `displayName`           | string   | 前端展示名。只用于展示，不用于逻辑判断。                          |
-| `description`           | string   | 角色简短说明，帮助前端和后台管理理解角色定位。                    |
+| `description`           | string   | 角色目录摘要，仅供前端和后台展示，不进入模型提示词。              |
 | `defaultPersonaMode`    | string   | 默认 preset。前端未指定 `personaMode` 时使用。                    |
 | `availablePersonaModes` | string[] | 当前角色可被选择的 preset 列表。`defaultPersonaMode` 必须在其中。 |
 | `tags`                  | string[] | 前端筛选和分类标签，例如 `haruhi`、`sos-brigade`、`student`。     |
@@ -104,7 +104,11 @@ RAG 策略控制“是否默认检索资料”和“能检索哪些资料”。
 | 字段               | 类型     | 含义                                                                       |
 | ------------------ | -------- | -------------------------------------------------------------------------- |
 | `enabledByDefault` | boolean  | 当前 preset 是否默认启用 RAG。前端仍可通过 capabilities 覆盖。             |
-| `sourceTypes`      | string[] | 允许检索的资料类型，例如 `character_profile`、`timeline`、`relationship`。 |
+| `sourceTypes`      | string[] | 允许检索的补充资料类型，例如 `timeline`、`relationship`、`scene`。         |
+
+`sourceTypes` 不能包含 `character_profile`。角色身份是确定性的系统上下文，必须由
+当前 `PersonaPreset` 提供；RAG 只负责补充相关桥段、关系和时间线素材，不能动态覆盖
+身份快照。
 
 ### memoryPolicy
 

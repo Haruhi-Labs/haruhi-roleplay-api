@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Roleplay API orchestration service for character presets, session, RAG, and memory."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "urllib3>=2.5,<3",
+]
 
 [tool.uv]
 package = false

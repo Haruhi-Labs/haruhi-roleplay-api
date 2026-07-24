@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import sys
+import threading
 import unittest
+import urllib.request
 from pathlib import Path
 
 
@@ -41,6 +43,7 @@ class CapturingHandler:
         self.status: int | None = None
         self.headers: list[tuple[str, str]] = []
         self.headers_ended = False
+        self.close_connection = False
         self.wfile = CapturingWFile()
 
     def send_response(self, status: int) -> None:
@@ -77,6 +80,26 @@ class OversizedBodyHandler:
     def __init__(self) -> None:
         self.headers = {"Content-Length": str(MAX_HTTP_BODY_BYTES + 1)}
         self.rfile = ExplodingRFile()
+
+
+class SocketStreamRuntime:
+    def handle(self, **kwargs: object) -> HttpRuntimeStreamResponse:
+        return HttpRuntimeStreamResponse(
+            status=200,
+            headers={
+                "Content-Type": "text/event-stream; charset=utf-8",
+                "Cache-Control": "no-cache",
+                "Connection": "close",
+            },
+            events=(
+                {"event": "delta", "data": {"text": "半句"}},
+                {"event": "done", "data": {"reply": "半句"}},
+            ),
+        )
+
+
+class SocketStreamHandler(RoleplayRequestHandler):
+    runtime = SocketStreamRuntime()
 
 
 class HttpServerStreamTests(unittest.TestCase):
@@ -142,8 +165,32 @@ class HttpServerStreamTests(unittest.TestCase):
         self.assertNotIn("Content-Length", header_names)
         self.assertEqual(done_seen_before_second_yield, [False])
         self.assertEqual(handler.wfile.flush_count, 2)
+        self.assertTrue(handler.close_connection)
         self.assertIn("event: delta", body)
         self.assertIn("event: done", body)
+
+    def test_stream_socket_reaches_eof_after_done_event(self) -> None:
+        with _RoleplayThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            SocketStreamHandler,
+        ) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{server.server_address[1]}/v1/chat/stream",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=2) as response:
+                    body = response.read().decode("utf-8")
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+
+        self.assertIn("event: done", body)
+        self.assertEqual(response.headers["Connection"], "close")
 
     def test_stream_disconnect_closes_event_iterator_without_raising(self) -> None:
         handler = DisconnectingHandler()

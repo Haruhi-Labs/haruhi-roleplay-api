@@ -29,6 +29,7 @@ class OpenAICompatibleModelProvider:
         api_key: str | None = None,
         provider_name: str | None = None,
         chat_completions_path: str | None = None,
+        extra_body: Mapping[str, Any] | None = None,
     ) -> None:
         if not base_url.strip():
             raise AppError(
@@ -46,12 +47,13 @@ class OpenAICompatibleModelProvider:
         )
         self._timeout_seconds = timeout_seconds
         self._api_key = api_key
+        self._extra_body = dict(extra_body or {})
         if provider_name is not None and provider_name.strip():
             self.provider_name = provider_name.strip()
         self._error_label = _error_label_for_provider(provider_name)
 
     def generate(self, request: ModelRequest) -> ModelResponse:
-        payload = _request_payload(request)
+        payload = {**_request_payload(request), **self._extra_body}
         http_request = urllib.request.Request(
             self._endpoint,
             data=json.dumps(payload).encode("utf-8"),
@@ -88,7 +90,11 @@ class OpenAICompatibleModelProvider:
         )
 
     def stream(self, request: ModelRequest) -> Iterable[ModelStreamEvent]:
-        payload = {**_request_payload(request), "stream": True}
+        payload = {
+            **_request_payload(request),
+            **self._extra_body,
+            "stream": True,
+        }
         http_request = urllib.request.Request(
             self._endpoint,
             data=json.dumps(payload).encode("utf-8"),

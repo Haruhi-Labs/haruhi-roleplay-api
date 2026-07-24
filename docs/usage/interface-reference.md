@@ -97,7 +97,7 @@ Boolean 参数必须使用 JSON `true` / `false`，不要传字符串。当前�
 | safety       | 安全检查结果      |
 | debug        | 调试信息          |
 
-`rag.enabled=false` 时只返回 `{"enabled": false}`。`rag.enabled=true` 时返回 `provider`、`hit_count`、`raw_hit_count`、`filtered_hit_count` 和 `sources`。每个 source 至少包含 `document_id`、`chunk_id`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。
+`rag.enabled=false` 时只返回 `{"enabled": false}`。`rag.enabled=true` 时返回 `provider`、`hit_count`、`raw_hit_count`、`filtered_hit_count` 和 `sources`。每个 source 至少包含 `document_id`、`chunk_id`、`content`、`source_type`、`character_id`、`timeline`、`spoiler_level`、`language` 和 `score`。其中 `content` 是本次实际注入提示词的检索 chunk；前端必须把它当作不受信任的纯文本渲染。
 
 `memory.enabled=false` 时只返回 `{"enabled": false}`。`memory.enabled=true` 时返回 `read_count` 和 `write_count`。当前不会从普通聊天内容中自由抽取记忆，只有显式候选才可能写入。
 
@@ -131,7 +131,7 @@ Boolean 参数必须使用 JSON `true` / `false`，不要传字符串。当前�
 | event  | data                                                                                                    |
 | ------ | ------------------------------------------------------------------------------------------------------- |
 | start  | `request_id`、`session_id`、`character_id`、`persona_mode`                                              |
-| source | `source`，单条 RAG source 摘要                                                                          |
+| source | `source`，包含实际检索 chunk `content` 的单条 RAG 来源                                              |
 | delta  | `text`，模型增量文本                                                                                    |
 | usage  | `prompt_tokens`、`completion_tokens`、`total_tokens`、`provider`、`model`                               |
 | done   | `request_id`、`session_id`、`character_id`、`persona_mode`、`reply`、`rag`、`memory`、`safety`、`debug` |
@@ -337,6 +337,11 @@ character 字段：
 | `POST /v1/admin/rag/documents` | 使用与业务导入相同的 schema 校验并写入当前 Provider |
 | `POST /v1/admin/rag/search` | 使用与业务检索相同的应用隔离规则执行后台检索测试 |
 | `DELETE /v1/admin/rag/documents/{document_id}?app_id=...` | 按 `app_id + document_id` 删除实际检索后端中的全部 chunks |
+
+文档列表支持两种有界读取方式：`summary=true` 只返回当前作用域的
+`chunk_count`，Qdrant 会直接使用点计数接口；`app_id=...&limit=...` 返回指定
+应用内最多 1–200 份文档，并通过 `truncated` 标记是否仍有更多结果。后台总览
+只调用摘要接口，文档管理页默认最多加载 20 份，避免大型云端语料触发全量扫描。
 
 管理接口不是旁路元数据账本。本地文本、本地向量、FAISS、Chroma 和 Qdrant Provider 都直接列举及删除真实检索数据；删除时必须显式提供 `app_id`，避免同名文档跨应用误删。Qdrant 使用 payload filter 删除，FAISS 会用剩余向量重建索引。
 

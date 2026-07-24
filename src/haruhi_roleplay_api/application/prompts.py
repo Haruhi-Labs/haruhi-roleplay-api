@@ -53,7 +53,6 @@ def _persona_context(prompt_input: PromptBuildInput) -> str:
         [
             "角色设定：",
             f"- 角色：{character.displayName}",
-            f"- 角色说明：{character.description}",
             f"- 当前模式：{persona.displayName}。{persona.description}",
             f"- 身份：{persona.identity.role}。{persona.identity.description}",
             f"- 核心动机：{_join_items(persona.identity.coreDrives)}",

@@ -61,6 +61,7 @@ def main() -> int:
             path=args.corpus,
             app_id=app_id,
             alias=alias,
+            resume_existing=args.resume,
         )
         _print_json(
             {
@@ -71,6 +72,7 @@ def main() -> int:
                 "稳定_alias": summary.alias,
                 "上一个集合": summary.previousCollection,
                 "文档数": summary.ingest.documentCount,
+                "续传跳过文档数": summary.ingest.skippedDocumentCount,
                 "point数": summary.pointCount,
             }
         )
@@ -113,6 +115,11 @@ def _parser() -> argparse.ArgumentParser:
         "--release-id",
         default=None,
         help="同名 embedding 模型权重变化时提供新的发布标识，强制生成新集合",
+    )
+    publish.add_argument(
+        "--resume",
+        action="store_true",
+        help="安全续传未被 alias 引用、且只包含当前语料 point 的失败集合",
     )
 
     activate = subparsers.add_parser("activate", help="切换到已存在的集合，用于回滚")

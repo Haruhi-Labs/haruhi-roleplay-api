@@ -28,11 +28,18 @@ class FakeReleaseQdrantService:
         self.schema_ensured = False
         self.alias_switched = False
         self.exists = False
+        self.increment_on_ingest = False
+        self.ingested_document_ids: list[str] = []
+        self.existing_documents: tuple[object, ...] = ()
+        self.active_aliases: dict[str, str] = {}
 
     def ensure_collection_schema(self) -> None:
         self.schema_ensured = True
 
     def ingest(self, ingest_input: object) -> object:
+        self.ingested_document_ids.append(str(ingest_input.documentId))
+        if self.increment_on_ingest:
+            self.point_count += 1
         return SimpleNamespace(chunkCount=1)
 
     def count_points(self, *, app_id: str | None = None) -> int:
@@ -44,6 +51,12 @@ class FakeReleaseQdrantService:
 
     def collection_exists(self) -> bool:
         return self.exists
+
+    def aliases(self) -> dict[str, str]:
+        return dict(self.active_aliases)
+
+    def list_documents(self, *, app_id: str | None = None) -> tuple[object, ...]:
+        return self.existing_documents
 
 
 class QdrantCorpusReleaseTests(unittest.TestCase):
@@ -95,6 +108,53 @@ class QdrantCorpusReleaseTests(unittest.TestCase):
                     path=path,
                     app_id="web-demo",
                     alias="haruhi_rag_live",
+                )
+
+        self.assertFalse(service.schema_ensured)
+        self.assertFalse(service.alias_switched)
+
+    def test_publish_resumes_verified_unreferenced_collection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "records.jsonl"
+            _write_records(path, count=2)
+            service = FakeReleaseQdrantService(point_count=1)
+            service.exists = True
+            service.increment_on_ingest = True
+            service.existing_documents = (
+                SimpleNamespace(documentId="doc-1", chunkCount=1),
+            )
+
+            summary = publish_qdrant_corpus(
+                service,  # type: ignore[arg-type]
+                path=path,
+                app_id="web-demo",
+                alias="haruhi_rag_live",
+                resume_existing=True,
+            )
+
+        self.assertEqual(service.ingested_document_ids, ["doc-2"])
+        self.assertTrue(service.alias_switched)
+        self.assertEqual(summary.ingest.documentCount, 2)
+        self.assertEqual(summary.ingest.skippedDocumentCount, 1)
+        self.assertEqual(summary.pointCount, 2)
+
+    def test_publish_refuses_to_resume_active_collection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "records.jsonl"
+            _write_record(path)
+            service = FakeReleaseQdrantService()
+            service.exists = True
+            service.active_aliases = {
+                "haruhi_rag_live": service.collection,
+            }
+
+            with self.assertRaisesRegex(AppError, "拒绝续传"):
+                publish_qdrant_corpus(
+                    service,  # type: ignore[arg-type]
+                    path=path,
+                    app_id="web-demo",
+                    alias="haruhi_rag_live",
+                    resume_existing=True,
                 )
 
         self.assertFalse(service.schema_ensured)
@@ -153,10 +213,15 @@ class QdrantCorpusReleaseTests(unittest.TestCase):
 
 
 def _write_record(path: Path) -> None:
-    path.write_text(
-        json.dumps(
+    _write_records(path, count=1)
+
+
+def _write_records(path: Path, *, count: int) -> None:
+    records = []
+    for index in range(1, count + 1):
+        records.append(
             {
-                "document_id": "doc-1",
+                "document_id": f"doc-{index}",
                 "title": "测试语料",
                 "character_id": "kyon",
                 "timeline": "melancholy",
@@ -166,7 +231,7 @@ def _write_record(path: Path) -> None:
                 "trust_level": "reviewed",
                 "content": (
                     "作品：凉宫春日系列；篇章：测试；资料类型：场景；角色：阿虚。\n"
-                    "阿虚准备开始社团活动。"
+                    f"阿虚准备开始第 {index} 次社团活动。"
                 ),
                 "metadata": {
                     "corpus_version": "haruhi-rag-test-version",
@@ -179,10 +244,13 @@ def _write_record(path: Path) -> None:
                     "subject_character_id": "kyon",
                     "usage": "knowledge",
                 },
-            },
-            ensure_ascii=False,
+            }
         )
-        + "\n",
+    path.write_text(
+        "".join(
+            json.dumps(record, ensure_ascii=False) + "\n"
+            for record in records
+        ),
         encoding="utf-8",
     )
 
