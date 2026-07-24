@@ -2,9 +2,10 @@
 
 ## 文档定位
 
-这份文档说明前端、业务后端或本地 demo 如何调用 Haruhi Roleplay API。
+这份文档说明前端、业务后端或本地调试页如何调用 Haruhi Roleplay API。
 
-如果你还没有启动服务或签发业务服务令牌，请先完成 [快速开始](quickstart.md)。
+接入已部署服务时，先阅读 [生产 API 接入指南](production-api.md)；如果还没有启动
+服务或签发业务服务令牌，请先完成 [快速开始](quickstart.md)。
 
 推荐生产链路：
 
@@ -12,13 +13,23 @@
 Frontend -> Your Business Backend -> Haruhi Roleplay API
 ```
 
-本地开发可以直接打开仓库自带 demo：
+当前生产调试工作台：
 
 ```text
-http://127.0.0.1:8000/demo
+https://roleplay.haruyuki.cn/chat/
+```
+
+本地启动后的同一个工作台：
+
+```text
+http://127.0.0.1:8000/chat/
 ```
 
 普通用户前端不应该持有 `ROLEPLAY_API_KEY`。`ROLEPLAY_API_KEY` 只用于受信任管理面；业务后端应使用 `/v1/access-tokens` 签发的独立服务令牌调用本服务。完整流程见 `docs/usage/access-token-management.md`。
+
+生产业务后端使用 `https://roleplay.haruyuki.cn` 作为 Origin，并调用正式
+`/v1/...` 路由。工作台使用的 `/v1/demo/...` 是受限公开代理，不属于外部系统接入
+契约。
 
 ## 快速启动
 
@@ -34,7 +45,8 @@ uv run python -m haruhi_roleplay_api.infrastructure.http_server
 默认访问：
 
 ```text
-聊天 demo: http://127.0.0.1:8000/demo
+调试工作台: http://127.0.0.1:8000/chat/
+原始开发页: http://127.0.0.1:8000/demo
 配置 editor: http://127.0.0.1:8000/config
 API base: http://127.0.0.1:8000
 ```
@@ -115,6 +127,9 @@ const characters = body.data.characters;
 ```
 
 前端应从返回的 catalog 中展示 `character_id` 和 `persona_mode`，不要硬编码固定角色或模式列表。
+每个 mode 还会返回 `timeline`、`description`、`rag_enabled_by_default` 和
+`memory_enabled_by_default`。完整字段、当前生产角色快照和所有可调 Chat 参数见
+[生产 API 接入指南](production-api.md#角色和模式)。
 
 ### 2. 可选：创建连续会话
 
@@ -313,7 +328,8 @@ POST /v1/rag/search
 }
 ```
 
-当前 memory store 是服务端进程内实现。chat 只会读取有限记忆，并只写入显式候选。
+Memory Store 由部署配置决定；生产环境通常使用持久化存储，本地测试也可显式使用
+进程内实现。Chat 只会读取有限记忆，并只写入通过 persona policy 的显式候选。
 
 ### 显式写入候选
 
@@ -321,7 +337,7 @@ POST /v1/rag/search
 {
   "metadata": {
     "memory_write": {
-      "type": "preference",
+      "type": "user_preference",
       "content": "用户喜欢轻松吐槽风格。",
       "reason": "用户明确表达稳定偏好",
       "confidence": 0.8
@@ -331,6 +347,8 @@ POST /v1/rag/search
 ```
 
 不要让前端从普通聊天内容里自由抽取 memory。业务后端如果要提交候选，必须给出 `reason` 和 `confidence`。
+有效类型为 `user_preference`、`relationship`、`roleplay_fact`、
+`safety_preference` 和 `interaction_summary`；当前 persona 可能只允许其中一部分。
 
 ### 查询和删除 memory
 
@@ -341,9 +359,23 @@ DELETE /v1/memory/{user_id}/{memory_id}?app_id=web-demo&character_id=haruhi&pers
 
 这更适合角色设置页、隐私页或后台管理页，不建议放在普通聊天主流程里。
 
-## 本地 demo 页面调用关系
+## 调试页面调用关系
 
-`/demo` 页面会调用：
+生产 `/chat/` 调试工作台使用同源 `/v1/demo/...` 公开代理：
+
+| 页面操作 | 公开代理 | 对应正式能力 |
+| --- | --- | --- |
+| 打开页面 | `GET /v1/demo/personas` | `GET /v1/personas` |
+| 新建会话 | `POST /v1/demo/sessions` | `POST /v1/sessions` |
+| 非流式发送 | `POST /v1/demo/chat` | `POST /v1/chat` |
+| 流式发送 | `POST /v1/demo/chat/stream` | `POST /v1/chat/stream` |
+| 检索测试 | `POST /v1/demo/rag/search` | `POST /v1/rag/search` |
+| 记忆查询/删除 | `/v1/demo/memory/...` | `/v1/memory/...` |
+
+公开代理强制使用随机 `demo-...` 用户作用域，且不开放语料导入和管理 API。外部业务
+后端必须使用服务令牌调用右栏正式路由。
+
+原始本地 `/demo` 开发页会直接调用：
 
 | 页面操作    | API                      |
 | ----------- | ------------------------ |
@@ -386,6 +418,9 @@ DELETE /v1/memory/{user_id}/{memory_id}?app_id=web-demo&character_id=haruhi&pers
 - `capabilities.continuous_session`
 - `capabilities.stream`
 - 服务端允许的 `generation.model` alias
+- `generation.temperature`、`max_tokens`、`top_p`
+- `generation.presence_penalty`、`frequency_penalty`
+- `generation.style_intensity`、`allow_narration`
 
 前端不要传或展示：
 
@@ -394,7 +429,7 @@ DELETE /v1/memory/{user_id}/{memory_id}?app_id=web-demo&character_id=haruhi&pers
 - API key、token、secret、`DATABASE_URL`
 - 完整 system prompt
 - backend context source
-- 原始 RAG chunk 全文，除非产品明确需要
+- 把 RAG `source.content` 当作 HTML；需要展示时必须按不受信任的纯文本渲染
 - debug trace 给普通用户
 
 ## 错误处理建议

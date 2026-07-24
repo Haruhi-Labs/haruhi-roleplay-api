@@ -1,5 +1,15 @@
 # API Contract
 
+## 接入面与鉴权
+
+生产 Origin 是 `https://roleplay.haruyuki.cn`。业务接入方使用绑定单一 `app_id` 的
+`hrt_...` 服务令牌，通过 `Authorization: Bearer <token>` 或 `X-API-Key: <token>`
+调用 `/health` 和正式 `/v1/...` 业务路由。完整接入步骤、参数和角色快照见
+[生产 API 接入指南](usage/production-api.md)。
+
+`/v1/demo/...` 只供同源 `/chat/` 调试工作台使用，不属于稳定业务契约。后台和配置
+接口只接受管理员密钥或安全后台会话，不接受业务服务令牌。
+
 ## 通用响应
 
 成功响应：
@@ -43,20 +53,45 @@
 
 请求字段：
 
-| 字段         | 必填 | 说明           |
-| ------------ | ---- | -------------- |
-| app_id       | 是   | 调用方应用 ID  |
-| user_id      | 是   | 调用方用户 ID  |
-| session_id   | 否   | 连续会话 ID    |
-| character_id | 是   | 角色 ID        |
-| persona_mode | 是   | 角色 preset    |
-| message      | 是   | 用户输入       |
-| language     | 是   | 输出语言       |
-| capabilities | 否   | 能力开关       |
-| generation   | 否   | 生成参数       |
-| metadata     | 否   | 调用方透传对象 |
+| 字段         | 必填 | 说明                                      |
+| ------------ | ---- | ----------------------------------------- |
+| request_id   | 否   | 请求 ID，最长 128 字符；通常改用 Header   |
+| app_id       | 是   | 调用方应用 ID，必须匹配服务令牌作用域      |
+| user_id      | 是   | 调用方用户 ID                              |
+| session_id   | 条件 | 连续会话开启时必填                         |
+| character_id | 是   | 来自 `GET /v1/personas`                    |
+| persona_mode | 是   | 来自所选角色的 `modes`                     |
+| message      | 是   | 用户输入，最长 16,000 字符                 |
+| language     | 是   | `zh-CN`、`ja-JP`、`en-US`                  |
+| capabilities | 否   | 能力开关                                   |
+| generation   | 否   | 生成参数                                   |
+| metadata     | 否   | 受控扩展对象                               |
 
 省略 `capabilities` 或其中的 `rag`、`memory` 时，这两项遵循当前 persona 的 `enabledByDefault`；显式传入 `false` 可强制关闭。连续会话和 debug 默认关闭，`safety_filter` 默认开启。省略 `generation` 或 `generation.model` 时使用服务端 router 的 default alias；普通前端不需要知道 provider、base URL、token 或 model alias。
+
+`capabilities`：
+
+| 字段 | 省略时 | 说明 |
+| --- | --- | --- |
+| rag | 当前 persona 默认策略 | 显式 `false` 可强制关闭 |
+| memory | 当前 persona 默认策略 | 显式 `false` 可强制关闭 |
+| continuous_session | `false` | 开启后必须提供匹配的 `session_id` |
+| safety_filter | `true` | 当前只记录安全能力意图和状态 |
+| debug_trace | `false` | 仅在服务端允许时返回安全摘要 |
+| stream | `false` | 非流式接口只能为 false；流式接口强制为 true |
+
+`generation`：
+
+| 字段 | 默认值 | 允许值或说明 |
+| --- | --- | --- |
+| model | 服务端 default alias | 服务端白名单模型别名 |
+| temperature | `0.8` | 0–2 |
+| max_tokens | `800` | 1–8,192 |
+| top_p | `1.0` | 0–1 |
+| presence_penalty | `0.0` | Provider 支持的数值 |
+| frequency_penalty | `0.0` | Provider 支持的数值 |
+| style_intensity | `0.75` | 0–1 |
+| allow_narration | `true` | boolean |
 
 当 `capabilities.continuous_session=true` 时，`session_id` 必须来自 `POST /v1/sessions` 创建的 active session，并且与当前 `app_id`、`user_id`、`character_id`、`persona_mode` 匹配。
 
@@ -173,12 +208,19 @@ character 字段：
 | modes                | 可选 preset 摘要 |
 
 每个 character 的 `modes` 已包含该角色当前公开的 preset，不另提供 modes 子路由。
+mode 摘要包含 `persona_mode`、`display_name`、`timeline`、`description`、
+`rag_enabled_by_default` 和 `memory_enabled_by_default`。调用方必须从本接口动态发现
+角色与模式，不把仓库当前内置名单视作永久枚举。
 
 ## Session
 
 ### POST /v1/sessions
 
 创建连续会话。
+
+请求必须包含 `app_id`、`user_id`、`character_id` 和 `persona_mode`。当前实现只读取
+这四项，额外字段不参与 Session 创建。响应包含 `session_id`、`status` 和
+`created_at`。
 
 当前不提供 session 查询或关闭接口。调用方保存 `POST /v1/sessions` 返回的 `session_id`；过期和清理由具体 `SessionStore` 负责。
 
@@ -201,6 +243,7 @@ character 字段：
 | timeline      | 是   | 时间线，必须符合 persona policy                       |
 | spoiler_level | 是   | 剧透等级，不能超过 persona policy                     |
 | language      | 是   | `zh-CN`、`ja-JP`、`en-US`                             |
+| trust_level   | 否   | 调用方声明的来源可信度                                 |
 | content       | 是   | 文档文本或解析后文本                                  |
 | metadata      | 否   | 扩展 metadata                                         |
 
@@ -230,18 +273,24 @@ character 字段：
 | character_id | 是   | 角色 ID          |
 | persona_mode | 是   | 角色 preset      |
 | query        | 是   | 检索 query       |
-| top_k        | 是   | 返回数量         |
+| top_k        | 否   | 返回数量，默认 5，范围 1–20 |
 | filters      | 否   | metadata filter  |
 | debug        | 否   | 是否返回调试信息 |
 
 `filters` 字段：
 
-| 字段              | 说明                    |
-| ----------------- | ----------------------- |
-| source_types      | 允许的 source type 列表 |
-| timelines         | 允许的 timeline 列表    |
-| spoiler_level_max | 最大剧透等级            |
-| language          | 文档语言                |
+| 字段               | 说明                    |
+| ------------------ | ----------------------- |
+| source_types       | 允许的 source type 列表 |
+| timelines          | 允许的 timeline 列表    |
+| record_kinds       | 允许的记录种类列表      |
+| perspectives       | 允许的叙事视角列表      |
+| corpus_versions    | 允许的语料版本列表      |
+| retrieval_channels | 允许的检索通道列表      |
+| knowledge_owners   | 允许的知识持有者列表    |
+| usages             | 允许的语料用途列表      |
+| spoiler_level_max  | 最大剧透等级            |
+| language           | 文档语言                |
 
 响应字段：
 
@@ -271,6 +320,9 @@ character 字段：
 | persona_mode | 否   | 角色 preset；不传只查通用记忆    |
 | type         | 否   | 记忆类型，例如 `user_preference` |
 | limit        | 否   | 返回数量上限，默认 50，最大 100  |
+
+`type` 可重复传入，支持 `user_preference`、`relationship`、`roleplay_fact`、
+`safety_preference` 和 `interaction_summary`；实际读写还受当前 persona policy 限制。
 
 响应字段：
 

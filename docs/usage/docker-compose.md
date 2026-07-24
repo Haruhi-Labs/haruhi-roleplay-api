@@ -18,11 +18,12 @@ docker compose logs -f roleplay-api
 curl -H "Authorization: Bearer <ROLEPLAY_API_KEY>" http://127.0.0.1:8000/health
 ```
 
-静态 demo：
+调试页面：
 
 ```text
-http://127.0.0.1:8000/demo
-http://127.0.0.1:8000/config
+调试工作台: http://127.0.0.1:8000/chat/
+原始开发页: http://127.0.0.1:8000/demo
+配置编辑器: http://127.0.0.1:8000/config
 ```
 
 ## 端口

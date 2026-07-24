@@ -1,6 +1,8 @@
 # 前端接入说明
 
-如果你要直接照着写调用代码，先看 [前端调用完整文档](frontend-api-calling.md)。本文主要解释前端、业务后端和本项目中转服务之间的边界。
+如果你要接入已部署服务，先看 [生产 API 接入指南](production-api.md)；如果要直接照着
+写前端调用代码，再看 [前端调用完整文档](frontend-api-calling.md)。本文主要解释前端、
+业务后端和本项目中转服务之间的边界。
 
 ## 适用场景
 
@@ -47,7 +49,8 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 每名角色还公开《忧郁》《叹息》、“漫无止境的八月”、《消失》和《分裂／惊愕》五个篇章模式。前端始终以接口返回为准，不维护内置名单。
 
-角色和 preset 字段含义见 [Character Schema](../character-schema.md)。
+完整当前模式快照见 [生产 API 接入指南](production-api.md#当前生产角色快照)，角色和
+preset 字段含义见 [Character Schema](../character-schema.md)。
 
 ## 非流式前端流程
 
@@ -95,28 +98,30 @@ Web、移动端、小程序、游戏 UI 可以通过自己的后端调用本服�
 
 ## 本地 Demo
 
-当前仓库提供零构建静态前端 demo。启动本地 HTTP server 后访问：
+当前仓库提供零构建调试工作台。启动本地 HTTP server 后访问：
 
 ```text
-http://127.0.0.1:8000/demo
+http://127.0.0.1:8000/chat/
 ```
 
-Demo 功能：
+生产部署对应 `https://roleplay.haruyuki.cn/chat/`。工作台功能：
 
-- 读取 `GET /v1/personas` 并选择角色和 preset。
-- 调用 `POST /v1/sessions` 创建连续会话。
-- 调用 `POST /v1/chat` 发送非流式消息。
-- 调用 `POST /v1/chat/stream` 展示 stream delta。
-- 调用 `POST /v1/rag/documents` 导入最小资料片段。
-- 展示 RAG source 摘要；debug 摘要默认折叠，仅用于开发排查。
+- 通过受限 `/v1/demo/...` 代理读取角色和 preset。
+- 创建连续会话，并发送流式或非流式消息。
+- 展示 RAG source 正文、检索耗时和模型用量。
+- 查询和删除当前随机 demo 用户作用域的长期记忆。
+- 调整常用生成参数。
 
-Demo 默认使用同源 API。若本地服务配置了 `ROLEPLAY_API_KEY`，需要在 demo 的 API Key 输入框中临时填写；该值只保存在当前页面内存，不写入 localStorage。Model alias 默认隐藏且留空，只有高级调用方展开 Advanced 后才填写。
+工作台不接触服务令牌，公开代理在服务端实施固定 app 和随机 `demo-...` 用户隔离，
+也不允许 RAG 导入或管理操作。原始开发接入页仍位于
+`http://127.0.0.1:8000/demo`，需要手工填写服务令牌并直接调用正式 API，仅适合本地
+开发。
 
 ## 前端展示规则
 
 - 普通用户不展示 debug trace。
-- RAG source 只展示 title、source type、score 或简短摘要。
-- 不展示完整 chunk，除非产品明确需要。
+- RAG source 优先展示实际 `content`，并辅以 title、source type 和 score。
+- `content` 必须作为不受信任的纯文本渲染，不能写入 `innerHTML`。
 - 收到 `SAFETY_BLOCKED` 时展示温和提示；该错误码目前为预留，规则型 SafetyGuard 尚未接入。
 - session 过期时提示重新开始对话。
 

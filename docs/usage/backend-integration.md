@@ -4,7 +4,9 @@
 
 其它后端服务、Bot Server、游戏服务器、活动页面后端可以把本服务作为 Roleplay API 中转层调用。
 
-第一次接入请先按 [快速开始](quickstart.md) 完成一次服务令牌和最小 chat 调用，本文再说明能力组合和内部调度。
+接入已部署服务时先看 [生产 API 接入指南](production-api.md)；自行启动服务时先按
+[快速开始](quickstart.md) 完成一次服务令牌和最小 Chat 调用。本文再说明能力组合和
+内部调度。
 
 ## 接入前准备
 
@@ -13,6 +15,9 @@
 3. 调用 `GET /v1/personas` 或读取后端配置，确认要使用的 `character_id` 和 `persona_mode`。
 4. 确认是否需要连续会话。
 5. 确认是否需要 RAG 和 memory。
+
+完整 Chat 字段、默认值、取值范围和当前角色模式清单见
+[生产 API 接入指南](production-api.md#chat-完整参数)。
 
 ## 后端推荐调用流程
 
